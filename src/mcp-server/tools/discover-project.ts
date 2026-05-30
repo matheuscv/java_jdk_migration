@@ -7,6 +7,8 @@ import { MigrationError } from '../../lib/errors.js'
 import { detectStack, detectStackDeep } from '../../skill/stack-detector.js'
 import { runStaticAnalysis } from '../../static-analysis/index.js'
 import { correlate, getEntriesForJdk } from '../../knowledge-base/index.js'
+import { getProfilersForStacks } from '../../orchestrator/profiler-registry.js'
+import type { ProfilerReport } from '../../profilers/types.js'
 import type { StackType, RiskSeverity } from '../../types.js'
 import type { EnrichedIssue } from '../../knowledge-base/index.js'
 import type { StaticAnalysisResult } from '../../static-analysis/index.js'
@@ -28,6 +30,7 @@ export interface DiscoveryReport {
     compiledClassesFound: boolean
   }
   knowledgeCorrelation: EnrichedIssue[]
+  profilerReports: ProfilerReport[]
   riskSummary: {
     critical: number
     high: number
@@ -126,17 +129,32 @@ async function discoverProject(projectPath: string): Promise<DiscoveryReport> {
   // 4. Correlate findings with knowledge base
   const enrichedIssues = correlate(staticResult, Number(sourceJdk))
 
-  // 5. Compute risk summary
-  const riskSummary = computeRiskSummary(enrichedIssues, detectedStacks)
+  // 5. Run stack profilers
+  const profilers = getProfilersForStacks(detectedStacks)
+  const configForProfilers = configExists(projectPath)
+    ? readConfig(projectPath)
+    : {
+        sourceJdk: sourceJdk as '6' | '8', targetJdk: '21' as const,
+        stack: detectedStacks, buildSystem: buildSystem as 'maven' | 'gradle' | 'ant',
+        appServer: null, multiModule: isMultiModule, modulePaths: [],
+        ciSystem: null, testCoverageThreshold: 80, dryRunBeforeExecute: true,
+        phases: {} as never,
+      }
+  const profilerReports: ProfilerReport[] = await Promise.all(
+    profilers.map(p => p.analyze(projectPath, configForProfilers)),
+  )
 
-  // 6. Check prerequisites
+  // 6. Compute risk summary (inclui dados dos profilers)
+  const riskSummary = computeRiskSummary(enrichedIssues, profilerReports, detectedStacks)
+
+  // 7. Check prerequisites
   const prerequisites = {
     jdk21Available: staticResult.javaHomeUsed !== null,
     gitAvailable: await checkGitAvailable(projectPath),
     compiledClassesFound: staticResult.compiledClassesFound,
   }
 
-  // 7. Persist report
+  // 8. Persist report
   const reportDir = join(projectPath, '.jdk-migration')
   mkdirSync(reportDir, { recursive: true })
   const reportPath = join(reportDir, 'discovery-report.json')
@@ -159,6 +177,7 @@ async function discoverProject(projectPath: string): Promise<DiscoveryReport> {
       compiledClassesFound: staticResult.compiledClassesFound,
     },
     knowledgeCorrelation: enrichedIssues,
+    profilerReports,
     riskSummary,
     prerequisites,
     savedReportPath: reportPath,
@@ -170,18 +189,26 @@ async function discoverProject(projectPath: string): Promise<DiscoveryReport> {
 
 function computeRiskSummary(
   issues: EnrichedIssue[],
+  profilerReports: ProfilerReport[],
   stacks: StackType[],
 ): DiscoveryReport['riskSummary'] {
   const counts: Record<RiskSeverity, number> = { critical: 0, high: 0, medium: 0, low: 0 }
   for (const issue of issues) counts[issue.severity]++
 
-  const hasCriticalStacks = stacks.some(s => s === 'ejb' || s === 'jsf')
-  const manualReviewRequired = counts.critical > 0 || hasCriticalStacks
+  // Adiciona contagens dos profilers
+  for (const pr of profilerReports) {
+    for (const ri of pr.riskItems) counts[ri.severity]++
+  }
 
-  // Rough estimate: critical=5d, high=2d, medium=0.5d, low=0.1d per issue
-  const estimatedEffortDays = Math.ceil(
+  const hasCriticalStacks = stacks.some(s => s === 'ejb' || s === 'jsf')
+  const hasManualItems = profilerReports.some(pr => pr.manualReviewItems.length > 0)
+  const manualReviewRequired = counts.critical > 0 || hasCriticalStacks || hasManualItems
+
+  const profilerEffort = profilerReports.reduce((sum, pr) => sum + pr.estimatedEffortDays, 0)
+  const issueEffort = Math.ceil(
     counts.critical * 5 + counts.high * 2 + counts.medium * 0.5 + counts.low * 0.1,
   )
+  const estimatedEffortDays = issueEffort + profilerEffort
 
   return { ...counts, manualReviewRequired, estimatedEffortDays }
 }
