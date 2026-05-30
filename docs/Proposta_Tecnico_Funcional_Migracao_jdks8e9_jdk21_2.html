@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Proposta Técnico-Funcional · Migração JDK 8/6 → 21</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,700&family=JetBrains+Mono:wght@300;400;500;600&family=Inter+Tight:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:         #0f0e0d;
+    --bg-el:      #161513;
+    --bg-card:    #1c1a17;
+    --ink:        #f5f1ea;
+    --ink-dim:    #a8a098;
+    --ink-faint:  #6b645c;
+    --rule:       #2a2722;
+    --accent:     #d4ff3c;
+    --accent-dim: #8a9d2a;
+    --warm:       #e8a87c;
+    --crit:       #ff6b4a;
+    --high:       #ffb547;
+    --med:        #6dd3ce;
+    --low:        #a8d97f;
+    --opp:        #c084fc;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{background:var(--bg);color:var(--ink);font-family:'Inter Tight',sans-serif;font-weight:400;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.03;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' seed='5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 48px;position:relative;z-index:2;}
+
+  /* ── TOPBAR ── */
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(15,14,13,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--rule);}
+  .topbar-inner{max-width:1180px;margin:0 auto;padding:14px 48px;display:flex;justify-content:space-between;align-items:center;}
+  .topbar-brand{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);}
+  .topbar-nav{display:flex;gap:28px;}
+  .topbar-nav a{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);text-decoration:none;transition:color .2s;}
+  .topbar-nav a:hover{color:var(--accent);}
+
+  /* ── HERO ── */
+  .hero{padding:90px 0 100px;border-bottom:1px solid var(--rule);}
+  .hero-meta{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:80px;font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.15em;color:var(--ink-faint);}
+  .hero-meta-left{display:flex;flex-direction:column;gap:6px;}
+  .hero-meta-right{text-align:right;display:flex;flex-direction:column;gap:6px;}
+  .doc-id{color:var(--accent);}
+  .ver-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(212,255,60,.08);border:1px solid var(--accent-dim);padding:4px 12px;border-radius:2px;color:var(--accent);font-size:10px;}
+  .hero h1{font-family:'Fraunces',serif;font-weight:300;font-size:clamp(60px,9vw,128px);line-height:.92;letter-spacing:-.04em;margin-bottom:32px;}
+  .hero h1 em{font-style:italic;font-weight:400;color:var(--accent);}
+  .hero-sub{font-family:'Fraunces',serif;font-size:24px;line-height:1.45;color:var(--ink-dim);max-width:740px;font-weight:300;margin-bottom:48px;}
+  .hero-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);}
+  .hgc{background:var(--bg);padding:28px 24px;}
+  .hgc .lbl{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.18em;color:var(--ink-faint);margin-bottom:12px;}
+  .hgc .val{font-family:'Fraunces',serif;font-size:26px;font-weight:400;letter-spacing:-.02em;}
+  .hgc .val.ac{color:var(--accent);}
+
+  /* ── SECTION BASE ── */
+  section{padding:100px 0;border-bottom:1px solid var(--rule);}
+  .sn{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);text-transform:uppercase;letter-spacing:.2em;margin-bottom:20px;display:inline-block;}
+  h2{font-family:'Fraunces',serif;font-weight:300;font-size:clamp(38px,5vw,64px);line-height:1;letter-spacing:-.03em;margin-bottom:44px;}
+  h2 em{font-style:italic;color:var(--accent);}
+  h3{font-family:'Fraunces',serif;font-weight:400;font-size:30px;line-height:1.15;letter-spacing:-.02em;margin-bottom:18px;}
+  h4{font-family:'Inter Tight',sans-serif;font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink);margin-bottom:12px;}
+  p{color:var(--ink-dim);font-size:16.5px;line-height:1.68;}
+  p.lead{font-family:'Fraunces',serif;font-size:22px;line-height:1.5;color:var(--ink);font-weight:300;max-width:820px;margin-bottom:36px;}
+  code{font-family:'JetBrains Mono',monospace;font-size:.83em;color:var(--warm);background:rgba(232,168,124,.1);padding:1px 6px;border-radius:2px;}
+
+  /* ── CALLOUT ── */
+  .callout{border-left:2px solid var(--accent);padding:4px 0 4px 28px;margin:32px 0;}
+  .callout p{font-family:'Fraunces',serif;font-style:italic;font-size:21px;line-height:1.5;color:var(--ink);font-weight:300;margin:0;}
+
+  /* ── NOTE BOX ── */
+  .nbox{background:var(--bg-card);border:1px solid var(--rule);border-left:3px solid var(--accent);padding:28px 32px;margin:28px 0;}
+  .nbox h4{color:var(--accent);margin-bottom:10px;}
+  .nbox.warn{border-left-color:var(--high);}
+  .nbox.warn h4{color:var(--high);}
+  .nbox p:last-child{margin:0;}
+
+  /* ── PILLS ── */
+  .pill{display:inline-block;padding:3px 10px;border-radius:2px;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:600;white-space:nowrap;}
+  .pill.crit{background:rgba(255,107,74,.15);color:var(--crit);border:1px solid rgba(255,107,74,.3);}
+  .pill.high{background:rgba(255,181,71,.15);color:var(--high);border:1px solid rgba(255,181,71,.3);}
+  .pill.med{background:rgba(109,211,206,.15);color:var(--med);border:1px solid rgba(109,211,206,.3);}
+  .pill.low{background:rgba(168,217,127,.15);color:var(--low);border:1px solid rgba(168,217,127,.3);}
+  .pill.opp{background:rgba(192,132,252,.15);color:var(--opp);border:1px solid rgba(192,132,252,.3);}
+
+  /* ── ARCH STACK ── */
+  .arch-stack{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);margin:32px 0;}
+  .al{background:var(--bg-card);padding:30px 36px;display:grid;grid-template-columns:190px 1fr 200px;gap:36px;align-items:center;}
+  .al-tag{font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-faint);}
+  .al-tag .n{color:var(--accent);margin-right:8px;}
+  .al-title{font-family:'Fraunces',serif;font-size:25px;font-weight:400;letter-spacing:-.01em;margin-bottom:5px;}
+  .al-desc{color:var(--ink-dim);font-size:14.5px;line-height:1.55;}
+  .al-tech{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-faint);text-align:right;text-transform:uppercase;letter-spacing:.1em;line-height:1.85;}
+  .al-tech span{color:var(--accent);}
+
+  /* ── TOOLS ── */
+  .tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:44px;}
+  .tc{background:var(--bg-card);border:1px solid var(--rule);padding:36px;border-radius:2px;position:relative;transition:border-color .3s;}
+  .tc:hover{border-color:var(--accent-dim);}
+  .tc .ttag{position:absolute;top:20px;right:20px;font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:var(--bg);background:var(--accent);padding:4px 10px;border-radius:2px;}
+  .tc .tsig{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--warm);margin-bottom:20px;word-break:break-all;line-height:1.6;}
+  .tc .tdesc{color:var(--ink-dim);font-size:15px;margin-bottom:20px;line-height:1.6;}
+  .tc ul{list-style:none;padding:0;}
+  .tc ul li{font-size:13.5px;color:var(--ink-dim);padding:6px 0 6px 20px;position:relative;}
+  .tc ul li::before{content:'→';position:absolute;left:0;color:var(--accent);}
+
+  /* ── FLOW DIAGRAM ── */
+  .flow-diagram{border:1px solid var(--rule);background:var(--bg-el);padding:36px;border-radius:2px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;margin:28px 0;}
+  .fs{display:flex;align-items:flex-start;gap:16px;padding:14px 0;border-bottom:1px dashed var(--rule);}
+  .fs:last-child{border-bottom:none;}
+  .fsn{width:28px;height:28px;border:1px solid var(--accent);color:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;margin-top:1px;}
+  .fst{color:var(--ink);font-size:13px;}
+  .fsm{color:var(--ink-faint);font-size:10px;margin-top:3px;text-transform:uppercase;letter-spacing:.1em;}
+
+  /* ── STACK CARDS ── */
+  .stacks-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule);margin:36px 0;}
+  .sc{background:var(--bg-card);padding:32px 34px;}
+  .sc h3{font-size:24px;margin-bottom:8px;}
+  .sc .slvl{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:16px;display:inline-block;}
+  .sc p{font-size:14.5px;line-height:1.6;}
+
+  /* ── PHASE TIMELINE ── */
+  .phases{margin:44px 0;}
+  .phase{display:grid;grid-template-columns:80px 1fr;gap:32px;position:relative;}
+  .phase-rail{position:relative;}
+  .phase-rail::after{content:'';position:absolute;left:50%;top:52px;bottom:-32px;width:1px;background:var(--rule);transform:translateX(-50%);}
+  .phase:last-child .phase-rail::after{display:none;}
+  .pdot{width:48px;height:48px;border-radius:50%;background:var(--bg-card);border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:20px;font-weight:300;margin:0 auto;position:relative;z-index:2;}
+  .pdot.p0{border-color:var(--low);color:var(--low);}
+  .pdot.p1{border-color:var(--med);color:var(--med);}
+  .pdot.p2{border-color:var(--high);color:var(--high);}
+  .pdot.p3{border-color:var(--crit);color:var(--crit);}
+  .pdot.p4{border-color:var(--warm);color:var(--warm);}
+  .pdot.p5{border-color:var(--accent);color:var(--accent);}
+  .pbody{padding-bottom:44px;}
+  .phead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
+  .pbody h3{margin:0;font-size:27px;}
+  .pdetail{background:var(--bg-el);border:1px solid var(--rule);padding:20px 24px;margin-top:16px;}
+  .prow{font-size:13.5px;color:var(--ink-dim);padding:6px 0;display:grid;grid-template-columns:120px 1fr;gap:12px;border-bottom:1px dashed var(--rule);}
+  .prow:last-child{border-bottom:none;}
+  .prow .rl{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-faint);padding-top:2px;}
+  .gate-bar{display:flex;align-items:center;gap:10px;margin-top:16px;background:rgba(212,255,60,.05);border:1px solid rgba(212,255,60,.2);padding:12px 18px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);}
+  .gate-bar strong{color:var(--accent);}
+
+  /* ── RISK TABLE ── */
+  .tbl-wrap{border:1px solid var(--rule);margin:32px 0;overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:14px;background:var(--bg-card);}
+  thead th{background:rgba(212,255,60,.08);color:var(--accent);text-align:left;padding:14px 18px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--rule);}
+  tbody td{padding:15px 18px;border-bottom:1px solid var(--rule);color:var(--ink-dim);vertical-align:top;line-height:1.55;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover td{background:rgba(255,255,255,.02);}
+  tbody td strong{color:var(--ink);}
+
+  /* ── ROADMAP TABLE ── */
+  .rt tbody td:first-child{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);font-weight:600;}
+
+  /* ── KPIs ── */
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);margin:32px 0;}
+  .kpi{background:var(--bg-card);padding:28px 26px;}
+  .kpi .num{font-family:'Fraunces',serif;font-size:52px;font-weight:300;color:var(--accent);line-height:1;margin-bottom:8px;letter-spacing:-.02em;}
+  .kpi .lbl{font-size:13px;color:var(--ink-dim);line-height:1.5;}
+
+  /* ── CLEAN LIST ── */
+  ul.clean{list-style:none;margin:20px 0;}
+  ul.clean li{position:relative;padding:7px 0 7px 24px;color:var(--ink-dim);font-size:15.5px;line-height:1.65;}
+  ul.clean li::before{content:'';position:absolute;left:3px;top:15px;width:6px;height:6px;background:var(--accent);border-radius:50%;}
+  ul.clean li strong{color:var(--ink);}
+
+  /* ── TWO COL ── */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:72px;}
+
+  /* ── FOOTER ── */
+  footer{padding:100px 0 80px;border-top:1px solid var(--rule);}
+  .footer-mark{font-family:'Fraunces',serif;font-weight:300;font-size:clamp(64px,10vw,160px);line-height:.9;letter-spacing:-.05em;margin-bottom:56px;}
+  .footer-mark em{font-style:italic;color:var(--accent);}
+  .foot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:28px;padding-top:40px;border-top:1px solid var(--rule);}
+  .foot-grid .k{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--ink-faint);margin-bottom:8px;}
+  .foot-grid .v{color:var(--ink);font-size:14px;}
+
+  @media(max-width:900px){
+    .wrap{padding:0 24px;}
+    .topbar-inner{padding:14px 24px;}
+    .topbar-nav{display:none;}
+    .hero-grid{grid-template-columns:1fr 1fr;}
+    .arch-stack .al{grid-template-columns:1fr;gap:12px;}
+    .al-tech{text-align:left;}
+    .tools-grid,.stacks-grid,.two,.kpis{grid-template-columns:1fr;}
+    .stacks-grid{gap:1px;}
+    .phase{grid-template-columns:56px 1fr;gap:16px;}
+    .prow{grid-template-columns:1fr;}
+    .foot-grid{grid-template-columns:1fr 1fr;}
+  }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-brand">JDK Migration · Proposta Técnico-Funcional v1</div>
+    <nav class="topbar-nav">
+      <a href="#contexto">Contexto</a>
+      <a href="#arquitetura">Arquitetura</a>
+      <a href="#stacks">Stacks</a>
+      <a href="#fases">Fases &amp; Gates</a>
+      <a href="#riscos">Riscos</a>
+      <a href="#roadmap">Roadmap</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+
+<!-- ═══════════════════ HERO ═══════════════════ -->
+<header class="hero">
+  <div class="hero-meta">
+    <div class="hero-meta-left">
+      <span class="doc-id">DOC · MIG-JDK-001</span>
+      <span>Proposta Técnico-Funcional · Liderança Técnica</span>
+    </div>
+    <div class="hero-meta-right">
+      <span class="ver-badge">v1.0 · Maio 2026</span>
+      <span>Aprovação Pendente</span>
+    </div>
+  </div>
+
+  <h1>Migração<br/>assistida de<br/><em>JDKs</em><br/>em produção.</h1>
+
+  <p class="hero-sub">
+    Uma solução instalável que orquestra a atualização de aplicações Java legadas — de JDK 6 e JDK 8 para JDK 21 — com revisão humana obrigatória a cada etapa, projetada para a diversidade real de stacks empresariais.
+  </p>
+
+  <div class="hero-grid">
+    <div class="hgc"><div class="lbl">Escopo v1</div><div class="val ac">JDK 6 e 8 → 21</div></div>
+    <div class="hgc"><div class="lbl">Arquitetura</div><div class="val">MCP + Skill</div></div>
+    <div class="hgc"><div class="lbl">Modelo</div><div class="val">Human-in-loop</div></div>
+    <div class="hgc"><div class="lbl">Governança</div><div class="val">Gates por Fase</div></div>
+  </div>
+</header>
+
+<!-- ═══════════════════ 01 CONTEXTO ═══════════════════ -->
+<section id="contexto">
+  <span class="sn">01 — Contexto &amp; Objetivo</span>
+  <h2>Por que este<br/>projeto é <em>crítico</em>.</h2>
+
+  <div class="two">
+    <div>
+      <p class="lead">Estamos propondo uma ferramenta que altera código de aplicações já em ambiente produtivo. O risco não está em trocar um número de versão — está na heterogeneidade das aplicações-alvo e na possibilidade de regressões silenciosas.</p>
+      <p>A migração do JDK 6 ou 8 para o JDK 21 atravessa de treze a quinze versões intermediárias. Cada uma acumulou mudanças de linguagem, remoções de API e — sobretudo — três rupturas estruturais: o <strong style="color:var(--ink)">Sistema de Módulos</strong> (JDK 9), a <strong style="color:var(--ink)">remoção dos módulos Java EE e CORBA</strong> (JDK 11) e a <strong style="color:var(--ink)">encapsulação forte dos internos do JDK</strong> (JDK 17).</p>
+      <p>Somado a isso, frameworks como Spring Boot 3, Jakarta Faces 4 e os próprios servidores de aplicação (WebLogic) evoluíram exigindo o salto do namespace <code>javax.*</code> para <code>jakarta.*</code> — a mudança mais ampla e mais perigosa do ciclo.</p>
+    </div>
+    <div>
+      <div class="nbox">
+        <h4>Premissa central</h4>
+        <p>Não vamos reinventar a transformação de código. A indústria já consolidou ferramentas maduras: <strong style="color:var(--ink)">OpenRewrite</strong> (com recipes oficiais da Oracle para WebLogic + JDK 21), <strong style="color:var(--ink)">Spring Boot Migrator</strong> e <strong style="color:var(--ink)">Eclipse Transformer</strong>. Nossa solução <strong style="color:var(--ink)">orquestra</strong> esse ecossistema, adiciona diagnóstico especializado por stack e impõe a camada de governança que produção exige.</p>
+      </div>
+      <div class="nbox warn" style="margin-top:20px;">
+        <h4>Stacks cobertas na v1</h4>
+        <p>Microservices REST · Spring Boot (2→3) · Spring Batch · EJB · JSF / PrimeFaces · WebLogic · APIs legadas Java EE</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <p>"A ferramenta acelera o que é seguro automatizar e torna visível o que exige julgamento humano — ela nunca confunde as duas coisas."</p>
+  </div>
+</section>
+
+<!-- ═══════════════════ 02 ARQUITETURA ═══════════════════ -->
+<section id="arquitetura">
+  <span class="sn">02 — Arquitetura da Solução</span>
+  <h2>Um <em>MCP</em> orquestrador<br/>com uma <em>Skill</em> de instalação.</h2>
+
+  <p class="lead">A solução combina um servidor MCP — instalável via npm na aplicação-alvo, registrável em qualquer host compatível (VS Code, Claude Code, Cursor) — com uma Skill de instalação que parametriza o comportamento conforme a stack detectada.</p>
+
+  <div class="two" style="margin-bottom:52px;">
+    <div>
+      <h3>Por que MCP, não plugin</h3>
+      <p>Um servidor MCP é um pacote distribuível via npm que roda como processo local. Isso resolve "instalável na aplicação-alvo" sem amarrar a ferramenta a uma IDE específica, e dá acesso nativo ao sistema de arquivos, ao Git e à execução de processos (Maven, Gradle, jdeprscan, OpenRewrite). Um plugin de IDE seria mais limitado e exigiria reimplementação por editor.</p>
+    </div>
+    <div>
+      <h3>A Skill de instalação</h3>
+      <p>No momento da instalação, a Skill conduz a parametrização: detecta a stack, pergunta o que não puder inferir (servidor, versão-alvo de framework, ambiente de CI) e grava um arquivo <code>jdk-migration.config.json</code> que orienta todas as fases seguintes — adaptando a ferramenta genérica ao caso concreto daquela aplicação.</p>
+    </div>
+  </div>
+
+  <h4>Sete camadas da solução</h4>
+  <div class="arch-stack">
+    <div class="al">
+      <div class="al-tag"><span class="n">07</span>MCP Surface</div>
+      <div><div class="al-title">Ferramentas expostas ao agente</div><div class="al-desc">Interface conversacional JSON-RPC. As três tools que o agente invoca para descobrir, planejar e executar.</div></div>
+      <div class="al-tech"><span>discover_project</span><br/><span>build_migration_plan</span><br/><span>execute_phase</span></div>
+    </div>
+    <div class="al">
+      <div class="al-tag"><span class="n">06</span>Install Skill</div>
+      <div><div class="al-title">Skill de instalação &amp; parametrização</div><div class="al-desc">Conduz a configuração inicial na aplicação-alvo, detecta stack e grava o arquivo de config que orienta o restante.</div></div>
+      <div class="al-tech"><span>stack-detect</span><br/>config-wizard<br/>jdk-migration.config</div>
+    </div>
+    <div class="al">
+      <div class="al-tag"><span class="n">05</span>Orchestrator</div>
+      <div><div class="al-title">Coordenador de fases &amp; gates</div><div class="al-desc">Máquina de estados que controla o ciclo das fases, valida tokens de aprovação dos gates, gerencia branches Git e rollback.</div></div>
+      <div class="al-tech">state-machine<br/>gate-validator<br/>git-checkpoint</div>
+    </div>
+    <div class="al">
+      <div class="al-tag"><span class="n">04</span>Stack Profilers</div>
+      <div><div class="al-title">Perfis por tecnologia</div><div class="al-desc">Módulos especializados com conhecimento dos desafios de cada stack: Spring Boot, Spring Batch, EJB, JSF/PrimeFaces, WebLogic, REST.</div></div>
+      <div class="al-tech"><span>spring-profiler</span><br/><span>jakarta-profiler</span><br/><span>weblogic-profiler</span></div>
+    </div>
+    <div class="al">
+      <div class="al-tag"><span class="n">03</span>Transform Engine</div>
+      <div><div class="al-title">Motor de transformação (orquestração)</div><div class="al-desc">Invoca recipes oficiais do OpenRewrite (JDK, Jakarta, Spring, WebLogic-Oracle), Spring Boot Migrator e Eclipse Transformer. Não reimplementa transformações.</div></div>
+      <div class="al-tech"><span>OpenRewrite</span><br/>SpringBoot Migrator<br/>Eclipse Transformer</div>
+    </div>
+    <div class="al">
+      <div class="al-tag"><span class="n">02</span>Static Analysis</div>
+      <div><div class="al-title">Análise estática nativa do JDK</div><div class="al-desc">Orquestra ferramentas oficiais do JDK para detecção confiável de remoções e dependências incompatíveis.</div></div>
+      <div class="al-tech"><span>jdeprscan</span><br/><span>jdeps</span><br/>javac --release</div>
+    </div>
+    <div class="al">
+      <div class="al-tag"><span class="n">01</span>Knowledge Base</div>
+      <div><div class="al-title">Base de conhecimento Oracle / OpenJDK</div><div class="al-desc">Indexa APIs removidas por versão, migration guides, JEPs e matrizes de compatibilidade. Fonte de verdade de todas as decisões.</div></div>
+      <div class="al-tech"><span>oracle-docs</span><br/>openjdk-jeps<br/>compat-matrix</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ 03 TOOLS ═══════════════════ -->
+<section id="tools">
+  <span class="sn">03 — Ferramentas do MCP</span>
+  <h2>Três tools, um fluxo de<br/><em>confiança progressiva</em>.</h2>
+
+  <p class="lead">A superfície de interação é deliberadamente enxuta. O agente de IA precisa saber quando descobrir, quando planejar e quando executar — sempre mediado por um gate humano.</p>
+
+  <div class="tools-grid">
+    <div class="tc">
+      <span class="ttag">Tool 01</span>
+      <h3>discover_project</h3>
+      <div class="tsig">discover_project({ targetJdk }) → { stack, risks, coverageReport }</div>
+      <div class="tdesc">Escaneia a aplicação sem alterá-la. Identifica build system, stack, versão atual, dependências e todos os pontos de incompatibilidade com o JDK alvo.</div>
+      <ul>
+        <li>Detecta Maven / Gradle / Ant e multi-módulo</li>
+        <li>Classifica a stack via Stack Profilers especializados</li>
+        <li>Roda jdeprscan + jdeps contra a versão alvo</li>
+        <li>Mede cobertura de testes (pré-requisito de segurança)</li>
+        <li>Produz inventário de riscos por categoria e stack</li>
+      </ul>
+    </div>
+    <div class="tc">
+      <span class="ttag">Tool 02</span>
+      <h3>build_migration_plan</h3>
+      <div class="tsig">build_migration_plan({ discoveryId }) → { planId, phases, docPath }</div>
+      <div class="tdesc">Consolida o diagnóstico em um plano faseado, ordenado por criticidade crescente, com gates definidos. Gera o documento de proposta revisável.</div>
+      <ul>
+        <li>Ordena fases da menos à mais crítica</li>
+        <li>Mapeia recipes OpenRewrite aplicáveis por fase</li>
+        <li>Estima esforço e sinaliza revisões obrigatoriamente manuais</li>
+        <li>Define gate e critério de aprovação de cada fase</li>
+        <li>Gera token único por gate para rastreabilidade</li>
+      </ul>
+    </div>
+    <div class="tc">
+      <span class="ttag">Tool 03</span>
+      <h3>execute_phase</h3>
+      <div class="tsig">execute_phase({ planId, gateToken, phase, dryRun? }) → { branch, pr, log }</div>
+      <div class="tdesc">Aplica uma única fase aprovada. Exige o token do gate anterior. Cada fase é uma branch isolada com commit e validação de build.</div>
+      <ul>
+        <li>Verifica o token de aprovação do gate anterior</li>
+        <li>Suporta <code>dryRun</code> para preview do diff antes de aplicar</li>
+        <li>Roda build + testes após cada fase</li>
+        <li>Rollback automático em falha de build</li>
+        <li>Abre Pull Request com relatório da fase</li>
+      </ul>
+    </div>
+    <div class="tc" style="border-color:rgba(212,255,60,.18);">
+      <span class="ttag" style="background:var(--ink-faint);">Auxiliar</span>
+      <h3>ferramentas de apoio</h3>
+      <div class="tdesc">Ferramentas de governança e recuperação usadas pelo Orchestrator e pelo revisor humano.</div>
+      <ul>
+        <li><code>get_phase_status</code> — situação detalhada de cada fase</li>
+        <li><code>approve_gate</code> — registra a aprovação humana</li>
+        <li><code>rollback_phase</code> — reverte uma fase aplicada</li>
+        <li><code>generate_report</code> — relatório consolidado de auditoria</li>
+      </ul>
+    </div>
+  </div>
+
+  <h4 style="margin-top:52px;">Fluxo ponta a ponta</h4>
+  <div class="flow-diagram">
+    <div class="fs"><div class="fsn">1</div><div><div class="fst">Instalação &amp; parametrização via Skill</div><div class="fsm">detecta stack → grava jdk-migration.config.json</div></div></div>
+    <div class="fs"><div class="fsn">2</div><div><div class="fst">discover_project</div><div class="fsm">inventário completo de riscos — sem alterar uma linha de código</div></div></div>
+    <div class="fs"><div class="fsn">3</div><div><div class="fst">build_migration_plan</div><div class="fsm">→ proposta faseada + documento revisável com tokens de gate</div></div></div>
+    <div class="fs"><div class="fsn">4</div><div><div class="fst">Gate humano — aprovação do plano</div><div class="fsm">liderança técnica aprova o plano completo e libera a Fase 1</div></div></div>
+    <div class="fs"><div class="fsn">5</div><div><div class="fst">execute_phase (loop por fase)</div><div class="fsm">aplica → build → testes → PR → novo gate → fase seguinte</div></div></div>
+    <div class="fs"><div class="fsn">6</div><div><div class="fst">Validação final &amp; cutover de produção</div><div class="fsm">aplicação migrada com trilha de auditoria e plano de rollback</div></div></div>
+  </div>
+</section>
+
+<!-- ═══════════════════ 04 STACKS ═══════════════════ -->
+<section id="stacks">
+  <span class="sn">04 — Desafios por Stack</span>
+  <h2>Cada arquitetura tem<br/>seus próprios <em>abismos</em>.</h2>
+
+  <p class="lead">A diversidade das aplicações-alvo é o maior fator de risco. Um microservice stateless é quase trivial; uma aplicação JSF com EJB rodando em WebLogic é um projeto à parte. Os Stack Profilers tratam cada caso com o conhecimento específico que ele exige.</p>
+
+  <div class="stacks-grid">
+    <div class="sc">
+      <h3>Microservices REST / stateless</h3>
+      <span class="slvl" style="color:var(--low);">Complexidade Baixa</span>
+      <p>Sem estado, com testes e CI maduros. Migração majoritariamente automatizável via recipe UpgradeToJava21 do OpenRewrite. Caso ideal para iniciar o portfólio e validar a ferramenta antes dos casos complexos.</p>
+    </div>
+    <div class="sc">
+      <h3>Spring Boot 2.x</h3>
+      <span class="slvl" style="color:var(--high);">Complexidade Alta</span>
+      <p>Exige salto para Spring Boot 3 (JDK 17+ obrigatório), com conversão <code>javax → jakarta</code>, mudanças no Spring Security 6 e no RestTemplate. Spring Boot Migrator automatiza o mecânico; configuração de segurança exige revisão obrigatória.</p>
+    </div>
+    <div class="sc">
+      <h3>Spring Batch</h3>
+      <span class="slvl" style="color:var(--high);">Complexidade Alta</span>
+      <p>Spring Boot 3 traz o Spring Batch 5 com novo modelo de configuração de jobs. <code>@EnableBatchProcessing</code> legado e beans como <code>JobRepository</code> seguem novos padrões. Lógica de chunk e restart precisa de validação funcional dedicada.</p>
+    </div>
+    <div class="sc">
+      <h3>EJB</h3>
+      <span class="slvl" style="color:var(--crit);">Complexidade Crítica</span>
+      <p>Beans stateful, transações container-managed (JTA), chamadas remotas RMI/IIOP e JNDI não têm tradução automática segura. Exige redesenho assistido e validação de paridade funcional rigorosa, item a item.</p>
+    </div>
+    <div class="sc">
+      <h3>JSF / PrimeFaces</h3>
+      <span class="slvl" style="color:var(--crit);">Complexidade Crítica</span>
+      <p>Migração de namespace nas XHTML, managed beans de <code>javax.faces.bean</code> para CDI, PrimeFaces com classifier <code>jakarta</code>, e regras de client-ID que mudaram no Faces 4. Partes de UI exigem trabalho manual sem recipe disponível.</p>
+    </div>
+    <div class="sc">
+      <h3>WebLogic</h3>
+      <span class="slvl" style="color:var(--high);">Complexidade Alta</span>
+      <p>A Oracle fornece recipes OpenRewrite oficiais (<code>rewrite-weblogic</code>) para WebLogic 14.1.2/15.1.1 + JDK 21. Regra obrigatória: recipe de JDK primeiro, depois recipe de WebLogic. Conectores JCA e realms de segurança proprietários requerem atenção manual.</p>
+    </div>
+  </div>
+
+  <div class="nbox warn" style="margin-top:8px;">
+    <h4>Limite honesto de automação</h4>
+    <p>OpenRewrite e Spring Boot Migrator resolvem com excelência o trabalho <strong style="color:var(--ink)">mecânico</strong>: troca de namespace, bump de versões, substituição de APIs com mapeamento claro. Eles <strong style="color:var(--ink)">não</strong> resolvem mudanças semânticas — redesenho de transações EJB, beans stateful, lógica de segurança, ou comportamento que compila mas muda em runtime. Para esses casos, nossa ferramenta detecta, classifica e organiza a revisão, mas a <strong style="color:var(--ink)">decisão é humana</strong>. Prometer automação total nesses pontos seria irresponsável em produção.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════ 05 FASES ═══════════════════ -->
+<section id="fases">
+  <span class="sn">05 — Plano Faseado &amp; Gates</span>
+  <h2>Da fase mais <em>segura</em><br/>à mais <em>crítica</em>.</h2>
+
+  <p class="lead">O plano avança em ordem crescente de criticidade. Começamos pelo que é reversível e de baixo impacto — validamos a ferramenta e ganhamos confiança — e só então enfrentamos as transformações que mexem em lógica de negócio. Cada fase termina em um gate de aprovação humana.</p>
+
+  <div class="phases">
+
+    <div class="phase">
+      <div class="phase-rail"><div class="pdot p0">0</div></div>
+      <div class="pbody">
+        <div class="phead"><h3>Descoberta &amp; Baseline</h3><span class="pill low">Criticidade Baixa</span></div>
+        <p style="font-size:15px;color:var(--ink-dim);">Entender a aplicação sem tocá-la. Estabelecer a rede de segurança antes de qualquer mudança.</p>
+        <div class="pdetail">
+          <div class="prow"><span class="rl">Ações</span><span>Inventário de stack e dependências; execução de jdeprscan/jdeps; medição de cobertura de testes; snapshot comportamental (baseline).</span></div>
+          <div class="prow"><span class="rl">Por que primeiro</span><span>Puramente analítica e não-destrutiva. Expõe o tamanho real do trabalho e revela se a cobertura de testes é suficiente para migrar com segurança.</span></div>
+          <div class="prow"><span class="rl">Entregável</span><span>Relatório de diagnóstico + proposta de migração faseada para aprovação da liderança.</span></div>
+        </div>
+        <div class="gate-bar">🔒 <strong>Gate 0:</strong>&nbsp; Liderança aprova o plano e confirma cobertura de testes adequada (ou autoriza reforçá-la antes de prosseguir).</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-rail"><div class="pdot p1">1</div></div>
+      <div class="pbody">
+        <div class="phead"><h3>Infraestrutura &amp; Build</h3><span class="pill low">Criticidade Baixa</span></div>
+        <p style="font-size:15px;color:var(--ink-dim);">Preparar o terreno: ambiente, build e pipeline apontando para o JDK 21, sem alterar código de negócio.</p>
+        <div class="pdetail">
+          <div class="prow"><span class="rl">Ações</span><span>Atualização de Dockerfile e imagens base; ajuste de GitHub Actions / Jenkins; configuração de toolchain Maven/Gradle; remoção de flags obsoletas (ex.: PermGen no caminho JDK 6/8).</span></div>
+          <div class="prow"><span class="rl">Por que cedo</span><span>Totalmente reversível e isolada do código. Garante que a infra suporta o JDK 21 antes de migrar a aplicação.</span></div>
+          <div class="prow"><span class="rl">Automação</span><span>Alta — recipes de build do OpenRewrite e ajustes de configuração.</span></div>
+        </div>
+        <div class="gate-bar">🔒 <strong>Gate 1:</strong>&nbsp; Build verde no JDK 21 com flags de compatibilidade. Pipeline de CI validado no novo JDK.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-rail"><div class="pdot p2">2</div></div>
+      <div class="pbody">
+        <div class="phead"><h3>Modernização de Linguagem</h3><span class="pill med">Criticidade Média</span></div>
+        <p style="font-size:15px;color:var(--ink-dim);">Aplicar transformações de linguagem seguras e substituir APIs removidas com mapeamento claro.</p>
+        <div class="pdetail">
+          <div class="prow"><span class="rl">Ações</span><span>Recipe <code>UpgradeToJava21</code> do OpenRewrite: substituição de APIs removidas (Thread.stop, etc.), atualização de plugins, ajustes idiomáticos seguros. No caminho do JDK 6, modernizações do 7/8 (try-with-resources, diamond operator).</span></div>
+          <div class="prow"><span class="rl">Risco</span><span>Mudanças com estratégia de migração conhecida, bem testadas pela comunidade. dryRun obrigatório para revisão do diff antes de aplicar.</span></div>
+          <div class="prow"><span class="rl">Automação</span><span>Alta — núcleo do OpenRewrite. Revisão humana do diff completo obrigatória antes do commit.</span></div>
+        </div>
+        <div class="gate-bar">🔒 <strong>Gate 2:</strong>&nbsp; Revisão do diff completo; build + suíte de testes verdes; comparação com baseline da Fase 0.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-rail"><div class="pdot p3">3</div></div>
+      <div class="pbody">
+        <div class="phead"><h3>Namespace Jakarta &amp; Frameworks</h3><span class="pill high">Criticidade Alta</span></div>
+        <p style="font-size:15px;color:var(--ink-dim);">A grande virada: <code>javax → jakarta</code> e o salto de versão dos frameworks.</p>
+        <div class="pdetail">
+          <div class="prow"><span class="rl">Ações</span><span>Conversão de namespace via OpenRewrite / Spring Boot Migrator; upgrade Spring Boot 2→3; PrimeFaces com classifier <code>jakarta</code>; recipes WebLogic oficiais quando aplicável; ajuste de propriedades de configuração.</span></div>
+          <div class="prow"><span class="rl">Por que aqui</span><span>É a mudança mais ampla e mais perigosa. Só faz sentido após linguagem e build já estáveis no JDK 21. Nem toda biblioteca tem equivalente jakarta — casos mapeados pelos Stack Profilers.</span></div>
+          <div class="prow"><span class="rl">Atenção</span><span>Algumas libs exigem coordenadas Maven diferentes ou Eclipse Transformer. WebLogic: recipe de JDK obrigatoriamente primeiro.</span></div>
+        </div>
+        <div class="gate-bar">🔒 <strong>Gate 3:</strong>&nbsp; Aplicação sobe no servidor alvo; smoke tests por módulo; revisão de Spring Security 6. Aprovação de arquiteto responsável.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-rail"><div class="pdot p4">4</div></div>
+      <div class="pbody">
+        <div class="phead"><h3>Refatoração Semântica Assistida</h3><span class="pill crit">Criticidade Crítica</span></div>
+        <p style="font-size:15px;color:var(--ink-dim);">Tratar o que automação não resolve: EJB stateful, transações JTA, lógica que muda de comportamento.</p>
+        <div class="pdetail">
+          <div class="prow"><span class="rl">Ações</span><span>A ferramenta NÃO aplica automaticamente. Produz relatório de pontos que exigem decisão humana, sugere abordagens, organiza a refatoração item a item com validação de paridade funcional.</span></div>
+          <div class="prow"><span class="rl">Por que por último</span><span>É onde mora o risco de regressão de negócio. Exige conhecimento do domínio e testes funcionais dedicados. Concentrar aqui o esforço humano onde ele é insubstituível.</span></div>
+          <div class="prow"><span class="rl">Estratégia</span><span>Incremental, item a item, com testes de paridade. Padrão Strangler Fig quando houver redesenho arquitetural (ex.: EJB → Spring).</span></div>
+        </div>
+        <div class="gate-bar">🔒 <strong>Gate 4:</strong>&nbsp; Cada item refatorado validado individualmente; testes funcionais e de paridade aprovados; sign-off de negócio quando aplicável.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="phase-rail"><div class="pdot p5">5</div></div>
+      <div class="pbody">
+        <div class="phead"><h3>Validação Final &amp; Cutover</h3><span class="pill med">Criticidade Média</span></div>
+        <p style="font-size:15px;color:var(--ink-dim);">Confirmar que a aplicação migrada é funcional e performática, e promover para produção com segurança.</p>
+        <div class="pdetail">
+          <div class="prow"><span class="rl">Ações</span><span>Testes de regressão completos; performance comparada ao baseline; validação em homologação; plano de rollback de produção; cutover monitorado.</span></div>
+          <div class="prow"><span class="rl">Entregável</span><span>Aplicação em produção no JDK 21 + relatório de auditoria com trilha completa de decisões e aprovações.</span></div>
+        </div>
+        <div class="gate-bar">🔒 <strong>Gate 5:</strong>&nbsp; Aprovação final da liderança técnica e funcional para cutover, com plano de rollback definido e testado.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="nbox">
+    <h4>Sobre os gates (human-in-the-loop)</h4>
+    <p>Cada gate é um ponto de parada obrigatório. A ferramenta gera um token de aprovação único, vinculado ao estado daquela fase; a fase seguinte só executa mediante esse token, registrado explicitamente pela pessoa responsável. Isso impede que o agente de IA presuma aprovação e cria uma trilha de auditoria rastreável — quem aprovou, o quê e quando — essencial para um projeto que toca produção.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════ 06 RISCOS ═══════════════════ -->
+<section id="riscos">
+  <span class="sn">06 — Riscos &amp; Mitigações</span>
+  <h2>O que pode dar <em>errado</em>,<br/>e como nos protegemos.</h2>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th style="width:26%;">Risco</th><th style="width:14%;">Severidade</th><th>Mitigação</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Regressão silenciosa em produção</strong></td><td><span class="pill crit">Crítica</span></td><td>Mudança compila mas altera comportamento. Baseline comportamental na Fase 0, testes de paridade na Fase 4 e cobertura mínima de testes como pré-requisito inegociável.</td></tr>
+        <tr><td><strong>Cobertura de testes insuficiente</strong></td><td><span class="pill crit">Crítica</span></td><td>Sem testes, não há rede de segurança. Gate 0 mede a cobertura e pode bloquear a migração até que testes sejam reforçados — decisão consciente da liderança.</td></tr>
+        <tr><td><strong>Dependência sem versão Jakarta / JDK 21</strong></td><td><span class="pill high">Alta</span></td><td>Detecção na Fase 0; uso de Eclipse Transformer para JARs individuais; sinalização explícita quando não houver caminho automático.</td></tr>
+        <tr><td><strong>EJB / JTA sem tradução automática segura</strong></td><td><span class="pill crit">Crítica</span></td><td>Nunca automatizar. Isolado na Fase 4 com refatoração assistida, item a item, e validação de paridade funcional obrigatória.</td></tr>
+        <tr><td><strong>Ordem incorreta de transformações</strong></td><td><span class="pill high">Alta</span></td><td>Ex.: recipe WebLogic antes do de JDK quebra a limpeza. O Orchestrator impõe a ordem correta conforme orientação oficial da Oracle.</td></tr>
+        <tr><td><strong>Aprovação presumida pelo agente de IA</strong></td><td><span class="pill crit">Crítica</span></td><td>Token de gate único por fase, registrado explicitamente. Nenhuma fase executa sem o token correto — não é possível inferir ou fabricar.</td></tr>
+        <tr><td><strong>Multi-módulo com dependências cruzadas</strong></td><td><span class="pill high">Alta</span></td><td>Orchestrator calcula o grafo de dependências (DAG) e migra módulos em ordem topológica.</td></tr>
+        <tr><td><strong>Build deixando repo em estado inconsistente</strong></td><td><span class="pill med">Média</span></td><td>Cada fase em branch isolada com checkpoint Git. Rollback automático em falha de build. Nada é aplicado direto na branch principal.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════ 07 ROADMAP ═══════════════════ -->
+<section id="roadmap">
+  <span class="sn">07 — Roadmap de Implementação</span>
+  <h2>Como <em>construímos</em><br/>a própria ferramenta.</h2>
+
+  <p class="lead">Este roadmap descreve a construção da solução. A estratégia espelha o próprio produto: começar pelo que dá valor com baixo risco e evoluir em direção à complexidade.</p>
+
+  <div class="kpis">
+    <div class="kpi"><div class="num">14</div><div class="lbl">semanas estimadas até MVP utilizável em pilotos controlados</div></div>
+    <div class="kpi"><div class="num">2</div><div class="lbl">caminhos de migração na v1: JDK 6 → 21 e JDK 8 → 21</div></div>
+    <div class="kpi"><div class="num">6</div><div class="lbl">Stack Profilers a desenvolver: REST, Spring Boot, Batch, EJB, JSF, WebLogic</div></div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table class="rt">
+      <thead><tr><th style="width:18%;">Etapa</th><th style="width:18%;">Período</th><th>Foco</th></tr></thead>
+      <tbody>
+        <tr><td>Fundação</td><td>Semanas 1–2</td><td>Scaffolding do MCP server; integração com host (VS Code / Claude Code); estrutura das três tools com mocks; Skill de instalação inicial.</td></tr>
+        <tr><td>Diagnóstico</td><td>Semanas 3–4</td><td>discover_project real para Maven; integração jdeprscan / jdeps; Knowledge Base com dados Oracle; detecção de stack básica.</td></tr>
+        <tr><td>Orquestração</td><td>Semanas 5–6</td><td>Orchestrator com máquina de estados, gates e tokens; integração Git (branch / commit / rollback); build_migration_plan.</td></tr>
+        <tr><td>Motor de transformação</td><td>Semanas 7–8</td><td>Integração com OpenRewrite (recipe JDK 21); execute_phase com dryRun; primeiro piloto: microservice REST stateless.</td></tr>
+        <tr><td>Profilers críticos</td><td>Semanas 9–11</td><td>Stack Profilers de Spring Boot, Spring Batch e Jakarta; integração Spring Boot Migrator; pilotos em Spring Boot 2 → 3.</td></tr>
+        <tr><td>Stacks legadas</td><td>Semanas 12–13</td><td>Profilers de EJB, JSF / PrimeFaces e WebLogic; recipes Oracle oficiais; suporte a Gradle; relatório de refatoração semântica.</td></tr>
+        <tr><td>Endurecimento</td><td>Semana 14</td><td>Documentação completa, trilha de auditoria, refino dos gates; release interno para pilotos em aplicações reais não-críticas.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <p>"Validamos a ferramenta primeiro nas aplicações mais simples. Só levamos para sistemas críticos depois que a confiança foi construída com evidência."</p>
+  </div>
+</section>
+
+<!-- ═══════════════════ 08 RECOMENDAÇÕES ═══════════════════ -->
+<section id="recomendacoes">
+  <span class="sn">08 — Recomendações Adicionais</span>
+  <h2>Pontos que fazem<br/>a <em>diferença</em>.</h2>
+
+  <ul class="clean">
+    <li><strong>Tratar cobertura de testes como pré-requisito.</strong> A maior proteção contra regressão não é a ferramenta — são os testes. Se necessário, uma frente paralela de reforço de testes antes de migrar sistemas críticos.</li>
+    <li><strong>Começar o portfólio pelos mais simples.</strong> Microservices REST stateless primeiro, depois Spring Boot, por último EJB/JSF/WebLogic. Isso constrói confiança organizacional e refina a ferramenta antes dos casos difíceis.</li>
+    <li><strong>Alinhar migração de JDK com migração de servidor.</strong> Em aplicações WebLogic/EJB, a migração de JDK frequentemente se entrelaça com a do servidor. Vale definir com a liderança se o escopo inclui apenas o JDK ou também o servidor de aplicação.</li>
+    <li><strong>Manter um catálogo vivo de decisões por stack.</strong> Cada aplicação migrada gera aprendizado (qual recipe funcionou, qual biblioteca não tinha versão jakarta). Capturar em base compartilhada acelera as migrações seguintes.</li>
+    <li><strong>Separar migração de modernização.</strong> A v1 faz a aplicação rodar no JDK 21. Reescrever EJB para Spring Boot é modernização — escopo de uma possível v2. Manter esse limite explícito evita escopo inflado.</li>
+    <li><strong>Planejar para versões futuras.</strong> O JDK 25 (LTS, 2025) já é o próximo destino natural. A arquitetura baseada em Knowledge Base e recipes versionados permite estender a ferramenta sem reescrita.</li>
+  </ul>
+</section>
+
+<!-- ═══════════════════ 09 FONTES ═══════════════════ -->
+<section id="fontes">
+  <span class="sn">09 — Fontes Consultadas</span>
+  <h2>Base <em>documental</em>.</h2>
+  <ul class="clean">
+    <li><strong>Oracle Java SE Documentation</strong> — docs.oracle.com/en/java/javase · Migration Guides, Removed APIs, release notes por versão</li>
+    <li><strong>OpenJDK JEPs</strong> — 320 (remoção Java EE/CORBA), 403 (encapsulação forte), 444 (Virtual Threads), entre outros</li>
+    <li><strong>Oracle WebLogic · OpenRewrite Recipes oficiais</strong> — oracle/rewrite-recipes + blog Oracle WebLogic Server (migração 14.1.2/15.1.1 + JDK 21)</li>
+    <li><strong>OpenRewrite Docs</strong> — recipe UpgradeToJava21, recipes Jakarta e Spring; documentação de migração em larga escala</li>
+    <li><strong>Spring Boot 3.0 Migration Guide e Spring Boot Migrator</strong> — requisitos JDK 17+, Spring Batch 5, Spring Security 6</li>
+    <li><strong>Guias de migração Jakarta EE</strong> — conversão javax → jakarta, PrimeFaces classifier jakarta, Faces 4, Eclipse Transformer</li>
+    <li><strong>Avaliação de Diferenças entre Versões do JDK</strong> — documento interno previamente produzido (base da análise de incompatibilidades)</li>
+  </ul>
+</section>
+
+</div><!-- /wrap -->
+
+<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<footer>
+  <div class="wrap">
+    <div class="footer-mark">Pronto para a<br/>decisão da <em>liderança</em>.</div>
+    <div class="foot-grid">
+      <div><div class="k">Documento</div><div class="v">Proposta Técnico-Funcional</div></div>
+      <div><div class="k">Escopo v1</div><div class="v">JDK 6 e 8 → JDK 21</div></div>
+      <div><div class="k">Próximo passo</div><div class="v">Aprovação p/ iniciar Fundação (Sem. 1–2)</div></div>
+      <div><div class="k">Decisão pendente</div><div class="v">Escopo: só JDK ou JDK + servidor?</div></div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

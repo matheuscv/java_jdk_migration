@@ -1,0 +1,23 @@
+Preciso desenvolver um projeto, cujo tema principal seja: Migração / Atualização da versão Java JDK de uma aplicação java para uma versão mais recente. A princípio, pensei em uma primeira versão de projeto, uma v1, contemplando apenas as migrações abaixo:
+
+Java JDK 6 - atualizar todo o projeto destino para versão Java JDK 21
+Java JDK 8 - atualizar todo o projeto destino para versão Java JDK 21
+
+Entendo que este projeto será crítico, pois estaremos evoluindo código de aplicações Java (alguns exemplos de apps: micro services, spring-batch, spring-boot, rest, EJB, Java Server Faces (JSF), Prime Faces, aplicações que rodam no Weblogic, etc) - ou seja, iremos entrar aplicações com as mais variadas stacks e arquiteturas. 
+
+Preciso que você me proponha uma solução de projeto para este propósito, considerando todas as variações possíveis entre essas versões JDK citadas. Para te ajudar, ofereço algumas fontes de consulta:
+Oracle Java SE Documentation (docs.oracle.com/en/java/javase), complementada por release notes oficiais, JEPs do OpenJDK e fontes técnicas confiáveis.
+Documentação / pesquisa que compara as 2 evoluções que iremos fazer, gerado por você no meu pedido anterior: C:\devtools\estudos\labs\java_jdk_migration\docs\Avaliacao_diff_versoes_jdk_8e9_21_1.docx
+Demais fontes de pesquisas oficiais e seguras para um plano sólido e correto
+
+Pense na arquitetura deste projeto: Será um MCP;  ou um plugin instalável na aplicação destino com quais tools; ou qualquer outra solução que você entenda fazer mais sentido. Peço que seja uma solução que possa ser instalada na aplicação destino, possivelmente parametrizando o que for necessário durante a instalação - talvez usar uma skill aqui para isso.
+
+Nessa proposta, organize também como poderemos organizar o plano para esta imlpementação, divido em fases, organizadas por criticidade (se possivel, iniciarmos com fases menos críticas e ir evoluindo). Seria importante, termos "gates" a cada fase, para irmos validando (Human-in-loop) antes de seguirmos para a fase seguinte. 
+
+Fique a vontade para me propor / indicar / sugerir quaisquer outros pontos que entenda ser importante.
+
+Faça esta pesquisa / proposta com o máximo de atenção / cuidado / detalhes / organização, pois será um projeto muito crítico, pois estará mexendo em aplicações já em ambiente produtivo.
+
+Salve este arquivo como: Proposta_Tecnico_Funcional_Migracao_jdks8e9_jdk21.html e salve no diretório: C:\devtools\estudos\labs\java_jdk_migration\docs.
+
+Utilize um tema elegante, bonito e muito bem organizado. Será um plano a ser apresentado à minha liderança técnica / funcional.

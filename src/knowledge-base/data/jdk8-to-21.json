@@ -1,0 +1,262 @@
+[
+  {
+    "apiPattern": "sun.misc.BASE64Encoder",
+    "removedInJdk": 9,
+    "jep": null,
+    "severity": "high",
+    "replacement": "java.util.Base64.getEncoder()",
+    "recipe": "org.openrewrite.java.migrate.UseJavaUtilBase64ForEncoding",
+    "affectsStacks": ["rest", "spring-boot", "ejb", "jsf"],
+    "migrationNote": "Substituir por java.util.Base64 disponível desde JDK 8. Classe sun.misc.BASE64Encoder foi removida no JDK 9."
+  },
+  {
+    "apiPattern": "sun.misc.BASE64Decoder",
+    "removedInJdk": 9,
+    "jep": null,
+    "severity": "high",
+    "replacement": "java.util.Base64.getDecoder()",
+    "recipe": "org.openrewrite.java.migrate.UseJavaUtilBase64ForDecoding",
+    "affectsStacks": ["rest", "spring-boot", "ejb", "jsf"],
+    "migrationNote": "Substituir por java.util.Base64 disponível desde JDK 8. Classe sun.misc.BASE64Decoder foi removida no JDK 9."
+  },
+  {
+    "apiPattern": "com.sun.image.codec.jpeg",
+    "removedInJdk": 9,
+    "jep": null,
+    "severity": "medium",
+    "replacement": "javax.imageio.ImageIO",
+    "recipe": null,
+    "affectsStacks": ["rest", "jsf"],
+    "migrationNote": "Pacote com.sun.image.codec.jpeg removido no JDK 9. Usar javax.imageio.ImageIO."
+  },
+  {
+    "apiPattern": "javax.xml.bind",
+    "removedInJdk": 11,
+    "jep": "JEP-320",
+    "severity": "critical",
+    "replacement": "jakarta.xml.bind (dependência externa: jakarta.xml.bind:jakarta.xml.bind-api)",
+    "recipe": "org.openrewrite.java.migrate.jakarta.JavaxXmlBindMigrationToJakartaXmlBind",
+    "affectsStacks": ["rest", "spring-boot", "ejb", "weblogic"],
+    "migrationNote": "Módulo JAXB removido do JDK no JDK 11 (JEP-320). Adicionar dependência jakarta.xml.bind-api + implementação (e.g. glassfish)."
+  },
+  {
+    "apiPattern": "javax.xml.ws",
+    "removedInJdk": 11,
+    "jep": "JEP-320",
+    "severity": "critical",
+    "replacement": "jakarta.xml.ws (dependência externa: jakarta.xml.ws:jakarta.xml.ws-api)",
+    "recipe": "org.openrewrite.java.migrate.jakarta.JavaxXmlWsMigrationToJakartaXmlWs",
+    "affectsStacks": ["rest", "ejb", "weblogic"],
+    "migrationNote": "Módulo JAX-WS removido do JDK no JDK 11 (JEP-320). Adicionar dependência externa."
+  },
+  {
+    "apiPattern": "javax.jws",
+    "removedInJdk": 11,
+    "jep": "JEP-320",
+    "severity": "high",
+    "replacement": "jakarta.jws (dependência externa)",
+    "recipe": null,
+    "affectsStacks": ["rest", "ejb"],
+    "migrationNote": "Pacote javax.jws removido do JDK no JDK 11 (JEP-320)."
+  },
+  {
+    "apiPattern": "javax.activation",
+    "removedInJdk": 11,
+    "jep": "JEP-320",
+    "severity": "high",
+    "replacement": "jakarta.activation (dependência: jakarta.activation:jakarta.activation-api)",
+    "recipe": "org.openrewrite.java.migrate.jakarta.JavaxActivationMigrationToJakartaActivation",
+    "affectsStacks": ["rest", "spring-boot", "ejb"],
+    "migrationNote": "JAF (JavaBeans Activation Framework) removido do JDK no JDK 11 (JEP-320)."
+  },
+  {
+    "apiPattern": "javax.transaction",
+    "removedInJdk": 11,
+    "jep": "JEP-320",
+    "severity": "critical",
+    "replacement": "jakarta.transaction (dependência: jakarta.transaction:jakarta.transaction-api)",
+    "recipe": "org.openrewrite.java.migrate.jakarta.JavaxTransactionMigrationToJakartaTransaction",
+    "affectsStacks": ["ejb", "spring-boot", "weblogic"],
+    "migrationNote": "Subconjunto JTA removido do JDK no JDK 11. Stacks EJB/JTA requerem revisão manual da semântica transacional."
+  },
+  {
+    "apiPattern": "org.omg",
+    "removedInJdk": 11,
+    "jep": "JEP-320",
+    "severity": "critical",
+    "replacement": "Dependência CORBA externa ou redesenho para REST/gRPC",
+    "recipe": null,
+    "affectsStacks": ["ejb", "weblogic"],
+    "migrationNote": "CORBA (org.omg.*) removido do JDK no JDK 11 (JEP-320). Não há substituto direto no JDK — considerar migração para REST ou gRPC."
+  },
+  {
+    "apiPattern": "javax.rmi.CORBA",
+    "removedInJdk": 11,
+    "jep": "JEP-320",
+    "severity": "critical",
+    "replacement": "Redesenho da camada de comunicação remota",
+    "recipe": null,
+    "affectsStacks": ["ejb", "weblogic"],
+    "migrationNote": "RMI-IIOP sobre CORBA removido no JDK 11 (JEP-320). Interfaces remotas @Remote precisam ser reavaliadas."
+  },
+  {
+    "apiPattern": "java.lang.Thread#stop",
+    "removedInJdk": 20,
+    "jep": null,
+    "severity": "high",
+    "replacement": "Loop com flag de interrupção (volatile boolean) + Thread.interrupt()",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-boot", "ejb", "spring-batch"],
+    "migrationNote": "Thread.stop() lança UnsupportedOperationException desde JDK 20. Substituir por padrão de flag de cancelamento."
+  },
+  {
+    "apiPattern": "java.lang.Thread#suspend",
+    "removedInJdk": 20,
+    "jep": null,
+    "severity": "high",
+    "replacement": "wait()/notify() ou java.util.concurrent.locks.LockSupport",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-batch", "ejb"],
+    "migrationNote": "Thread.suspend() lança UnsupportedOperationException desde JDK 20."
+  },
+  {
+    "apiPattern": "java.lang.Thread#resume",
+    "removedInJdk": 20,
+    "jep": null,
+    "severity": "high",
+    "replacement": "wait()/notify() ou LockSupport.unpark()",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-batch", "ejb"],
+    "migrationNote": "Thread.resume() lança UnsupportedOperationException desde JDK 20."
+  },
+  {
+    "apiPattern": "java.lang.SecurityManager",
+    "removedInJdk": 21,
+    "jep": "JEP-411",
+    "severity": "critical",
+    "replacement": "Sem substituto direto. Avaliar substituição por políticas de segurança externas (JAAS, container security).",
+    "recipe": null,
+    "affectsStacks": ["ejb", "weblogic", "rest"],
+    "migrationNote": "SecurityManager foi depreciado para remoção no JDK 17 (JEP-411) e pode ser removido em versão futura. Auditar todo código que instala ou chama SecurityManager."
+  },
+  {
+    "apiPattern": "java.rmi.activation",
+    "removedInJdk": 17,
+    "jep": "JEP-407",
+    "severity": "high",
+    "replacement": "Ativação externa via container ou microsserviço",
+    "recipe": null,
+    "affectsStacks": ["ejb"],
+    "migrationNote": "RMI Activation System removido no JDK 17 (JEP-407). Código que usa java.rmi.activation.* não compila no JDK 17+."
+  },
+  {
+    "apiPattern": "java.lang.Object#finalize",
+    "removedInJdk": 18,
+    "jep": "JEP-421",
+    "severity": "medium",
+    "replacement": "java.lang.ref.Cleaner ou try-with-resources",
+    "recipe": "org.openrewrite.java.migrate.lang.ReplaceDeprecatedFinalize",
+    "affectsStacks": ["rest", "spring-boot", "ejb"],
+    "migrationNote": "finalize() deprecado para remoção no JDK 18 (JEP-421). Usar Cleaner API ou AutoCloseable."
+  },
+  {
+    "apiPattern": "java.util.Observer",
+    "removedInJdk": 9,
+    "jep": null,
+    "severity": "low",
+    "replacement": "java.beans.PropertyChangeListener ou padrão Observer custom",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-boot"],
+    "migrationNote": "java.util.Observer e java.util.Observable deprecados no JDK 9. Funcional mas marcado para eventual remoção."
+  },
+  {
+    "apiPattern": "java.util.Observable",
+    "removedInJdk": 9,
+    "jep": null,
+    "severity": "low",
+    "replacement": "java.beans.PropertyChangeSupport ou biblioteca de eventos",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-boot"],
+    "migrationNote": "Observable deprecado no JDK 9. Substituir por implementação de listener/event bus."
+  },
+  {
+    "apiPattern": "java.applet.Applet",
+    "removedInJdk": 17,
+    "jep": "JEP-398",
+    "severity": "high",
+    "replacement": "Swing / JavaFX para aplicação desktop ou migração para web",
+    "recipe": null,
+    "affectsStacks": ["jsf"],
+    "migrationNote": "API de Applets deprecada para remoção no JDK 17 (JEP-398)."
+  },
+  {
+    "apiPattern": "jdk.nashorn.api.scripting",
+    "removedInJdk": 15,
+    "jep": "JEP-372",
+    "severity": "high",
+    "replacement": "GraalVM Polyglot API ou dependência Nashorn externa",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-boot"],
+    "migrationNote": "Nashorn JS engine removido no JDK 15 (JEP-372). Scripts JS embutidos precisam usar GraalVM ou dependência standalone do Nashorn."
+  },
+  {
+    "apiPattern": "sun.reflect.Reflection",
+    "removedInJdk": 9,
+    "jep": null,
+    "severity": "medium",
+    "replacement": "java.lang.StackWalker (JDK 9+)",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-boot", "ejb"],
+    "migrationNote": "sun.reflect.Reflection encapsulado no JDK 9. Usar StackWalker para obter frame do chamador."
+  },
+  {
+    "apiPattern": "sun.misc.Unsafe",
+    "removedInJdk": 9,
+    "jep": null,
+    "severity": "high",
+    "replacement": "java.lang.invoke.VarHandle (JDK 9+) ou MemorySegment (JDK 21)",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-boot", "ejb"],
+    "migrationNote": "sun.misc.Unsafe encapsulado: acesso requer --add-opens no JDK 9+. Migrar para VarHandle. Frameworks populares (Netty, Kryo) podem depender indiretamente — verificar versões compatíveis."
+  },
+  {
+    "apiPattern": "java.lang.Compiler",
+    "removedInJdk": 16,
+    "jep": null,
+    "severity": "low",
+    "replacement": "javax.tools.JavaCompiler",
+    "recipe": null,
+    "affectsStacks": ["rest"],
+    "migrationNote": "java.lang.Compiler (stub desde JDK 1.0) removido no JDK 16. Usar javax.tools.JavaCompiler para compilação programática."
+  },
+  {
+    "apiPattern": "javax.annotation",
+    "removedInJdk": 11,
+    "jep": "JEP-320",
+    "severity": "medium",
+    "replacement": "jakarta.annotation (dependência: jakarta.annotation:jakarta.annotation-api)",
+    "recipe": "org.openrewrite.java.migrate.jakarta.JavaxAnnotationMigrationToJakartaAnnotation",
+    "affectsStacks": ["rest", "spring-boot", "ejb"],
+    "migrationNote": "Anotações Java EE (@Resource, @PostConstruct, etc.) removidas do JDK no JDK 11."
+  },
+  {
+    "apiPattern": "com.sun.org.apache",
+    "removedInJdk": 9,
+    "jep": null,
+    "severity": "medium",
+    "replacement": "Implementação Apache XML/XSLT externa (xerces2-j, xalan)",
+    "recipe": null,
+    "affectsStacks": ["rest", "ejb", "weblogic"],
+    "migrationNote": "Implementações internas XML/XSLT (com.sun.org.apache.*) encapsuladas no JDK 9. Adicionar implementações externas ao classpath."
+  },
+  {
+    "apiPattern": "java.lang.Thread#countStackFrames",
+    "removedInJdk": 20,
+    "jep": null,
+    "severity": "medium",
+    "replacement": "Thread.getStackTrace().length ou StackWalker",
+    "recipe": null,
+    "affectsStacks": ["rest", "spring-boot"],
+    "migrationNote": "Thread.countStackFrames() lança UnsupportedOperationException desde JDK 20."
+  }
+]

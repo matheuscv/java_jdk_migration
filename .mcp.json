@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "jdk-migration": {
+      "command": "node",
+      "args": ["dist/mcp-server/index.js"],
+      "cwd": "C:\\devtools\\estudos\\labs\\java_jdk_migration"
+    }
+  }
+}

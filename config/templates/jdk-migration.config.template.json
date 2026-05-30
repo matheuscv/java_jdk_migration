@@ -1,0 +1,21 @@
+{
+  "$schema": "../jdk-migration.config.schema.json",
+  "sourceJdk": "8",
+  "targetJdk": "21",
+  "stack": [],
+  "buildSystem": "maven",
+  "appServer": null,
+  "multiModule": false,
+  "modulePaths": [],
+  "ciSystem": null,
+  "testCoverageThreshold": 60,
+  "dryRunBeforeExecute": true,
+  "phases": {
+    "0": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null },
+    "1": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null },
+    "2": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null },
+    "3": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null },
+    "4": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null },
+    "5": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null }
+  }
+}
