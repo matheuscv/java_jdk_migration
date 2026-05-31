@@ -4,11 +4,17 @@ import { springBootProfiler } from '../profilers/spring-boot/index.js'
 import { springBatchProfiler } from '../profilers/spring-batch/index.js'
 import { jakartaProfiler } from '../profilers/jakarta/index.js'
 import { restProfiler } from '../profilers/rest/index.js'
+import { ejbProfiler } from '../profilers/ejb/index.js'
+import { jsfProfiler } from '../profilers/jsf/index.js'
+import { weblogicProfiler } from '../profilers/weblogic/index.js'
 
 const REGISTRY = new Map<StackType, StackProfiler>([
   ['spring-boot', springBootProfiler],
   ['spring-batch', springBatchProfiler],
   ['rest', restProfiler],
+  ['ejb', ejbProfiler],
+  ['jsf', jsfProfiler],
+  ['weblogic', weblogicProfiler],
 ])
 
 // Jakarta é transversal — é adicionado implicitamente para qualquer stack

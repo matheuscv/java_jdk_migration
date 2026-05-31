@@ -22,6 +22,14 @@ export function findXmlFiles(projectPath: string): string[] {
   return findByExt(join(projectPath, 'src'), '.xml')
 }
 
+// Vasculha arquivos .xhtml abaixo de src/main/webapp e src/main/resources
+export function findXhtmlFiles(projectPath: string): string[] {
+  return [
+    ...findByExt(join(projectPath, 'src', 'main', 'webapp'), '.xhtml'),
+    ...findByExt(join(projectPath, 'src', 'main', 'resources'), '.xhtml'),
+  ]
+}
+
 // Vasculha arquivos .properties e .yml / .yaml abaixo de src/main/resources/
 export function findPropertyFiles(projectPath: string): string[] {
   const resourcesDir = join(projectPath, 'src', 'main', 'resources')
