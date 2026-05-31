@@ -5,6 +5,7 @@ import { MigrationError } from '../../lib/errors.js'
 import { generateGateToken, getTokenIssuedAt } from '../../orchestrator/gate-validator.js'
 import { rollbackPhase } from '../../orchestrator/git-checkpoint.js'
 import { updatePhaseStatus } from '../../orchestrator/state-machine.js'
+import { generateAuditReport } from '../../report-generator/index.js'
 import type { PhaseNumber } from '../../types.js'
 
 const FORBIDDEN_APPROVER_NAMES = new Set(['bot', 'automation', 'ci', 'cd', 'system', 'auto'])
@@ -239,23 +240,32 @@ export function registerAuxiliaryTools(server: McpServer): void {
       },
     },
     async ({ projectPath }) => {
-      // TODO (Etapa 7): implementar via report-generator/index.ts
-      return {
-        content: [
-          {
+      try {
+        const result = await generateAuditReport(projectPath)
+        return {
+          content: [{
             type: 'text',
-            text: JSON.stringify(
-              {
-                status: 'not_implemented',
-                module: 'generate_report',
-                projectPath,
-                message: 'Implementação completa na Etapa 7 (Endurecimento).',
-              },
-              null,
-              2,
-            ),
-          },
-        ],
+            text: JSON.stringify({
+              status: 'ok',
+              reportPath: result.reportPath,
+              phasesCompleted: result.phasesCompleted,
+              phasesTotal: result.phasesTotal,
+              openManualItems: result.openManualItems,
+              criticalRisks: result.criticalRisks,
+              message: `Relatório HTML gerado em ${result.reportPath}`,
+            }, null, 2),
+          }],
+        }
+      } catch (err) {
+        if (err instanceof MigrationError) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ error: err.code, message: err.message }, null, 2),
+            }],
+          }
+        }
+        throw err
       }
     },
   )

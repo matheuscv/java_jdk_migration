@@ -85,7 +85,7 @@ const JAKARTA_MAPPINGS: JakartaMapping[] = [
 ]
 
 export const jakartaProfiler: StackProfiler = {
-  stackType: 'rest',  // Usado transversalmente — qualquer stack que use javax.*
+  stackType: 'jakarta',
 
   async analyze(projectPath, _config): Promise<ProfilerReport> {
     const javaFiles = findJavaFiles(projectPath)
@@ -124,7 +124,7 @@ export const jakartaProfiler: StackProfiler = {
     )
 
     return {
-      stackType: 'rest',
+      stackType: 'jakarta',
       riskItems,
       manualReviewItems: [],
       estimatedEffortDays,
