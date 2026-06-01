@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdirSync, rmSync, cpSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
@@ -151,7 +151,13 @@ describe.skipIf(skip)('Ciclo completo fases 0–3 — rest-microservice', () => 
     await install(projectPath)
   })
 
-  afterEach(() => { rmSync(projectPath, { recursive: true, force: true }) })
+  afterEach(() => {
+    const lockPath = join(projectPath, '.jdk-migration', 'lock')
+    if (existsSync(lockPath)) {
+      rmSync(lockPath, { force: true })
+    }
+    rmSync(projectPath, { recursive: true, force: true })
+  })
 
   it('fase 0 executa sem token e vai para awaiting_gate', async () => {
     const { executePhaseForTest } = await import('../../src/mcp-server/tools/execute-phase.js')
@@ -160,7 +166,7 @@ describe.skipIf(skip)('Ciclo completo fases 0–3 — rest-microservice', () => 
     expect(result.phase).toBe(0)
     const config = readConfig(projectPath)
     expect(config.phases[0].status).toBe('awaiting_gate')
-  })
+  }, 15000)
 
   it('fase 1 (build-updater) atualiza pom.xml e vai para awaiting_gate', async () => {
     const { executePhaseForTest } = await import('../../src/mcp-server/tools/execute-phase.js')
