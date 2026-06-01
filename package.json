@@ -4,8 +4,17 @@
   "description": "MCP server that orchestrates Java JDK 6/8 → 21 migrations with human-in-the-loop gates",
   "type": "module",
   "main": "dist/mcp-server/index.js",
+  "bin": {
+    "jdk-migration-mcp": "dist/mcp-server/index.js"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm test",
     "dev": "tsx watch src/mcp-server/index.ts",
     "start": "node dist/mcp-server/index.js",
     "test": "vitest run",
@@ -15,8 +24,27 @@
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["mcp", "java", "jdk", "migration", "openrewrite"],
+  "keywords": [
+    "mcp",
+    "java",
+    "jdk",
+    "migration",
+    "openrewrite",
+    "java-21",
+    "jdk-migration",
+    "model-context-protocol",
+    "claude",
+    "anthropic"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matheuscv/java_jdk_migration"
+  },
+  "homepage": "https://github.com/matheuscv/java_jdk_migration#readme",
+  "bugs": {
+    "url": "https://github.com/matheuscv/java_jdk_migration/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "zod": "^3.23.0"

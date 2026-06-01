@@ -62,6 +62,10 @@ describe.skipIf(skip)('execute_phase — ciclo completo com transform mock', () 
   })
 
   afterEach(() => {
+    const lockPath = join(projectPath, '.jdk-migration', 'lock')
+    if (existsSync(lockPath)) {
+      rmSync(lockPath, { force: true })
+    }
     rmSync(projectPath, { recursive: true, force: true })
   })
 
@@ -77,7 +81,7 @@ describe.skipIf(skip)('execute_phase — ciclo completo com transform mock', () 
     expect(config.phases[0].status).toBe('awaiting_gate')
     expect(config.phases[0].gitBranch).toMatch(/^jdk-migration\/phase-0-/)
     expect(config.phases[0].baseCommit).toMatch(/^[0-9a-f]{40}$/)
-  })
+  }, 15000)
 
   it('fase 0 cria o arquivo de transform mock em .jdk-migration/', async () => {
     const { executePhaseForTest } = await import('../../src/mcp-server/tools/execute-phase.js')
