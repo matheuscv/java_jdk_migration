@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guia de Instrumentação — Claude Code em Projetos Java Legados</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Lora:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0f14;
+    --surface: #13161d;
+    --surface2: #1a1e28;
+    --border: #252a38;
+    --accent1: #e8ff47;
+    --accent2: #4dffc3;
+    --accent3: #ff6b47;
+    --text: #e8eaf0;
+    --text-muted: #7a8099;
+    --text-dim: #4a5168;
+    --phase1: #e8ff47;
+    --phase2: #4dffc3;
+    --phase3: #ff6b47;
+    --phase-bg1: rgba(232,255,71,0.07);
+    --phase-bg2: rgba(77,255,195,0.07);
+    --phase-bg3: rgba(255,107,71,0.07);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Lora', Georgia, serif;
+    font-size: 16px;
+    line-height: 1.75;
+    overflow-x: hidden;
+  }
+
+  /* ── NOISE TEXTURE OVERLAY ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.5;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 5rem 6vw 5rem;
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+
+  .hero-bg::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 70% 20%, rgba(232,255,71,0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 50% at 10% 80%, rgba(77,255,195,0.10) 0%, transparent 55%),
+      radial-gradient(ellipse 40% 40% at 85% 90%, rgba(255,107,71,0.08) 0%, transparent 50%);
+  }
+
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(232,255,71,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(232,255,71,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 20%, transparent 80%);
+  }
+
+  .hero-eyebrow {
+    position: relative;
+    z-index: 1;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent2);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    animation: fadeUp 0.8s ease forwards;
+    opacity: 0;
+    animation-delay: 0.1s;
+  }
+
+  .hero-eyebrow::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 1px;
+    background: var(--accent2);
+  }
+
+  .hero-title {
+    position: relative;
+    z-index: 1;
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(3rem, 7vw, 7rem);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    margin-bottom: 2rem;
+    animation: fadeUp 0.8s ease forwards;
+    opacity: 0;
+    animation-delay: 0.2s;
+  }
+
+  .hero-title .line1 { color: var(--text); display: block; }
+  .hero-title .line2 {
+    display: block;
+    background: linear-gradient(90deg, var(--accent1) 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero-title .line3 { color: var(--text-muted); display: block; font-weight: 600; font-size: 0.55em; letter-spacing: -0.01em; margin-top: 0.3em; }
+
+  .hero-meta {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    animation: fadeUp 0.8s ease forwards;
+    opacity: 0;
+    animation-delay: 0.35s;
+  }
+
+  .hero-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    padding: 0.35rem 0.9rem;
+    border-radius: 2px;
+    border: 1px solid;
+  }
+
+  .hero-tag.y { color: var(--accent1); border-color: rgba(232,255,71,0.3); background: rgba(232,255,71,0.06); }
+  .hero-tag.g { color: var(--accent2); border-color: rgba(77,255,195,0.3); background: rgba(77,255,195,0.06); }
+  .hero-tag.o { color: var(--accent3); border-color: rgba(255,107,71,0.3); background: rgba(255,107,71,0.06); }
+
+  /* ── PROGRESS NAV ── */
+  .progress-nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(13,15,20,0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 6vw;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .progress-nav::-webkit-scrollbar { display: none; }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 1rem 1.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s ease;
+    letter-spacing: 0.05em;
+  }
+
+  .nav-item:hover { color: var(--text); border-bottom-color: var(--border); }
+  .nav-item.p1:hover { color: var(--phase1); border-bottom-color: var(--phase1); }
+  .nav-item.p2:hover { color: var(--phase2); border-bottom-color: var(--phase2); }
+  .nav-item.p3:hover { color: var(--phase3); border-bottom-color: var(--phase3); }
+
+  .nav-num {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+  }
+  .p1 .nav-num { background: rgba(232,255,71,0.15); color: var(--phase1); }
+  .p2 .nav-num { background: rgba(77,255,195,0.15); color: var(--phase2); }
+  .p3 .nav-num { background: rgba(255,107,71,0.15); color: var(--phase3); }
+
+  /* ── MAIN CONTENT ── */
+  .content {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 5rem 6vw;
+  }
+
+  /* ── PHASE HEADER ── */
+  .phase-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 2rem;
+    margin-bottom: 3rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .phase-number {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 5rem;
+    line-height: 1;
+    opacity: 0.15;
+    letter-spacing: -0.05em;
+    flex-shrink: 0;
+  }
+
+  .phase-info { flex: 1; }
+
+  .phase-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+  }
+
+  .phase-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 2.2rem;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .phase-desc {
+    margin-top: 0.6rem;
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 0.95rem;
+  }
+
+  .phase1 .phase-number, .phase1 .phase-label, .phase1 .phase-title { color: var(--phase1); }
+  .phase2 .phase-number, .phase2 .phase-label, .phase2 .phase-title { color: var(--phase2); }
+  .phase3 .phase-number, .phase3 .phase-label, .phase3 .phase-title { color: var(--phase3); }
+
+  /* ── SECTION ── */
+  .section {
+    padding: 5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section:last-child { border-bottom: none; }
+
+  h3 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1.4rem;
+    letter-spacing: -0.02em;
+    margin-bottom: 1.2rem;
+    margin-top: 2.5rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  h3:first-child { margin-top: 0; }
+
+  h3 .h3-accent {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 2px;
+    letter-spacing: 0.1em;
+  }
+
+  h4 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 1rem;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.8rem;
+  }
+
+  p { margin-bottom: 1rem; color: var(--text); }
+  p:last-child { margin-bottom: 0; }
+
+  /* ── CALLOUT BOXES ── */
+  .callout {
+    border-left: 3px solid;
+    padding: 1.25rem 1.5rem;
+    margin: 2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.93rem;
+  }
+
+  .callout.info { border-color: var(--accent2); background: var(--phase-bg2); }
+  .callout.warn { border-color: var(--accent1); background: var(--phase-bg1); }
+  .callout.danger { border-color: var(--accent3); background: var(--phase-bg3); }
+
+  .callout-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-bottom: 0.4rem;
+  }
+
+  .callout.info .callout-label { color: var(--accent2); }
+  .callout.warn .callout-label { color: var(--accent1); }
+  .callout.danger .callout-label { color: var(--accent3); }
+
+  /* ── CODE BLOCKS ── */
+  pre {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    position: relative;
+  }
+
+  pre::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: 0.75rem;
+    right: 1rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  code {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 1.65;
+    color: var(--text);
+  }
+
+  p code, li code {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+    font-size: 0.8em;
+    color: var(--accent2);
+  }
+
+  /* ── SYNTAX HIGHLIGHTS ── */
+  .kw { color: var(--accent3); }
+  .cm { color: var(--text-dim); font-style: italic; }
+  .st { color: var(--accent1); }
+  .fn { color: var(--accent2); }
+  .nm { color: #c9b1ff; }
+  .op { color: var(--text-muted); }
+
+  /* ── TERMINAL PROMPT ── */
+  .terminal {
+    background: #0a0c10;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 1.5rem 0;
+  }
+
+  .terminal-bar {
+    background: var(--surface2);
+    padding: 0.6rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .terminal-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  .terminal-dot.r { background: #ff5f57; }
+  .terminal-dot.y { background: #febc2e; }
+  .terminal-dot.g { background: #28c840; }
+
+  .terminal-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    margin-left: 0.5rem;
+  }
+
+  .terminal-body {
+    padding: 1.25rem 1.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 1.8;
+  }
+
+  .t-prompt { color: var(--accent2); }
+  .t-cmd { color: var(--text); }
+  .t-out { color: var(--text-dim); }
+  .t-claude { color: var(--accent1); }
+  .t-comment { color: var(--text-dim); font-style: italic; }
+
+  /* ── FILE STRUCTURE ── */
+  .file-tree {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    line-height: 2;
+  }
+
+  .ft-dir { color: var(--accent2); }
+  .ft-file { color: var(--text); }
+  .ft-comment { color: var(--text-dim); font-style: italic; margin-left: 1rem; }
+  .ft-important { color: var(--accent1); }
+
+  /* ── CHECKLIST ── */
+  .checklist {
+    list-style: none;
+    padding: 0;
+    margin: 1.5rem 0;
+  }
+
+  .checklist li {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.93rem;
+  }
+
+  .checklist li:last-child { border-bottom: none; }
+
+  .check-box {
+    width: 20px;
+    height: 20px;
+    border: 1.5px solid var(--border);
+    border-radius: 3px;
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+    background: var(--surface2);
+  }
+
+  /* ── STEP CARDS ── */
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 2rem 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .step {
+    display: flex;
+    gap: 1.5rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--surface);
+    align-items: flex-start;
+    transition: background 0.2s ease;
+  }
+
+  .step:hover { background: var(--surface2); }
+  .step + .step { border-top: 1px solid var(--border); }
+
+  .step-num {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.5rem;
+    line-height: 1;
+    opacity: 0.25;
+    flex-shrink: 0;
+    width: 2rem;
+    text-align: right;
+  }
+
+  .step-content { flex: 1; }
+  .step-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 0.2rem;
+  }
+  .step-desc { font-size: 0.88rem; color: var(--text-muted); }
+
+  /* ── GRID 2-COL ── */
+  .grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+
+  .card-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+    color: var(--text-dim);
+  }
+
+  .card-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .card-body {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+  }
+
+  /* ── HIGHLIGHT BAND ── */
+  .highlight-band {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2rem;
+    margin: 2.5rem 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .highlight-band::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent1), var(--accent2), var(--accent3));
+  }
+
+  .highlight-band p { color: var(--text-muted); font-size: 0.95rem; }
+  .highlight-band strong { color: var(--text); font-style: normal; }
+
+  /* ── FOOTER ── */
+  footer {
+    position: relative;
+    z-index: 1;
+    padding: 3rem 6vw;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: gap;
+    gap: 1rem;
+  }
+
+  .footer-brand {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1.1rem;
+    background: linear-gradient(90deg, var(--accent1), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .footer-meta {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .section {
+    animation: fadeUp 0.6s ease both;
+    animation-delay: 0.1s;
+  }
+
+  /* ── DIVIDERS ── */
+  .rule {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 3rem 0;
+  }
+
+  /* ── INLINE EMPHASIS ── */
+  strong { color: var(--text); font-weight: 600; }
+  em { color: var(--text-muted); }
+
+  ul, ol {
+    padding-left: 1.5rem;
+    margin: 1rem 0;
+  }
+
+  li {
+    margin-bottom: 0.4rem;
+    font-size: 0.95rem;
+  }
+
+  li strong { color: var(--accent2); }
+
+  /* ── COMMAND BADGE ── */
+  .kbd {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    color: var(--accent1);
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<header class="hero">
+  <div class="hero-bg">
+    <div class="hero-grid"></div>
+  </div>
+
+  <div class="hero-eyebrow">Guia Técnico de Referência</div>
+
+  <h1 class="hero-title">
+    <span class="line1">Instrumentação com</span>
+    <span class="line2">Claude Code</span>
+    <span class="line3">Projetos Java Legados · Guia Completo Passo a Passo</span>
+  </h1>
+
+  <div class="hero-meta">
+    <span class="hero-tag y">3 Fases</span>
+    <span class="hero-tag g">Java Legado</span>
+    <span class="hero-tag o">Claude Code</span>
+    <span class="hero-tag y">CLAUDE.md</span>
+    <span class="hero-tag g">MCP Ready</span>
+  </div>
+</header>
+
+<!-- ═══════════════ NAV ═══════════════ -->
+<nav class="progress-nav">
+  <a href="#fase1" class="nav-item p1"><span class="nav-num">1</span>Descoberta</a>
+  <a href="#fase2" class="nav-item p2"><span class="nav-num">2</span>Instrumentação</a>
+  <a href="#fase2-1" class="nav-item p2"><span class="nav-num">↳</span>CLAUDE.md</a>
+  <a href="#fase2-2" class="nav-item p2"><span class="nav-num">↳</span>Subpastas</a>
+  <a href="#fase2-3" class="nav-item p2"><span class="nav-num">↳</span>settings.json</a>
+  <a href="#fase2-4" class="nav-item p2"><span class="nav-num">↳</span>Commands</a>
+  <a href="#fase2-5" class="nav-item p2"><span class="nav-num">↳</span>.gitignore</a>
+  <a href="#fase3" class="nav-item p3"><span class="nav-num">3</span>Workflow</a>
+  <a href="#checklist" class="nav-item"><span class="nav-num">✓</span>Checklist</a>
+</nav>
+
+<!-- ═══════════════ CONTENT ═══════════════ -->
+<main class="content">
+
+  <!-- INTRO -->
+  <section class="section">
+    <div class="highlight-band">
+      <p>Este guia cobre o processo completo de instrumentação de um projeto Java legado — desenvolvido por humanos sem apoio de IA — para que passe a evoluir com o <strong>Claude Code</strong>. O objetivo é fazer com que o Claude tenha contexto suficiente para trabalhar com qualidade e segurança em um codebase que ele não conhece.</p>
+      <p style="margin-top:0.75rem;">O processo está dividido em <strong>3 fases</strong>: Descoberta, Instrumentação e Workflow. Siga em ordem na primeira vez; depois, consulte conforme necessário.</p>
+    </div>
+  </section>
+
+  <!-- ═══ FASE 1 ═══ -->
+  <section class="section" id="fase1">
+    <div class="phase-header phase1">
+      <div class="phase-number">01</div>
+      <div class="phase-info">
+        <div class="phase-label">Fase 1</div>
+        <div class="phase-title">Descoberta</div>
+        <div class="phase-desc">Deixe o Claude entender o projeto antes de qualquer coisa.</div>
+      </div>
+    </div>
+
+    <p>Antes de criar qualquer arquivo de configuração, o Claude precisa explorar o codebase. Navegue até a raiz do projeto e abra o Claude Code:</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+        <span class="terminal-title">PowerShell / Git Bash</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-prompt">PS C:\&gt;</span> <span class="t-cmd">cd C:\caminho\para\seu-projeto-java</span></div>
+        <div><span class="t-prompt">PS projeto&gt;</span> <span class="t-cmd">claude</span></div>
+        <div><span class="t-out">✻ Welcome to Claude Code!</span></div>
+        <div><span class="t-out">&nbsp;</span></div>
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">/init</span></div>
+        <div><span class="t-out">  → Scanning project structure...</span></div>
+        <div><span class="t-out">  → Reading pom.xml and dependencies...</span></div>
+        <div><span class="t-out">  → Generating CLAUDE.md...</span></div>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <div class="callout-label">Nota</div>
+      O <code>/init</code> funciona também em projetos existentes — o Claude revisa a estrutura e sugere melhorias baseado no que encontra no codebase. Ele gera um rascunho do <code>CLAUDE.md</code> que você vai revisar e enriquecer.
+    </div>
+
+    <h3>Rodada de perguntas exploratórias</h3>
+    <p>Depois do <code>/init</code>, <strong>antes de editar qualquer coisa</strong>, execute esta rodada de perguntas para validar o que o Claude entendeu:</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+        <span class="terminal-title">Sessão exploratória</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">Descreva a arquitetura geral deste projeto</span></div>
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">Quais são os principais módulos e responsabilidades de cada um?</span></div>
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">Quais padrões de design estão sendo usados?</span></div>
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">Quais são as dependências externas e integrações?</span></div>
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">Onde estão os pontos de entrada da API (controllers/endpoints)?</span></div>
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">Existe alguma convenção de nomenclatura ou estrutura de pacotes?</span></div>
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">Que frameworks e versões estão sendo usados? (leia o pom.xml)</span></div>
+      </div>
+    </div>
+
+    <p>Use as respostas para <strong>alimentar e corrigir</strong> o <code>CLAUDE.md</code> que o <code>/init</code> gerou. Qualquer ponto onde o Claude errar ou mostrar lacuna é um candidato a seção no arquivo.</p>
+
+    <div class="callout warn">
+      <div class="callout-label">Pré-requisito</div>
+      Se o projeto ainda não tem Git inicializado, faça isso antes de qualquer coisa. O Claude Code trabalha com diff e histórico para entender mudanças e criar guardrails seguros.
+      <pre data-lang="bash"><code><span class="fn">git</span> init
+<span class="fn">git</span> add .
+<span class="fn">git</span> commit -m <span class="st">"chore: initial commit before Claude Code setup"</span></code></pre>
+    </div>
+  </section>
+
+  <!-- ═══ FASE 2 ═══ -->
+  <section class="section" id="fase2">
+    <div class="phase-header phase2">
+      <div class="phase-number">02</div>
+      <div class="phase-info">
+        <div class="phase-label">Fase 2</div>
+        <div class="phase-title">Instrumentação</div>
+        <div class="phase-desc">Os arquivos que você precisa criar para dar contexto permanente ao Claude.</div>
+      </div>
+    </div>
+
+    <p>A instrumentação consiste em criar um conjunto de arquivos que dão ao Claude <em>contexto persistente</em> sobre o projeto — convenções, restrições, comandos, estrutura e guardrails. Esses arquivos ficam no repositório e são lidos em toda sessão.</p>
+
+    <div class="file-tree">
+      <div><span class="ft-dir">seu-projeto-java/</span></div>
+      <div>├── <span class="ft-important">CLAUDE.md</span>              <span class="ft-comment">← cérebro do projeto (commitar)</span></div>
+      <div>├── <span class="ft-dir">.claude/</span></div>
+      <div>│   ├── <span class="ft-important">settings.json</span>      <span class="ft-comment">← permissões e guardrails (commitar)</span></div>
+      <div>│   ├── <span class="ft-file">settings.local.json</span>  <span class="ft-comment">← config pessoal (.gitignore)</span></div>
+      <div>│   └── <span class="ft-dir">commands/</span>              <span class="ft-comment">← slash commands customizados (commitar)</span></div>
+      <div>│       ├── <span class="ft-file">nova-feature.md</span></div>
+      <div>│       ├── <span class="ft-file">revisar-pr.md</span></div>
+      <div>│       └── <span class="ft-file">adicionar-teste.md</span></div>
+      <div>├── <span class="ft-file">pom.xml</span></div>
+      <div>└── <span class="ft-dir">src/</span></div>
+    </div>
+
+    <!-- 2.1 CLAUDE.md -->
+    <h3 id="fase2-1">2.1 — <code>CLAUDE.md</code> <span class="h3-accent" style="background:rgba(77,255,195,0.1);color:var(--accent2);">O mais importante</span></h3>
+
+    <p>Este arquivo é lido pelo Claude no início de <strong>toda sessão</strong>. Para um projeto legado, ele precisa ser especialmente rico — vai substituir anos de contexto que humanos acumularam organicamente sobre o codebase.</p>
+
+    <pre data-lang="markdown"><code><span class="cm"># [Nome do Projeto]</span>
+
+<span class="kw">## Visão Geral</span>
+[O que faz, qual domínio de negócio, quem usa]
+
+<span class="kw">## Stack Técnica</span>
+- Java [versão] (Eclipse Temurin)
+- [Spring Boot X.Y / Jakarta EE / Quarkus / etc.]
+- Maven — pom.xml na raiz
+- [JPA/Hibernate / MyBatis / JDBC puro]
+- [Banco: Oracle 19c / PostgreSQL 14 / etc.]
+- [Autenticação: JWT / OAuth2 / LDAP / etc.]
+- [Servidor: Tomcat embutido / JBoss / WebLogic / etc.]
+
+<span class="kw">## Estrutura de Pacotes</span>
+<span class="nm">```
+com.empresa.projeto
+├── controller/     # endpoints REST
+├── service/        # lógica de negócio
+├── repository/     # acesso a dados
+├── domain/         # entidades e DTOs
+├── config/         # beans de configuração
+└── util/           # utilitários
+```</span>
+
+<span class="kw">## Comandos Essenciais</span>
+<span class="nm">```bash
+mvn clean install          # build completo
+mvn test                   # testes unitários
+mvn verify                 # build + integração
+mvn spring-boot:run        # subir local
+```</span>
+
+<span class="kw">## Convenções do Projeto (IMPORTANTE)</span>
+- Controllers nomeados como XxxController
+- Padrão de resposta: ResponseEntity&lt;ApiResponse&lt;T&gt;&gt;
+- Exceções: GlobalExceptionHandler via @ControllerAdvice
+- @Transactional sempre na service, nunca no controller
+- Logs: SLF4J com Lombok @Slf4j
+
+<span class="kw">## Áreas Críticas — Alterar com Cuidado</span>
+- XxxLegacyService — sem testes, risco alto de regressão
+- db/migrations/ — nunca editar existentes, apenas criar novas
+- XxxIntegration — integração com sistema externo de produção
+
+<span class="kw">## Decisões Arquiteturais</span>
+- "Usamos JDBC puro no módulo de relatórios por performance — não migrar para JPA"
+- "DTOs mapeados manualmente, não usamos MapStruct por decisão do time"
+
+<span class="kw">## O Que NÃO Fazer</span>
+- Não usar `var` — mantemos compatibilidade de leitura com Java 8
+- Não adicionar dependências ao pom.xml sem discussão
+- Não refatorar código legado sem cobertura de testes primeiro
+
+<span class="kw">## Contexto de Testes</span>
+- Framework: JUnit 5 + Mockito
+- Espelha estrutura do main em src/test/java
+- Cobertura atual: [X%] — módulos sem cobertura: [listar]</code></pre>
+
+    <div class="callout warn">
+      <div class="callout-label">Regra de Ouro</div>
+      Mantenha o <code>CLAUDE.md</code> abaixo de <strong>200 linhas</strong>. Priorize documentar o que o Claude costuma errar sobre convenções gerais. Qualquer erro de convenção que ele cometer durante o desenvolvimento — adicione imediatamente uma nota em "O Que NÃO Fazer".
+    </div>
+
+    <!-- 2.2 Subpastas -->
+    <h3 id="fase2-2">2.2 — <code>CLAUDE.md</code> por módulo/pacote</h3>
+
+    <p>Para projetos grandes com múltiplos módulos Maven ou pacotes com lógica muito específica, crie <code>CLAUDE.md</code> dentro das subpastas relevantes:</p>
+
+    <div class="file-tree">
+      <div><span class="ft-dir">src/main/java/com/empresa/projeto/</span></div>
+      <div>├── <span class="ft-important">CLAUDE.md</span>              <span class="ft-comment">← regras gerais de código Java</span></div>
+      <div>├── <span class="ft-dir">pagamento/</span></div>
+      <div>│   └── <span class="ft-important">CLAUDE.md</span>          <span class="ft-comment">← regras específicas do módulo</span></div>
+      <div>└── <span class="ft-dir">relatorios/</span></div>
+      <div>    └── <span class="ft-important">CLAUDE.md</span>          <span class="ft-comment">← "use JDBC puro, não JPA"</span></div>
+    </div>
+
+    <p>O Claude lê automaticamente o <code>CLAUDE.md</code> mais próximo de onde está trabalhando — útil para isolar regras que só se aplicam a um contexto específico.</p>
+
+    <!-- 2.3 settings.json -->
+    <h3 id="fase2-3">2.3 — <code>.claude/settings.json</code> <span class="h3-accent" style="background:rgba(255,107,71,0.1);color:var(--accent3);">Guardrails</span></h3>
+
+    <p>Define o que o Claude tem permissão de ler, escrever e executar. Para um projeto legado, isso é essencial — você quer guardrails que impeçam alterações acidentais em áreas críticas.</p>
+
+    <pre data-lang="json"><code><span class="op">{</span>
+  <span class="st">"permissions"</span><span class="op">:</span> <span class="op">{</span>
+    <span class="st">"allow"</span><span class="op">:</span> <span class="op">[</span>
+      <span class="st">"Read(**)"</span><span class="op">,</span>
+      <span class="st">"Write(src/main/java/**)"</span><span class="op">,</span>
+      <span class="st">"Write(src/test/java/**)"</span><span class="op">,</span>
+      <span class="st">"Write(src/main/resources/**)"</span><span class="op">,</span>
+      <span class="st">"Bash(mvn clean install)"</span><span class="op">,</span>
+      <span class="st">"Bash(mvn test)"</span><span class="op">,</span>
+      <span class="st">"Bash(mvn verify)"</span><span class="op">,</span>
+      <span class="st">"Bash(mvn spring-boot:run)"</span>
+    <span class="op">],</span>
+    <span class="st">"deny"</span><span class="op">:</span> <span class="op">[</span>
+      <span class="st">"Write(pom.xml)"</span><span class="op">,</span>
+      <span class="st">"Write(db/migrations/**)"</span><span class="op">,</span>
+      <span class="st">"Write(.env)"</span><span class="op">,</span>
+      <span class="st">"Write(*.properties)"</span><span class="op">,</span>
+      <span class="st">"Bash(git push*)"</span>
+    <span class="op">]</span>
+  <span class="op">}</span>
+<span class="op">}</span></code></pre>
+
+    <div class="callout info">
+      <div class="callout-label">Como funciona</div>
+      Ações dentro de <code>allow</code> são executadas diretamente. Ações em <code>deny</code> são bloqueadas — o Claude pedirá sua confirmação manual. Adapte os bloqueios conforme o que for crítico no <em>seu</em> projeto.
+    </div>
+
+    <!-- 2.4 Commands -->
+    <h3 id="fase2-4">2.4 — Slash commands customizados</h3>
+
+    <p>Crie a pasta <code>.claude/commands/</code> com comandos que você usará com frequência. Cada arquivo <code>.md</code> vira um comando acessível com <code>/nome-do-arquivo</code> dentro do Claude Code.</p>
+
+    <h4>.claude/commands/nova-feature.md</h4>
+    <pre data-lang="markdown"><code>Implemente uma nova feature seguindo o padrão do projeto:
+
+1. Leia o CLAUDE.md para relembrar as convenções
+2. Crie o Controller em `controller/` com anotações padrão
+3. Crie a Service em `service/` com @Service e @Transactional
+4. Crie o Repository em `repository/`
+5. Crie os DTOs necessários em `domain/dto/`
+6. Escreva testes unitários para a Service
+7. Descreva o que foi feito e o que precisa de atenção
+
+Feature a implementar: <span class="kw">$ARGUMENTS</span></code></pre>
+
+    <h4>.claude/commands/revisar-pr.md</h4>
+    <pre data-lang="markdown"><code>Revise o código modificado nesta sessão:
+
+1. Verifique aderência às convenções do CLAUDE.md
+2. Identifique riscos de regressão
+3. Verifique se há testes cobrindo os caminhos críticos
+4. Aponte código legado tocado sem cobertura de testes
+5. Sugira melhorias sem implementar — apenas liste</code></pre>
+
+    <h4>.claude/commands/adicionar-teste.md</h4>
+    <pre data-lang="markdown"><code>Adicione testes para: <span class="kw">$ARGUMENTS</span>
+
+Siga o padrão do projeto:
+- JUnit 5 + Mockito
+- Padrão AAA (Arrange, Act, Assert) com comentários
+- Nomes descritivos: `deveRetornarErroQuando[Cenario]()`
+- Mocke apenas dependências externas, não a classe sob teste</code></pre>
+
+    <div class="callout info">
+      <div class="callout-label">Como usar</div>
+      Dentro do Claude Code, digite <code>/nova-feature endpoint de cancelamento de pedido</code> — o <code>$ARGUMENTS</code> será substituído pelo texto que você passar.
+    </div>
+
+    <!-- 2.5 gitignore -->
+    <h3 id="fase2-5">2.5 — Atualizar o <code>.gitignore</code></h3>
+
+    <p>Adicione ao <code>.gitignore</code> existente do projeto:</p>
+
+    <pre data-lang="gitignore"><code><span class="cm"># Claude Code — configurações pessoais (não commitar)</span>
+.claude/settings.local.json
+
+<span class="cm"># Memória automática gerada por sessão (é local)</span>
+.claude/memory/</code></pre>
+
+    <div class="highlight-band" style="margin-top:2.5rem;">
+      <p><strong>Regra de git para o time:</strong> commite <code>CLAUDE.md</code>, <code>.claude/settings.json</code> e <code>.claude/commands/</code> para que todo o time compartilhe o mesmo contexto. Mantenha <code>settings.local.json</code> fora do git — ele guarda preferências pessoais de cada desenvolvedor.</p>
+    </div>
+  </section>
+
+  <!-- ═══ FASE 3 ═══ -->
+  <section class="section" id="fase3">
+    <div class="phase-header phase3">
+      <div class="phase-number">03</div>
+      <div class="phase-info">
+        <div class="phase-label">Fase 3</div>
+        <div class="phase-title">Workflow</div>
+        <div class="phase-desc">Como trabalhar no dia a dia com Claude Code em um projeto legado.</div>
+      </div>
+    </div>
+
+    <h3>O ciclo correto para projetos legados</h3>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num" style="color:var(--accent3)">1</div>
+        <div class="step-content">
+          <div class="step-title">Abrir Claude Code na raiz</div>
+          <div class="step-desc"><code>cd seu-projeto &amp;&amp; claude</code> — sempre a partir da raiz para o CLAUDE.md ser lido.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="color:var(--accent3)">2</div>
+        <div class="step-content">
+          <div class="step-title">Dar contexto da tarefa</div>
+          <div class="step-desc">Descreva o objetivo em linguagem natural. Quanto mais contexto de negócio, melhor.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="color:var(--accent3)">3</div>
+        <div class="step-content">
+          <div class="step-title">Pedir exploração ANTES da implementação</div>
+          <div class="step-desc">Para tarefas complexas, peça que o Claude leia os arquivos relevantes e explique o fluxo atual antes de propor qualquer mudança.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="color:var(--accent3)">4</div>
+        <div class="step-content">
+          <div class="step-title">Usar Plan Mode — sempre para mudanças estruturais</div>
+          <div class="step-desc">Pressione <span class="kbd">Shift + Tab</span> para ativar. O Claude descreve o plano completo e aguarda sua aprovação antes de tocar em qualquer arquivo.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="color:var(--accent3)">5</div>
+        <div class="step-content">
+          <div class="step-title">Aprovar → Claude implementa</div>
+          <div class="step-desc">Após revisar e aprovar o plano, o Claude executa as mudanças seguindo exatamente o que foi combinado.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="color:var(--accent3)">6</div>
+        <div class="step-content">
+          <div class="step-title">Revisar o diff com atenção</div>
+          <div class="step-desc">Leia cada alteração. Para legado, preste atenção especial em mudanças que tocam código sem cobertura de testes.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="color:var(--accent3)">7</div>
+        <div class="step-content">
+          <div class="step-title">Rodar os testes</div>
+          <div class="step-desc"><code>mvn test</code> ou <code>mvn verify</code> — nunca commite sem a suíte de testes passar.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="color:var(--accent3)">8</div>
+        <div class="step-content">
+          <div class="step-title">Commitar</div>
+          <div class="step-desc">Commits atômicos e descritivos. O histórico de git é contexto valioso para futuras sessões do Claude.</div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Prompt de abertura para tarefas complexas</h3>
+    <p>Para tarefas que tocam lógica de negócio crítica, use este padrão antes de pedir código:</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+        <span class="terminal-title">Prompt recomendado para legado</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-claude">claude&gt;</span> <span class="t-cmd">Antes de implementar, leia os arquivos:</span></div>
+        <div><span class="t-cmd">&nbsp;&nbsp;- src/main/java/com/empresa/projeto/[Módulo]Service.java</span></div>
+        <div><span class="t-cmd">&nbsp;&nbsp;- src/main/java/com/empresa/projeto/[Módulo]Controller.java</span></div>
+        <div><span class="t-cmd">&nbsp;&nbsp;- CLAUDE.md</span></div>
+        <div>&nbsp;</div>
+        <div><span class="t-cmd">&nbsp;&nbsp;Me explique como o fluxo de [funcionalidade] funciona hoje,</span></div>
+        <div><span class="t-cmd">&nbsp;&nbsp;e só depois me diga sua proposta de implementação.</span></div>
+        <div><span class="t-cmd">&nbsp;&nbsp;Aguarde minha aprovação antes de alterar qualquer arquivo.</span></div>
+      </div>
+    </div>
+
+    <h3>Plan Mode — atalho essencial</h3>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-label">Ativar / Desativar</div>
+        <div class="card-title" style="font-size:1.5rem;"><span class="kbd">Shift</span> + <span class="kbd">Tab</span></div>
+        <div class="card-body" style="margin-top:0.75rem;">Alterna entre modo de execução e modo de planejamento dentro de uma sessão ativa.</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Por que usar</div>
+        <div class="card-title">Para mudanças estruturais</div>
+        <div class="card-body" style="margin-top:0.75rem;">O Claude descreve o que vai fazer e por quê antes de tocar em qualquer arquivo. Você pega premissas erradas antes que virem código.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CHECKLIST ═══ -->
+  <section class="section" id="checklist">
+    <h3>Checklist Final de Instrumentação</h3>
+    <p>Marque mentalmente cada item antes de considerar o projeto instrumentado:</p>
+
+    <ul class="checklist">
+      <li><span class="check-box"></span><span>Git inicializado e projeto com commit inicial criado</span></li>
+      <li><span class="check-box"></span><span><code>/init</code> executado — <code>CLAUDE.md</code> rascunho gerado</span></li>
+      <li><span class="check-box"></span><span>Rodada de perguntas exploratórias concluída</span></li>
+      <li><span class="check-box"></span><span><code>CLAUDE.md</code> revisado e enriquecido com contexto real do projeto</span></li>
+      <li><span class="check-box"></span><span><code>CLAUDE.md</code> por subpasta para módulos críticos (se necessário)</span></li>
+      <li><span class="check-box"></span><span><code>.claude/settings.json</code> criado com permissões e guardrails corretos</span></li>
+      <li><span class="check-box"></span><span><code>.claude/commands/</code> com slash commands do dia a dia</span></li>
+      <li><span class="check-box"></span><span><code>.gitignore</code> atualizado com entradas do Claude Code</span></li>
+      <li><span class="check-box"></span><span><code>CLAUDE.md</code> e <code>.claude/settings.json</code> commitados no git</span></li>
+      <li><span class="check-box"></span><span>Primeiro ciclo completo validado: Plan → Implementa → <code>mvn test</code> → Commit</span></li>
+    </ul>
+
+    <div class="highlight-band" style="margin-top:3rem;">
+      <p>O investimento de <strong>1 a 2 horas</strong> nessa instrumentação inicial vai te poupar de reexplicar contexto em cada sessão e vai evitar que o Claude "invente" convenções que contradizem o projeto legado. Qualquer erro de convenção que ele cometer — adicione imediatamente ao <code>CLAUDE.md</code> na seção "O Que NÃO Fazer".</p>
+    </div>
+  </section>
+
+</main>
+
+<!-- ═══════════════ FOOTER ═══════════════ -->
+<footer>
+  <div class="footer-brand">Claude Code · Java Legado</div>
+  <div class="footer-meta">Gerado com Claude Sonnet 4.6 · claude.ai · 2026</div>
+</footer>
+
+</body>
+</html>
