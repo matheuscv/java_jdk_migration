@@ -68,12 +68,12 @@ export async function commitPhaseChanges(
   if (status.stdout.trim() === '') {
     // Nada para commitar — cria commit vazio para registrar a fase
     await git(
-      ['commit', '--allow-empty', '-m', `chore(jdk-migration): fase ${phase} — ${message}`],
+      ['commit', '--allow-empty', '-m', `chore(jdk-migration): fase ${phase} -- ${message}`],
       projectPath,
     )
   } else {
     await git(
-      ['commit', '-m', `chore(jdk-migration): fase ${phase} — ${message}`],
+      ['commit', '-m', `chore(jdk-migration): fase ${phase} -- ${message}`],
       projectPath,
     )
   }
@@ -99,9 +99,9 @@ export async function createPullRequest(
   const ghCheck = await runProcess('gh', ['--version'], { cwd: projectPath, timeoutMs: 5_000 })
   if (ghCheck.exitCode !== 0) return null  // gh não disponível — não falha
 
-  const title = `chore(jdk-migration): fase ${phase} — migração JDK 8→21`
+  const title = `chore(jdk-migration): fase ${phase} -- migracao JDK 8 para 21`
   const body = [
-    `## Migração JDK — Fase ${phase}`,
+    `## Migracao JDK -- Fase ${phase}`,
     '',
     summary,
     '',
