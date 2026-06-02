@@ -1,0 +1,1689 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guia Completo — JDK Migration MCP v2</title>
+  <style>
+    :root {
+      --java-orange: #f89820;
+      --java-blue: #5382a1;
+      --java-dark: #1a1a2e;
+      --java-darker: #0f0f1a;
+      --accent-green: #00d68f;
+      --accent-red: #ff4757;
+      --accent-yellow: #ffd32a;
+      --accent-purple: #a55eea;
+      --accent-cyan: #00c8e0;
+      --text-primary: #e8eaf6;
+      --text-secondary: #9e9e9e;
+      --card-bg: #1e1e3a;
+      --card-border: #2d2d5a;
+      --code-bg: #0d1117;
+      --phase-0: #00d68f;
+      --phase-1: #5382a1;
+      --phase-2: #ffd32a;
+      --phase-3: #f89820;
+      --phase-4: #ff6b35;
+      --phase-5: #a55eea;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--java-darker);
+      color: var(--text-primary);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      position: relative;
+      min-height: 420px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 60px 20px 80px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #0f0f1a 0%, #1a1a3e 50%, #0f1a2e 100%);
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 40%, rgba(83,130,161,0.18) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 50% at 80% 60%, rgba(248,152,32,0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(248,152,32,0.15);
+      border: 1px solid rgba(248,152,32,0.4);
+      color: var(--java-orange);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 6px 16px;
+      border-radius: 20px;
+      margin-bottom: 24px;
+      animation: fadeInDown 0.6s ease;
+    }
+
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 800;
+      background: linear-gradient(135deg, #fff 0%, var(--java-orange) 60%, var(--java-blue) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.2;
+      margin-bottom: 16px;
+      animation: fadeInDown 0.7s ease;
+    }
+
+    .hero-sub {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      max-width: 680px;
+      animation: fadeInDown 0.8s ease;
+    }
+
+    .hero-version {
+      margin-top: 20px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      animation: fadeInDown 0.9s ease;
+    }
+
+    .pill {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      padding: 4px 14px;
+      border-radius: 20px;
+    }
+
+    .pill.green { border-color: rgba(0,214,143,0.4); color: var(--accent-green); background: rgba(0,214,143,0.08); }
+    .pill.orange { border-color: rgba(248,152,32,0.4); color: var(--java-orange); background: rgba(248,152,32,0.08); }
+    .pill.blue { border-color: rgba(83,130,161,0.4); color: var(--java-blue); background: rgba(83,130,161,0.08); }
+
+    /* ── MAIN LAYOUT ── */
+    .container {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── SECTION TITLE ── */
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin: 56px 0 28px;
+    }
+
+    .section-number {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--java-orange), var(--java-blue));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    .section-title h2 {
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .section-title p {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    /* ── STEP CARD ── */
+    .step-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin-bottom: 20px;
+      position: relative;
+      transition: border-color 0.2s;
+    }
+
+    .step-card:hover { border-color: rgba(248,152,32,0.35); }
+
+    .step-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .step-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(248,152,32,0.15);
+      border: 1px solid rgba(248,152,32,0.35);
+      color: var(--java-orange);
+      font-weight: 800;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .step-num.blue { background: rgba(83,130,161,0.15); border-color: rgba(83,130,161,0.35); color: var(--java-blue); }
+    .step-num.green { background: rgba(0,214,143,0.1); border-color: rgba(0,214,143,0.35); color: var(--accent-green); }
+    .step-num.purple { background: rgba(165,94,234,0.1); border-color: rgba(165,94,234,0.35); color: var(--accent-purple); }
+    .step-num.red { background: rgba(255,71,87,0.1); border-color: rgba(255,71,87,0.35); color: var(--accent-red); }
+
+    .step-title { font-size: 1.05rem; font-weight: 700; color: #fff; }
+    .step-desc { font-size: 0.9rem; color: var(--text-secondary); margin-top: 3px; line-height: 1.5; }
+
+    /* ── META BADGES ── */
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .meta-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 8px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .meta-badge.where { background: rgba(83,130,161,0.15); border: 1px solid rgba(83,130,161,0.3); color: #7eb8d8; }
+    .meta-badge.who-human { background: rgba(0,214,143,0.1); border: 1px solid rgba(0,214,143,0.3); color: var(--accent-green); }
+    .meta-badge.who-claude { background: rgba(165,94,234,0.1); border: 1px solid rgba(165,94,234,0.3); color: var(--accent-purple); }
+    .meta-badge.who-both { background: rgba(248,152,32,0.1); border: 1px solid rgba(248,152,32,0.3); color: var(--java-orange); }
+
+    /* ── CODE BLOCKS ── */
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid #1e2a3a;
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 14px 0;
+      position: relative;
+    }
+
+    .code-label {
+      background: #111827;
+      border-bottom: 1px solid #1e2a3a;
+      padding: 7px 16px;
+      font-size: 0.72rem;
+      color: #6b7280;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .code-label .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-red { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #27c93f; }
+
+    code, pre {
+      font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+      font-size: 0.85rem;
+    }
+
+    pre {
+      padding: 18px 20px;
+      overflow-x: auto;
+      line-height: 1.65;
+      color: #c9d1d9;
+      white-space: pre;
+    }
+
+    .inline-code {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 0.82rem;
+      color: var(--java-orange);
+    }
+
+    /* ── VALIDATION BOX ── */
+    .validation-box {
+      background: rgba(0,214,143,0.06);
+      border: 1px solid rgba(0,214,143,0.2);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-top: 14px;
+    }
+
+    .validation-box .val-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--accent-green);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .validation-box ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .validation-box li {
+      font-size: 0.87rem;
+      color: #a7f3d0;
+      padding: 3px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .validation-box li::before { content: '✓'; color: var(--accent-green); flex-shrink: 0; font-weight: 700; }
+
+    /* ── WARNING BOX ── */
+    .warning-box {
+      background: rgba(255,215,42,0.06);
+      border: 1px solid rgba(255,215,42,0.25);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-top: 14px;
+    }
+
+    .warning-box .warn-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--accent-yellow);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .warning-box p, .warning-box li {
+      font-size: 0.87rem;
+      color: #fef3c7;
+      line-height: 1.6;
+    }
+
+    .warning-box ul { padding-left: 18px; }
+
+    /* ── INFO BOX ── */
+    .info-box {
+      background: rgba(83,130,161,0.08);
+      border: 1px solid rgba(83,130,161,0.25);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-top: 14px;
+    }
+
+    .info-box p {
+      font-size: 0.87rem;
+      color: #bfdbfe;
+      line-height: 1.6;
+    }
+
+    /* ── TOOL CARD ── */
+    .tool-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin-bottom: 24px;
+    }
+
+    .tool-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .tool-name {
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--java-orange);
+    }
+
+    .tool-criticality {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .crit-low { background: rgba(0,214,143,0.12); border: 1px solid rgba(0,214,143,0.3); color: var(--accent-green); }
+    .crit-medium { background: rgba(255,215,42,0.12); border: 1px solid rgba(255,215,42,0.3); color: var(--accent-yellow); }
+    .crit-high { background: rgba(248,152,32,0.12); border: 1px solid rgba(248,152,32,0.3); color: var(--java-orange); }
+    .crit-critical { background: rgba(255,71,87,0.12); border: 1px solid rgba(255,71,87,0.3); color: var(--accent-red); }
+
+    .tool-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      line-height: 1.6;
+    }
+
+    /* ── PARAM TABLE ── */
+    .param-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      margin: 14px 0;
+    }
+
+    .param-table th {
+      text-align: left;
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+    }
+
+    .param-table td {
+      padding: 10px 12px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      vertical-align: top;
+      line-height: 1.5;
+    }
+
+    .param-table td:first-child {
+      font-family: 'Cascadia Code', monospace;
+      color: var(--accent-cyan);
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .param-table td:nth-child(2) { color: #a78bfa; font-size: 0.78rem; }
+    .param-table td:nth-child(3) { color: var(--text-secondary); }
+    .param-table .required-tag { color: var(--accent-red); font-size: 0.68rem; font-weight: 700; }
+    .param-table .optional-tag { color: #6b7280; font-size: 0.68rem; }
+
+    /* ── FLOW DIAGRAM ── */
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      overflow-x: auto;
+      padding: 8px 0 20px;
+    }
+
+    .flow-item {
+      flex: 1;
+      min-width: 120px;
+      text-align: center;
+      position: relative;
+    }
+
+    .flow-item:not(:last-child)::after {
+      content: '→';
+      position: absolute;
+      right: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-secondary);
+      font-size: 1.2rem;
+      z-index: 1;
+    }
+
+    .flow-node {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px 8px;
+      margin: 0 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .flow-node.active { border-color: var(--java-orange); background: rgba(248,152,32,0.1); }
+
+    .flow-sub {
+      font-size: 0.68rem;
+      color: var(--text-secondary);
+      margin-top: 6px;
+    }
+
+    /* ── PHASE TIMELINE ── */
+    .phase-timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .phase-row {
+      display: grid;
+      grid-template-columns: 32px 1fr auto;
+      align-items: center;
+      gap: 14px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px 18px;
+      border-left-width: 3px;
+    }
+
+    .phase-row.p0 { border-left-color: var(--phase-0); }
+    .phase-row.p1 { border-left-color: var(--phase-1); }
+    .phase-row.p2 { border-left-color: var(--phase-2); }
+    .phase-row.p3 { border-left-color: var(--phase-3); }
+    .phase-row.p4 { border-left-color: var(--phase-4); }
+    .phase-row.p5 { border-left-color: var(--phase-5); }
+
+    .phase-num { font-weight: 800; font-size: 0.9rem; color: var(--text-secondary); }
+    .phase-name { font-weight: 600; font-size: 0.9rem; }
+    .phase-gate { font-size: 0.78rem; color: var(--text-secondary); }
+    .phase-crit-badge { font-size: 0.68rem; font-weight: 700; padding: 3px 10px; border-radius: 10px; text-transform: uppercase; }
+
+    /* ── TOC ── */
+    .toc {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin: 40px 0 0;
+    }
+
+    .toc h3 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; color: var(--java-orange); }
+
+    .toc ol { padding-left: 20px; }
+    .toc li { padding: 5px 0; }
+    .toc a { color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
+    .toc a:hover { color: var(--java-orange); }
+
+    /* ── DIVIDER ── */
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--card-border), transparent);
+      margin: 48px 0;
+    }
+
+    /* ── ANIMATIONS ── */
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 680px) {
+      .step-card, .tool-card { padding: 20px; }
+      .flow { flex-direction: column; }
+      .flow-item:not(:last-child)::after { content: '↓'; right: auto; left: 50%; top: auto; bottom: -14px; transform: translateX(-50%); }
+      .param-table { display: block; overflow-x: auto; }
+    }
+
+    /* ── SYNTAX COLORS ── */
+    .s-key { color: #79b8ff; }
+    .s-str { color: #9ecbff; }
+    .s-num { color: #f8c555; }
+    .s-kw { color: #f97583; }
+    .s-cmt { color: #6a737d; font-style: italic; }
+    .s-cmd { color: var(--accent-green); }
+    .s-flag { color: #b392f0; }
+    .s-path { color: #ffd32a; }
+
+    /* ── FOOTER ── */
+    footer {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-secondary);
+      font-size: 0.82rem;
+      border-top: 1px solid var(--card-border);
+    }
+    footer a { color: var(--java-orange); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<!-- ── HERO ── -->
+<section class="hero">
+  <div class="hero-badge">☕ Model Context Protocol · Java Migration</div>
+  <h1>JDK Migration MCP<br>Guia Completo v2</h1>
+  <p class="hero-sub">
+    Passo a passo detalhado para instalar, configurar e operar o MCP de migração Java
+    JDK 6/8 → 21 via <strong>npmjs.com</strong> — com indicação de quem executa cada ação,
+    onde executar e como validar o sucesso.
+  </p>
+  <div class="hero-version">
+    <span class="pill green">v0.1.1 · npmjs.com</span>
+    <span class="pill orange">JDK 6/8 → 21</span>
+    <span class="pill blue">Claude Code · MCP</span>
+    <span class="pill">Human-in-the-loop</span>
+  </div>
+</section>
+
+<div class="container">
+
+  <!-- ── TOC ── -->
+  <div class="toc">
+    <h3>Índice</h3>
+    <ol>
+      <li><a href="#prereqs">Pré-requisitos</a></li>
+      <li><a href="#install-mcp">Instalação do MCP via npm</a></li>
+      <li><a href="#config-claude">Configuração no Claude Code (projeto-alvo)</a></li>
+      <li><a href="#validate-mcp">Validação da conexão MCP</a></li>
+      <li><a href="#skill-config">Configuração da Skill no projeto-alvo</a></li>
+      <li><a href="#tools">Referência completa das 7 Tools MCP</a></li>
+      <li><a href="#flow">Fluxo completo de migração ponta a ponta</a></li>
+      <li><a href="#troubleshooting">Troubleshooting</a></li>
+    </ol>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SEÇÃO 1 — PRÉ-REQUISITOS
+  ═══════════════════════════════════════════════ -->
+  <div class="section-title" id="prereqs">
+    <div class="section-number">1</div>
+    <div>
+      <h2>Pré-requisitos</h2>
+      <p>O que deve estar instalado antes de começar</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num">1.1</div>
+      <div>
+        <div class="step-title">Node.js ≥ 18 e npm ≥ 9</div>
+        <div class="step-desc">O MCP server roda em Node.js. Versões anteriores não suportam ESM nativo.</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💻 Terminal local</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>PowerShell / Terminal</div>
+      <pre><span class="s-cmd">node</span> <span class="s-flag">--version</span>    <span class="s-cmt"># deve ser v18 ou superior</span>
+<span class="s-cmd">npm</span> <span class="s-flag">--version</span>     <span class="s-cmt"># deve ser 9 ou superior</span></pre>
+    </div>
+    <div class="validation-box">
+      <div class="val-title">✔ Validação</div>
+      <ul>
+        <li>Saída de <code>node --version</code> começa com <code>v18</code>, <code>v20</code> ou <code>v24</code></li>
+        <li>Saída de <code>npm --version</code> é <code>9.x</code> ou superior</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num">1.2</div>
+      <div>
+        <div class="step-title">Claude Code CLI instalado e autenticado</div>
+        <div class="step-desc">O MCP é consumido pelo Claude Code. Certifique-se de que o CLI está instalado e logado.</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💻 Terminal local</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Terminal</div>
+      <pre><span class="s-cmd">claude</span> <span class="s-flag">--version</span>   <span class="s-cmt"># verifica instalação</span>
+<span class="s-cmd">claude</span> mcp list   <span class="s-cmt"># lista MCPs ativos (pode estar vazio)</span></pre>
+    </div>
+    <div class="info-box">
+      <p>Se <code>claude</code> não for reconhecido: instale em <a href="https://claude.ai/code" style="color:var(--java-orange)">claude.ai/code</a> ou via extensão VS Code / JetBrains.</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num">1.3</div>
+      <div>
+        <div class="step-title">Git inicializado no projeto-alvo</div>
+        <div class="step-desc">O MCP cria branches isoladas por fase. O projeto Java precisa ser um repositório Git.</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💻 Raiz do projeto-alvo</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Terminal — raiz do projeto Java</div>
+      <pre><span class="s-cmd">git</span> status   <span class="s-cmt"># confirma que é um repositório git</span>
+<span class="s-cmt"># Se não for: git init && git add . && git commit -m "baseline"</span></pre>
+    </div>
+    <div class="validation-box">
+      <div class="val-title">✔ Validação</div>
+      <ul>
+        <li><code>git status</code> não retorna "not a git repository"</li>
+        <li>Existe ao menos um commit na branch principal</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num">1.4</div>
+      <div>
+        <div class="step-title">JDK 21 disponível na máquina</div>
+        <div class="step-desc">O MCP detecta o JDK via <code>JAVA_HOME</code> para rodar análise estática (<code>jdeprscan</code>, <code>jdeps</code>).</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💻 Terminal local</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Terminal</div>
+      <pre><span class="s-cmd">java</span> <span class="s-flag">--version</span>
+<span class="s-cmt"># Exemplo de saída esperada: openjdk 21.x.x ...</span></pre>
+    </div>
+    <div class="warning-box">
+      <div class="warn-title">⚠ Se JAVA_HOME não estiver configurado</div>
+      <ul>
+        <li>Windows: <code>$env:JAVA_HOME = "C:\Program Files\Java\jdk-21"</code></li>
+        <li>macOS/Linux: <code>export JAVA_HOME=$(/usr/libexec/java_home -v 21)</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SEÇÃO 2 — INSTALAÇÃO VIA NPM
+  ═══════════════════════════════════════════════ -->
+  <div class="section-title" id="install-mcp">
+    <div class="section-number">2</div>
+    <div>
+      <h2>Instalação do MCP via npm</h2>
+      <p>Duas abordagens — escolha conforme o seu caso de uso</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num green">2.1</div>
+      <div>
+        <div class="step-title">Abordagem A — npx (recomendada · sem instalação manual)</div>
+        <div class="step-desc">
+          O <code>npx</code> baixa automaticamente o pacote na primeira execução, cacheia e executa.
+          Não requer <code>npm install</code> manual. Sempre usa a versão <code>latest</code> do registry.
+        </div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">📄 Arquivo de configuração</span>
+      <span class="meta-badge who-human">👤 Humano (edita o arquivo)</span>
+    </div>
+    <p style="font-size:0.88rem; color:var(--text-secondary); margin-bottom:10px;">
+      Nenhum comando de instalação é necessário — o <code>npx -y</code> no arquivo de configuração é suficiente.
+      Veja a Seção 3 para o arquivo <code>settings.json</code>.
+    </p>
+    <div class="validation-box">
+      <div class="val-title">✔ Vantagens</div>
+      <ul>
+        <li>Zero manutenção — sempre usa a versão mais recente automaticamente</li>
+        <li>Sem risco de conflito de dependências no projeto-alvo</li>
+        <li>Ideal para uso pontual em um único projeto de migração</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num blue">2.2</div>
+      <div>
+        <div class="step-title">Abordagem B — Instalação global (offline ou versão fixada)</div>
+        <div class="step-desc">Instala o pacote globalmente para uso sem internet após o download.</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💻 Terminal local</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Terminal</div>
+      <pre><span class="s-cmd">npm</span> install <span class="s-flag">-g</span> jdk-migration-mcp
+
+<span class="s-cmt"># Verificar instalação:</span>
+<span class="s-cmd">jdk-migration-mcp</span> <span class="s-flag">--version</span>   <span class="s-cmt"># opcional — confirma que o binário está no PATH</span>
+
+<span class="s-cmt"># Atualizar quando sair nova versão:</span>
+<span class="s-cmd">npm</span> update <span class="s-flag">-g</span> jdk-migration-mcp</pre>
+    </div>
+    <div class="warning-box">
+      <div class="warn-title">⚠ Quando usar instalação global</div>
+      <p>Use se precisar de versão fixada, ambiente sem internet ou múltiplos projetos simultâneos.</p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SEÇÃO 3 — CONFIGURAÇÃO NO CLAUDE CODE
+  ═══════════════════════════════════════════════ -->
+  <div class="section-title" id="config-claude">
+    <div class="section-number">3</div>
+    <div>
+      <h2>Configuração no Claude Code (projeto-alvo)</h2>
+      <p>Registrar o MCP para que o agente possa usar as tools de migração</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num">3.1</div>
+      <div>
+        <div class="step-title">Opção A — Escopo de projeto (recomendado)</div>
+        <div class="step-desc">
+          Cria o arquivo <code>.claude/settings.json</code> na raiz do projeto Java que será migrado.
+          O MCP fica ativo apenas neste projeto e pode ser commitado no repositório para o time.
+        </div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">📁 Raiz do projeto-alvo</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+
+    <p style="font-size:0.88rem; color:var(--text-secondary); margin-bottom:8px;">Crie a pasta e o arquivo:</p>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>PowerShell — raiz do projeto Java</div>
+      <pre><span class="s-cmd">New-Item</span> <span class="s-flag">-ItemType Directory -Force</span> .claude</pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>.claude/settings.json — Abordagem npx</div>
+      <pre>{
+  <span class="s-key">"mcpServers"</span>: {
+    <span class="s-key">"jdk-migration"</span>: {
+      <span class="s-key">"command"</span>: <span class="s-str">"npx"</span>,
+      <span class="s-key">"args"</span>: [<span class="s-str">"-y"</span>, <span class="s-str">"jdk-migration-mcp"</span>]
+    }
+  }
+}</pre>
+    </div>
+
+    <p style="font-size:0.85rem; color:var(--text-secondary); margin: 12px 0 6px;">Se usou instalação global (Abordagem B da Seção 2):</p>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>.claude/settings.json — Abordagem global</div>
+      <pre>{
+  <span class="s-key">"mcpServers"</span>: {
+    <span class="s-key">"jdk-migration"</span>: {
+      <span class="s-key">"command"</span>: <span class="s-str">"jdk-migration-mcp"</span>
+    }
+  }
+}</pre>
+    </div>
+
+    <div class="validation-box">
+      <div class="val-title">✔ Estrutura esperada</div>
+      <ul>
+        <li>Arquivo em <code>SEU_PROJETO/.claude/settings.json</code></li>
+        <li>JSON válido (sem vírgulas extras ou aspas simples)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num blue">3.2</div>
+      <div>
+        <div class="step-title">Opção B — Escopo global (disponível em qualquer projeto)</div>
+        <div class="step-desc">Registra o MCP globalmente via CLI. Disponível em todos os projetos da máquina.</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💻 Terminal (qualquer diretório)</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Terminal</div>
+      <pre><span class="s-cmd">claude</span> mcp add jdk-migration <span class="s-flag">--</span> npx <span class="s-flag">-y</span> jdk-migration-mcp</pre>
+    </div>
+    <div class="info-box">
+      <p>Este comando edita <code>~/.claude/settings.json</code> automaticamente. Equivalente a editar o arquivo manualmente com o JSON da Opção A.</p>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SEÇÃO 4 — VALIDAÇÃO DA CONEXÃO
+  ═══════════════════════════════════════════════ -->
+  <div class="section-title" id="validate-mcp">
+    <div class="section-number">4</div>
+    <div>
+      <h2>Validação da Conexão MCP</h2>
+      <p>Confirmar que o agente enxerga as tools antes de começar a migração</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num green">4.1</div>
+      <div>
+        <div class="step-title">Reiniciar o Claude Code e verificar o MCP</div>
+        <div class="step-desc">
+          O Claude Code carrega as configurações de MCP na inicialização da sessão.
+          Após criar o <code>settings.json</code>, é obrigatório reiniciar.
+        </div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💻 Terminal — raiz do projeto-alvo</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Terminal — dentro do projeto-alvo</div>
+      <pre><span class="s-cmt"># 1. Encerrar a sessão atual do Claude Code (se aberta)</span>
+<span class="s-cmt"># 2. Iniciar nova sessão NA RAIZ DO PROJETO-ALVO:</span>
+<span class="s-cmd">claude</span>
+
+<span class="s-cmt"># 3. Dentro do Claude Code, verificar MCPs ativos:</span>
+<span class="s-cmd">!</span> claude mcp list</pre>
+    </div>
+    <div class="validation-box">
+      <div class="val-title">✔ Saída esperada</div>
+      <ul>
+        <li><code>jdk-migration</code> aparece na lista com status <code>connected</code></li>
+        <li>7 tools disponíveis: <code>discover_project</code>, <code>build_migration_plan</code>, <code>execute_phase</code>, <code>get_phase_status</code>, <code>approve_gate</code>, <code>rollback_phase</code>, <code>generate_report</code></li>
+      </ul>
+    </div>
+    <div class="warning-box">
+      <div class="warn-title">⚠ MCP não aparece?</div>
+      <ul>
+        <li>Confirme que o Claude Code foi aberto <strong>na raiz do projeto</strong> (não em subpasta)</li>
+        <li>Valide o JSON com: <code>Get-Content .claude/settings.json | ConvertFrom-Json</code> (PowerShell)</li>
+        <li>Verifique se o npx consegue baixar o pacote: <code>npx -y jdk-migration-mcp --version</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SEÇÃO 5 — CONFIGURAÇÃO DA SKILL
+  ═══════════════════════════════════════════════ -->
+  <div class="section-title" id="skill-config">
+    <div class="section-number">5</div>
+    <div>
+      <h2>Configuração da Skill no Projeto-alvo</h2>
+      <p>Inicializar o arquivo de configuração <code>jdk-migration.config.json</code> antes de começar</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num purple">5.1</div>
+      <div>
+        <div class="step-title">Solicitar ao Claude Code que rode a Skill de instalação</div>
+        <div class="step-desc">
+          A Skill detecta automaticamente o build system, stack e versão de JDK do projeto.
+          Ela grava <code>jdk-migration.config.json</code> na raiz e adiciona entradas ao <code>.gitignore</code>.
+        </div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💬 Chat do Claude Code</span>
+      <span class="meta-badge who-claude">🤖 Claude Code</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Mensagem para o Claude Code</div>
+      <pre>Configure o JDK Migration MCP neste projeto.
+O projeto está em: <span class="s-path">/caminho/absoluto/do/projeto</span>
+JDK de origem: 8
+Build system: maven</pre>
+    </div>
+
+    <p style="font-size:0.88rem;color:var(--text-secondary);margin:14px 0 8px;">Arquivos criados automaticamente pela Skill:</p>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>jdk-migration.config.json — exemplo gerado</div>
+      <pre>{
+  <span class="s-key">"sourceJdk"</span>: <span class="s-str">"8"</span>,
+  <span class="s-key">"targetJdk"</span>: <span class="s-str">"21"</span>,
+  <span class="s-key">"stack"</span>: [<span class="s-str">"spring-boot"</span>],
+  <span class="s-key">"buildSystem"</span>: <span class="s-str">"maven"</span>,
+  <span class="s-key">"appServer"</span>: <span class="s-kw">null</span>,
+  <span class="s-key">"multiModule"</span>: <span class="s-kw">false</span>,
+  <span class="s-key">"modulePaths"</span>: [],
+  <span class="s-key">"ciSystem"</span>: <span class="s-kw">null</span>,
+  <span class="s-key">"testCoverageThreshold"</span>: <span class="s-num">80</span>,
+  <span class="s-key">"dryRunBeforeExecute"</span>: <span class="s-kw">true</span>,
+  <span class="s-key">"phases"</span>: { <span class="s-cmt">/* status de cada fase — gerenciado automaticamente */</span> }
+}</pre>
+    </div>
+    <div class="validation-box">
+      <div class="val-title">✔ Validação</div>
+      <ul>
+        <li>Arquivo <code>jdk-migration.config.json</code> criado na raiz do projeto</li>
+        <li>Pasta <code>.jdk-migration/</code> criada (metadados e relatórios)</li>
+        <li><code>.gitignore</code> contém <code>.jdk-migration/</code> e <code>jdk-migration.config.json</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num">5.2</div>
+      <div>
+        <div class="step-title">Revisar e ajustar o config manualmente (se necessário)</div>
+        <div class="step-desc">
+          Se o projeto tiver múltiplos módulos, app server (WebLogic/JBoss) ou stack mista,
+          edite o config antes de prosseguir.
+        </div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">📄 Editor de texto</span>
+      <span class="meta-badge who-human">👤 Humano</span>
+    </div>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Campos opcionais para ajuste manual</div>
+      <pre><span class="s-key">"stack"</span>: [<span class="s-str">"spring-boot"</span>, <span class="s-str">"ejb"</span>],   <span class="s-cmt">// rest | spring-boot | spring-batch | ejb | jsf | weblogic</span>
+<span class="s-key">"appServer"</span>: <span class="s-str">"weblogic"</span>,             <span class="s-cmt">// null | weblogic | jboss | tomcat</span>
+<span class="s-key">"multiModule"</span>: <span class="s-kw">true</span>,
+<span class="s-key">"modulePaths"</span>: [<span class="s-str">"core"</span>, <span class="s-str">"api"</span>, <span class="s-str">"web"</span>],
+<span class="s-key">"ciSystem"</span>: <span class="s-str">"github-actions"</span>,        <span class="s-cmt">// github-actions | jenkins | gitlab-ci | null</span>
+<span class="s-key">"testCoverageThreshold"</span>: <span class="s-num">70</span>           <span class="s-cmt">// % mínimo de cobertura para Gate 0</span></pre>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SEÇÃO 6 — TOOLS MCP
+  ═══════════════════════════════════════════════ -->
+  <div class="section-title" id="tools">
+    <div class="section-number">6</div>
+    <div>
+      <h2>Referência Completa das 7 Tools MCP</h2>
+      <p>Parâmetros, quando usar e como validar cada tool</p>
+    </div>
+  </div>
+
+  <!-- ── TOOL 1: discover_project ── -->
+  <div class="tool-card">
+    <div class="tool-header">
+      <div>
+        <div class="tool-name">discover_project</div>
+        <div class="tool-desc">
+          Escaneia a aplicação Java <strong>sem alterar nenhum arquivo</strong>. Detecta build system, stack, JDK atual,
+          dependências e incompatibilidades com JDK 21 via <code>jdeprscan</code>, <code>jdeps</code> e análise de código-fonte.
+          Deve ser a <strong>primeira tool executada</strong> — nenhuma fase avança sem um relatório de descoberta.
+          Salva o resultado em <code>.jdk-migration/discovery-report.json</code>.
+        </div>
+        <div class="meta-row">
+          <span class="meta-badge where">💬 Claude Code</span>
+          <span class="meta-badge who-claude">🤖 Claude Code (executa a tool)</span>
+        </div>
+      </div>
+      <span class="tool-criticality crit-low">Leitura only</span>
+    </div>
+
+    <table class="param-table">
+      <tr><th>Parâmetro</th><th>Tipo</th><th>Descrição</th></tr>
+      <tr>
+        <td>projectPath</td>
+        <td>string <span class="required-tag">obrigatório</span></td>
+        <td>Caminho absoluto da raiz do projeto Java a ser analisado</td>
+      </tr>
+    </table>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Como solicitar ao Claude Code</div>
+      <pre>Execute a tool discover_project no projeto em <span class="s-path">/c/meu-projeto-java</span></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Exemplo de retorno (resumido)</div>
+      <pre>{
+  <span class="s-key">"detectedStacks"</span>: [<span class="s-str">"spring-boot"</span>],
+  <span class="s-key">"buildSystem"</span>: <span class="s-str">"maven"</span>,
+  <span class="s-key">"sourceJdk"</span>: <span class="s-str">"8"</span>,
+  <span class="s-key">"riskSummary"</span>: {
+    <span class="s-key">"critical"</span>: <span class="s-num">2</span>, <span class="s-key">"high"</span>: <span class="s-num">5</span>, <span class="s-key">"medium"</span>: <span class="s-num">12</span>, <span class="s-key">"low"</span>: <span class="s-num">8</span>,
+    <span class="s-key">"manualReviewRequired"</span>: <span class="s-kw">true</span>,
+    <span class="s-key">"estimatedEffortDays"</span>: <span class="s-num">18</span>
+  },
+  <span class="s-key">"prerequisites"</span>: {
+    <span class="s-key">"jdk21Available"</span>: <span class="s-kw">true</span>,
+    <span class="s-key">"gitAvailable"</span>: <span class="s-kw">true</span>
+  },
+  <span class="s-key">"savedReportPath"</span>: <span class="s-str">".jdk-migration/discovery-report.json"</span>
+}</pre>
+    </div>
+
+    <div class="validation-box">
+      <div class="val-title">✔ Validação</div>
+      <ul>
+        <li>Nenhum arquivo do projeto foi modificado</li>
+        <li>Arquivo <code>.jdk-migration/discovery-report.json</code> criado com o relatório</li>
+        <li>Campo <code>prerequisites.jdk21Available</code> é <code>true</code></li>
+        <li>Stack detectada corresponde ao projeto (revise se incorreta antes de prosseguir)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ── TOOL 2: build_migration_plan ── -->
+  <div class="tool-card">
+    <div class="tool-header">
+      <div>
+        <div class="tool-name">build_migration_plan</div>
+        <div class="tool-desc">
+          Consolida o relatório de diagnóstico em um <strong>plano faseado revisável</strong>, classificado por criticidade,
+          com gates de aprovação definidos e estimativa de esforço por fase.
+          O documento gerado deve ser revisado e aprovado pelo humano antes de qualquer execução.
+        </div>
+        <div class="meta-row">
+          <span class="meta-badge where">💬 Claude Code</span>
+          <span class="meta-badge who-claude">🤖 Claude Code (executa a tool)</span>
+        </div>
+      </div>
+      <span class="tool-criticality crit-low">Planejamento</span>
+    </div>
+
+    <table class="param-table">
+      <tr><th>Parâmetro</th><th>Tipo</th><th>Descrição</th></tr>
+      <tr>
+        <td>projectPath</td>
+        <td>string <span class="required-tag">obrigatório</span></td>
+        <td>Caminho absoluto da raiz do projeto Java</td>
+      </tr>
+    </table>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Como solicitar ao Claude Code</div>
+      <pre>Gere o plano de migração para o projeto em <span class="s-path">/c/meu-projeto-java</span></pre>
+    </div>
+
+    <div class="validation-box">
+      <div class="val-title">✔ Validação</div>
+      <ul>
+        <li>Retorna plano com 6 fases numeradas (0–5)</li>
+        <li>Cada fase tem criticidade, esforço estimado e descrição do gate</li>
+        <li>Campo <code>totalEstimatedDays</code> faz sentido para o porte do projeto</li>
+        <li>Revise manualmente os itens de <code>manualItems</code> em cada fase</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ── TOOL 3: execute_phase ── -->
+  <div class="tool-card">
+    <div class="tool-header">
+      <div>
+        <div class="tool-name">execute_phase</div>
+        <div class="tool-desc">
+          Aplica uma fase de migração aprovada. Cria uma <strong>branch Git isolada</strong> por fase.
+          Em caso de falha de build, o rollback é automático. Suporta <code>dryRun</code> para preview
+          do diff sem aplicar mudanças — <strong>obrigatório em fases de alta/crítica criticidade</strong>.
+          A Fase 0 não requer token. As fases 1–5 exigem o <code>gateToken</code> emitido por <code>approve_gate</code>.
+        </div>
+        <div class="meta-row">
+          <span class="meta-badge where">💬 Claude Code</span>
+          <span class="meta-badge who-claude">🤖 Claude Code (executa a tool)</span>
+        </div>
+      </div>
+      <span class="tool-criticality crit-high">Modifica código</span>
+    </div>
+
+    <table class="param-table">
+      <tr><th>Parâmetro</th><th>Tipo</th><th>Descrição</th></tr>
+      <tr>
+        <td>projectPath</td>
+        <td>string <span class="required-tag">obrigatório</span></td>
+        <td>Caminho absoluto da raiz do projeto Java</td>
+      </tr>
+      <tr>
+        <td>phaseNumber</td>
+        <td>number 0–5 <span class="required-tag">obrigatório</span></td>
+        <td>Número da fase a executar</td>
+      </tr>
+      <tr>
+        <td>gateToken</td>
+        <td>string <span class="optional-tag">opcional</span></td>
+        <td>Token emitido por <code>approve_gate</code> ao aprovar a fase anterior. Fase 0 não requer.</td>
+      </tr>
+      <tr>
+        <td>dryRun</td>
+        <td>boolean <span class="optional-tag">padrão: false</span></td>
+        <td>Se <code>true</code>, exibe diff sem modificar arquivos. Recomendado antes de fases críticas.</td>
+      </tr>
+    </table>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Execução típica — dry-run primeiro, depois execução real</div>
+      <pre><span class="s-cmt"># 1. Preview sem modificar (obrigatório para fases críticas)</span>
+Execute a fase 1 em dryRun=true no projeto <span class="s-path">/c/meu-projeto</span> com gateToken: <span class="s-str">abc123...</span>
+
+<span class="s-cmt"># 2. Após revisar o diff, executar de fato</span>
+Execute a fase 1 no projeto <span class="s-path">/c/meu-projeto</span> com gateToken: <span class="s-str">abc123...</span></pre>
+    </div>
+
+    <div class="validation-box">
+      <div class="val-title">✔ Validação após execução</div>
+      <ul>
+        <li>Status retornado é <code>awaiting_gate</code> (não <code>failed</code>)</li>
+        <li>Campo <code>branchName</code> mostra a branch criada (ex: <code>jdk-migration/phase-1-a3f8...</code>)</li>
+        <li>Build passou: sem erros de compilação na branch da fase</li>
+        <li>Diff gerado é coerente com o escopo da fase</li>
+      </ul>
+    </div>
+
+    <div class="warning-box">
+      <div class="warn-title">⚠ Rollback automático</div>
+      <p>Se o build falhar após a transformação, o MCP reverte automaticamente ao commit base e define status <code>failed</code>. Nenhuma ação manual necessária.</p>
+    </div>
+  </div>
+
+  <!-- ── TOOL 4: get_phase_status ── -->
+  <div class="tool-card">
+    <div class="tool-header">
+      <div>
+        <div class="tool-name">get_phase_status</div>
+        <div class="tool-desc">
+          Retorna o status atual de todas as 6 fases, incluindo tokens de gate, datas de aprovação,
+          branches Git associadas e quem aprovou cada fase. Use para monitorar o progresso da migração
+          a qualquer momento.
+        </div>
+        <div class="meta-row">
+          <span class="meta-badge where">💬 Claude Code</span>
+          <span class="meta-badge who-claude">🤖 Claude Code (executa a tool)</span>
+        </div>
+      </div>
+      <span class="tool-criticality crit-low">Leitura only</span>
+    </div>
+
+    <table class="param-table">
+      <tr><th>Parâmetro</th><th>Tipo</th><th>Descrição</th></tr>
+      <tr>
+        <td>projectPath</td>
+        <td>string <span class="required-tag">obrigatório</span></td>
+        <td>Caminho absoluto da raiz do projeto Java</td>
+      </tr>
+    </table>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Como solicitar ao Claude Code</div>
+      <pre>Qual o status de todas as fases da migração em <span class="s-path">/c/meu-projeto</span>?</pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Status possíveis por fase</div>
+      <pre><span class="s-str">"pending"</span>        <span class="s-cmt">→ Ainda não iniciada</span>
+<span class="s-str">"in_progress"</span>    <span class="s-cmt">→ Transform em execução</span>
+<span class="s-str">"awaiting_gate"</span>  <span class="s-cmt">→ Aguarda aprovação humana</span>
+<span class="s-str">"approved"</span>       <span class="s-cmt">→ Gate aprovado, pronto para próxima fase</span>
+<span class="s-str">"failed"</span>         <span class="s-cmt">→ Build falhou — rollback automático executado</span>
+<span class="s-str">"rolled_back"</span>    <span class="s-cmt">→ Revertida manualmente</span></pre>
+    </div>
+  </div>
+
+  <!-- ── TOOL 5: approve_gate ── -->
+  <div class="tool-card">
+    <div class="tool-header">
+      <div>
+        <div class="tool-name">approve_gate</div>
+        <div class="tool-desc">
+          Registra a <strong>aprovação humana</strong> de uma fase e emite o token que libera a fase seguinte.
+          <strong>Nunca deve ser chamado por automação ou CI/CD</strong> — o campo <code>approverName</code> é validado
+          e nomes como "bot", "ci", "automation" são rejeitados. O token emitido é único e
+          vinculado ao projeto e fase.
+        </div>
+        <div class="meta-row">
+          <span class="meta-badge where">💬 Claude Code</span>
+          <span class="meta-badge who-both">👤🤖 Humano solicita · Claude executa</span>
+        </div>
+      </div>
+      <span class="tool-criticality crit-high">Gate obrigatório</span>
+    </div>
+
+    <table class="param-table">
+      <tr><th>Parâmetro</th><th>Tipo</th><th>Descrição</th></tr>
+      <tr>
+        <td>projectPath</td>
+        <td>string <span class="required-tag">obrigatório</span></td>
+        <td>Caminho absoluto da raiz do projeto Java</td>
+      </tr>
+      <tr>
+        <td>phaseNumber</td>
+        <td>number 0–5 <span class="required-tag">obrigatório</span></td>
+        <td>Número da fase a aprovar</td>
+      </tr>
+      <tr>
+        <td>approverName</td>
+        <td>string <span class="required-tag">obrigatório</span></td>
+        <td>Nome completo do responsável. Mínimo 2 caracteres. Não pode ser "bot", "ci", "auto", etc.</td>
+      </tr>
+    </table>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Como solicitar ao Claude Code</div>
+      <pre>Aprove o gate da fase 0 no projeto <span class="s-path">/c/meu-projeto</span>.
+Aprovador: <span class="s-str">João Silva</span></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Retorno — guarde o gateToken para a próxima fase</div>
+      <pre>{
+  <span class="s-key">"status"</span>: <span class="s-str">"approved"</span>,
+  <span class="s-key">"phaseNumber"</span>: <span class="s-num">0</span>,
+  <span class="s-key">"approvedBy"</span>: <span class="s-str">"João Silva"</span>,
+  <span class="s-key">"gateToken"</span>: <span class="s-str">"eyJwaGFzZSI6MCwidHMi..."</span>,  <span class="s-cmt">← use em execute_phase da Fase 1</span>
+  <span class="s-key">"message"</span>: <span class="s-str">"Gate da Fase 0 aprovado. Use o gateToken para liberar a Fase 1..."</span>
+}</pre>
+    </div>
+
+    <div class="validation-box">
+      <div class="val-title">✔ Validação</div>
+      <ul>
+        <li>Status retornado é <code>approved</code></li>
+        <li><code>gateToken</code> não está vazio — copie-o para usar em <code>execute_phase</code></li>
+        <li><code>get_phase_status</code> mostra a fase como <code>approved</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ── TOOL 6: rollback_phase ── -->
+  <div class="tool-card">
+    <div class="tool-header">
+      <div>
+        <div class="tool-name">rollback_phase</div>
+        <div class="tool-desc">
+          Reverte uma fase aplicada via Git, restaurando o projeto ao estado anterior.
+          Funciona para fases com status <code>in_progress</code>, <code>awaiting_gate</code> ou <code>failed</code>.
+          A branch da fase é preservada como histórico — apenas o checkout retorna ao base.
+          Não requer token de gate.
+        </div>
+        <div class="meta-row">
+          <span class="meta-badge where">💬 Claude Code</span>
+          <span class="meta-badge who-both">👤🤖 Humano decide · Claude executa</span>
+        </div>
+      </div>
+      <span class="tool-criticality crit-medium">Reversível</span>
+    </div>
+
+    <table class="param-table">
+      <tr><th>Parâmetro</th><th>Tipo</th><th>Descrição</th></tr>
+      <tr>
+        <td>projectPath</td>
+        <td>string <span class="required-tag">obrigatório</span></td>
+        <td>Caminho absoluto da raiz do projeto Java</td>
+      </tr>
+      <tr>
+        <td>phaseNumber</td>
+        <td>number 0–5 <span class="required-tag">obrigatório</span></td>
+        <td>Número da fase a reverter</td>
+      </tr>
+    </table>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Como solicitar ao Claude Code</div>
+      <pre>Reverta a fase 2 no projeto <span class="s-path">/c/meu-projeto</span></pre>
+    </div>
+
+    <div class="validation-box">
+      <div class="val-title">✔ Validação</div>
+      <ul>
+        <li>Status retornado é <code>rolled_back</code></li>
+        <li><code>restoredBranch</code> indica a branch base para onde retornou</li>
+        <li><code>git branch</code> mostra a branch da fase ainda existindo (preservada como histórico)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ── TOOL 7: generate_report ── -->
+  <div class="tool-card">
+    <div class="tool-header">
+      <div>
+        <div class="tool-name">generate_report</div>
+        <div class="tool-desc">
+          Gera o relatório consolidado HTML de auditoria da migração, com trilha completa de decisões,
+          aprovações por fase, arquivos modificados e itens manuais em aberto.
+          Salvo em <code>.jdk-migration/audit-report-{timestamp}.html</code>.
+        </div>
+        <div class="meta-row">
+          <span class="meta-badge where">💬 Claude Code</span>
+          <span class="meta-badge who-claude">🤖 Claude Code (executa a tool)</span>
+        </div>
+      </div>
+      <span class="tool-criticality crit-low">Relatório</span>
+    </div>
+
+    <table class="param-table">
+      <tr><th>Parâmetro</th><th>Tipo</th><th>Descrição</th></tr>
+      <tr>
+        <td>projectPath</td>
+        <td>string <span class="required-tag">obrigatório</span></td>
+        <td>Caminho absoluto da raiz do projeto Java</td>
+      </tr>
+    </table>
+
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Como solicitar ao Claude Code</div>
+      <pre>Gere o relatório de auditoria da migração em <span class="s-path">/c/meu-projeto</span></pre>
+    </div>
+
+    <div class="validation-box">
+      <div class="val-title">✔ Validação</div>
+      <ul>
+        <li>Campo <code>reportPath</code> retorna caminho do HTML gerado</li>
+        <li>Abra o arquivo HTML no navegador para revisar a trilha de auditoria</li>
+        <li><code>openManualItems</code> lista itens que ainda requerem revisão humana</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SEÇÃO 7 — FLUXO PONTA A PONTA
+  ═══════════════════════════════════════════════ -->
+  <div class="section-title" id="flow">
+    <div class="section-number">7</div>
+    <div>
+      <h2>Fluxo Completo de Migração Ponta a Ponta</h2>
+      <p>Da instalação ao cutover — ordem obrigatória de execução com gates</p>
+    </div>
+  </div>
+
+  <!-- Fases overview -->
+  <div class="phase-timeline" style="margin-bottom:28px;">
+    <div class="phase-row p0">
+      <div class="phase-num">0</div>
+      <div>
+        <div class="phase-name">Descoberta &amp; Baseline</div>
+        <div class="phase-gate">Gate: Humano aprova plano e confirma cobertura de testes ≥ 80%</div>
+      </div>
+      <span class="tool-criticality crit-low phase-crit-badge">Baixa</span>
+    </div>
+    <div class="phase-row p1">
+      <div class="phase-num">1</div>
+      <div>
+        <div class="phase-name">Infraestrutura &amp; Build</div>
+        <div class="phase-gate">Gate: Build verde no JDK 21 (mvn clean compile sem erros)</div>
+      </div>
+      <span class="tool-criticality crit-low phase-crit-badge">Baixa</span>
+    </div>
+    <div class="phase-row p2">
+      <div class="phase-num">2</div>
+      <div>
+        <div class="phase-name">Modernização de Linguagem</div>
+        <div class="phase-gate">Gate: Diff revisado pelo responsável + todos os testes verdes</div>
+      </div>
+      <span class="tool-criticality crit-medium phase-crit-badge">Média</span>
+    </div>
+    <div class="phase-row p3">
+      <div class="phase-num">3</div>
+      <div>
+        <div class="phase-name">Namespace Jakarta &amp; Frameworks</div>
+        <div class="phase-gate">Gate: Aplicação sobe no servidor; smoke tests passando</div>
+      </div>
+      <span class="tool-criticality crit-high phase-crit-badge">Alta</span>
+    </div>
+    <div class="phase-row p4">
+      <div class="phase-num">4</div>
+      <div>
+        <div class="phase-name">Refatoração Semântica Assistida</div>
+        <div class="phase-gate">Gate: Paridade funcional confirmada item a item</div>
+      </div>
+      <span class="tool-criticality crit-critical phase-crit-badge">Crítica</span>
+    </div>
+    <div class="phase-row p5">
+      <div class="phase-num">5</div>
+      <div>
+        <div class="phase-name">Validação Final &amp; Cutover</div>
+        <div class="phase-gate">Gate: Sign-off da liderança técnica e funcional</div>
+      </div>
+      <span class="tool-criticality crit-medium phase-crit-badge">Média</span>
+    </div>
+  </div>
+
+  <!-- Passo a passo detalhado -->
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num green">F0</div>
+      <div>
+        <div class="step-title">Fase 0 — Descoberta e geração do plano</div>
+        <div class="step-desc">Sem token de gate. Fase 0 é a única que inicia sem aprovação prévia.</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💬 Claude Code</span>
+      <span class="meta-badge who-both">👤 Humano revisa · 🤖 Claude executa tools</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Sequência de mensagens para o Claude Code</div>
+      <pre><span class="s-cmt"># Passo 1 — Descoberta (sem alterar código)</span>
+Execute discover_project no projeto em <span class="s-path">/c/meu-projeto</span>
+
+<span class="s-cmt"># Passo 2 — Plano de migração</span>
+Gere o plano de migração para o projeto em <span class="s-path">/c/meu-projeto</span>
+
+<span class="s-cmt"># Passo 3 — Iniciar Fase 0 (sem token)</span>
+Execute a fase 0 no projeto <span class="s-path">/c/meu-projeto</span>
+
+<span class="s-cmt"># → Fase vai para status awaiting_gate</span>
+<span class="s-cmt"># Humano revisa o plano e a cobertura de testes</span>
+
+<span class="s-cmt"># Passo 4 — Aprovar Gate 0 (humano decide, Claude executa)</span>
+Aprove o gate da fase 0 no projeto <span class="s-path">/c/meu-projeto</span>. Aprovador: Maria Souza
+
+<span class="s-cmt"># → Salve o gateToken retornado para a Fase 1</span></pre>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num blue">F1–F5</div>
+      <div>
+        <div class="step-title">Fases 1 a 5 — Padrão repetível com token de gate</div>
+        <div class="step-desc">Cada fase segue o mesmo ciclo: dryRun → revisão → execução → gate.</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💬 Claude Code</span>
+      <span class="meta-badge who-both">👤 Humano revisa e aprova · 🤖 Claude executa</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Ciclo de cada fase (exemplo: Fase 1)</div>
+      <pre><span class="s-cmt"># 1. Preview sem modificar (obrigatório para fases high/critical)</span>
+Execute a fase 1 em dryRun=true no projeto <span class="s-path">/c/meu-projeto</span>
+com gateToken: <span class="s-str">eyJwaGFzZSI6MCwidHMi...</span>
+
+<span class="s-cmt"># 2. Revisar o diff retornado — confirmar que mudanças são esperadas</span>
+
+<span class="s-cmt"># 3. Executar de fato</span>
+Execute a fase 1 no projeto <span class="s-path">/c/meu-projeto</span>
+com gateToken: <span class="s-str">eyJwaGFzZSI6MCwidHMi...</span>
+
+<span class="s-cmt"># 4. Verificar status</span>
+Qual o status das fases em <span class="s-path">/c/meu-projeto</span>?
+
+<span class="s-cmt"># 5. Revisar o build, testes e diff da branch criada</span>
+<span class="s-cmt"># 6. Aprovar gate para liberar a próxima fase</span>
+Aprove o gate da fase 1 no projeto <span class="s-path">/c/meu-projeto</span>. Aprovador: João Silva
+
+<span class="s-cmt"># → Repita para as fases 2, 3, 4, 5</span></pre>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num purple">FIN</div>
+      <div>
+        <div class="step-title">Finalização — Relatório de auditoria e cutover</div>
+        <div class="step-desc">Após o gate da Fase 5 aprovado, gerar o relatório final antes do cutover para produção.</div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span class="meta-badge where">💬 Claude Code</span>
+      <span class="meta-badge who-both">👤 Liderança aprova · 🤖 Claude gera relatório</span>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Finalização</div>
+      <pre><span class="s-cmt"># Gerar relatório HTML de auditoria completo</span>
+Gere o relatório de auditoria da migração em <span class="s-path">/c/meu-projeto</span>
+
+<span class="s-cmt"># Abrir o HTML retornado e compartilhar com a liderança para sign-off</span>
+<span class="s-cmt"># Após aprovação: merge da branch da Fase 5 na branch principal</span></pre>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════
+       SEÇÃO 8 — TROUBLESHOOTING
+  ═══════════════════════════════════════════════ -->
+  <div class="section-title" id="troubleshooting">
+    <div class="section-number">8</div>
+    <div>
+      <h2>Troubleshooting</h2>
+      <p>Erros comuns e como resolver</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num red">!</div>
+      <div>
+        <div class="step-title">MCP não aparece em <code>claude mcp list</code></div>
+      </div>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Diagnóstico</div>
+      <pre><span class="s-cmt"># Verificar JSON do settings.json (PowerShell)</span>
+<span class="s-cmd">Get-Content</span> .claude/settings.json | <span class="s-cmd">ConvertFrom-Json</span>
+
+<span class="s-cmt"># Testar npx manualmente</span>
+<span class="s-cmd">npx</span> <span class="s-flag">-y</span> jdk-migration-mcp
+
+<span class="s-cmt"># Verificar localização do settings.json</span>
+<span class="s-cmt"># Deve estar em: RAIZ_DO_PROJETO/.claude/settings.json</span>
+<span class="s-cmt"># NÃO em: subpasta / pasta pai / home directory</span></pre>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num red">!</div>
+      <div>
+        <div class="step-title">Erro <code>GATE_TOKEN_INVALID</code></div>
+      </div>
+    </div>
+    <div class="info-box">
+      <p>O token de gate é válido por sessão e vinculado ao projeto + fase. Causas comuns:
+        (1) token copiado incorretamente, (2) token de fase errada, (3) token expirado (sessão encerrada).
+        Solução: execute <code>approve_gate</code> novamente para emitir novo token.</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num red">!</div>
+      <div>
+        <div class="step-title">Erro <code>STACK_NOT_DETECTED</code></div>
+      </div>
+    </div>
+    <div class="info-box">
+      <p>O MCP não encontrou <code>pom.xml</code>, <code>build.gradle</code> ou <code>build.xml</code> na raiz do projeto.
+        Verifique se o <code>projectPath</code> aponta para a raiz correta (onde fica o arquivo de build).
+        Para projetos multi-módulo, use a raiz do módulo pai.</p>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num red">!</div>
+      <div>
+        <div class="step-title">Fase vai para status <code>failed</code> (build quebrou)</div>
+      </div>
+    </div>
+    <div class="info-box">
+      <p>O rollback é automático — o projeto volta ao estado anterior sem ação manual.
+        Para investigar: verifique o log de erro retornado na tool, corrija o problema identificado
+        (pode ser dependência incompatível ou recipe inapropriado para o projeto), e reexecute
+        a fase com <code>dryRun=true</code> primeiro para validar antes de aplicar.</p>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>Verificar estado após falha</div>
+      <pre>Qual o status das fases em <span class="s-path">/c/meu-projeto</span>?
+<span class="s-cmt"># Fase com status "failed" → projeto já está no estado base (rollback automático)</span>
+<span class="s-cmt"># A branch da fase existe para inspeção do diff: git log --oneline jdk-migration/phase-N-*</span></pre>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header">
+      <div class="step-num red">!</div>
+      <div>
+        <div class="step-title">Erro <code>EPERM</code> no Windows ao remover diretório temporário</div>
+      </div>
+    </div>
+    <div class="info-box">
+      <p>Processo Git pode estar com handle aberto no diretório. Solução: feche o IDE/Git GUI
+        e remova manualmente o diretório temporário listado no erro
+        (padrão: <code>%TEMP%\jdkm-*</code>).</p>
+    </div>
+    <div class="code-block">
+      <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>PowerShell — remover lock órfão</div>
+      <pre><span class="s-cmd">Remove-Item</span> <span class="s-flag">-Recurse -Force</span> <span class="s-str">"$env:TEMP\jdkm-*"</span></pre>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Links úteis -->
+  <div style="background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:28px 32px;display:flex;flex-wrap:wrap;gap:32px;align-items:center;justify-content:center;text-align:center;">
+    <div>
+      <div style="font-size:0.72rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">npm registry</div>
+      <div style="font-size:0.9rem;color:var(--java-orange);">npmjs.com/package/jdk-migration-mcp</div>
+    </div>
+    <div>
+      <div style="font-size:0.72rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Versão atual</div>
+      <div style="font-size:0.9rem;color:var(--accent-green);">0.1.1</div>
+    </div>
+    <div>
+      <div style="font-size:0.72rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Suporte</div>
+      <div style="font-size:0.9rem;color:var(--java-blue);">JDK 6/8 → 21</div>
+    </div>
+    <div>
+      <div style="font-size:0.72rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Protocol</div>
+      <div style="font-size:0.9rem;color:var(--accent-purple);">MCP · Claude Code</div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <p>JDK Migration MCP · Guia v2 · Gerado em 2026-06-02</p>
+  <p style="margin-top:6px;">Disponível em <a href="https://www.npmjs.com/package/jdk-migration-mcp">npmjs.com/package/jdk-migration-mcp</a></p>
+</footer>
+
+</body>
+</html>
