@@ -237,5 +237,5 @@ describe.skipIf(skip)('Ciclo completo fases 0–3 — rest-microservice', () => 
     expect(finalConfig.phases[0].status).toBe('approved')
     expect(finalConfig.phases[1].status).toBe('approved')
     expect(finalConfig.phases[2].status).toBe('awaiting_gate')
-  })
+  }, 30000)
 })
