@@ -12,7 +12,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs=require('fs');const src='src/knowledge-base/data';const dst='dist/knowledge-base/data';fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).forEach(f=>fs.copyFileSync(src+'/'+f,dst+'/'+f));\"",
     "prepare": "npm run build",
     "prepublishOnly": "npm test",
     "dev": "tsx watch src/mcp-server/index.ts",
