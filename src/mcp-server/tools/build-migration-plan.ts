@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { readConfig, configExists } from '../../lib/config.js'
+import { readConfig, writeConfig, configExists } from '../../lib/config.js'
 import { MigrationError } from '../../lib/errors.js'
 import { getProfilersForStacks } from '../../orchestrator/profiler-registry.js'
 import { selectRecipes } from '../../transform-engine/recipe-selector.js'
@@ -116,19 +116,23 @@ async function buildMigrationPlan(projectPath: string): Promise<MigrationPlan> {
   }
   const discovery: DiscoveryReport = JSON.parse(readFileSync(discoveryPath, 'utf-8'))
 
-  // 2. Lê config para parâmetros de migração
-  const config: JdkMigrationConfig = configExists(projectPath)
-    ? readConfig(projectPath)
-    : {
-        sourceJdk: discovery.sourceJdk as '6' | '8',
-        targetJdk: '21',
-        stack: discovery.detectedStacks,
-        buildSystem: discovery.buildSystem as 'maven' | 'gradle' | 'ant',
-        appServer: null, multiModule: discovery.isMultiModule,
-        modulePaths: [], ciSystem: null,
-        testCoverageThreshold: 80, dryRunBeforeExecute: true,
-        phases: {} as never,
-      }
+  // 2. Lê config para parâmetros de migração (ou cria e persiste a partir do discovery)
+  let config: JdkMigrationConfig
+  if (configExists(projectPath)) {
+    config = readConfig(projectPath)
+  } else {
+    config = {
+      sourceJdk: discovery.sourceJdk as '6' | '8',
+      targetJdk: '21',
+      stack: discovery.detectedStacks,
+      buildSystem: discovery.buildSystem as 'maven' | 'gradle' | 'ant',
+      appServer: null, multiModule: discovery.isMultiModule,
+      modulePaths: [], ciSystem: null,
+      testCoverageThreshold: 80, dryRunBeforeExecute: true,
+      phases: {} as never,
+    }
+    writeConfig(projectPath, config)
+  }
 
   // 3. Obtém relatórios dos profilers (do discovery ou roda novamente)
   let profilerReports: ProfilerReport[] = discovery.profilerReports ?? []
