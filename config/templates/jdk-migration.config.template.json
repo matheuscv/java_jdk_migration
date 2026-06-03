@@ -10,6 +10,11 @@
   "ciSystem": null,
   "testCoverageThreshold": 60,
   "dryRunBeforeExecute": true,
+  "artifactRegistry": {
+    "type": "none",
+    "url": "",
+    "internalGroupIds": []
+  },
   "phases": {
     "0": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null },
     "1": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null },

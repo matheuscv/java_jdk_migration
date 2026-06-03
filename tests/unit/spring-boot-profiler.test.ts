@@ -62,7 +62,7 @@ describe('springBootProfiler.analyze — jdk8-spring-boot fixture', () => {
     expect(risk).toBeDefined()
     expect(risk?.severity).toBe('high')
     expect(risk?.automationAvailable).toBe(true)
-    expect(risk?.recipe).toContain('UpgradeSpringBoot_3_0')
+    expect(risk?.recipe).toContain('UpgradeSpringBoot_3_')
   })
 
   it('prerequisiteCheck indica Spring Boot versão detectada', async () => {

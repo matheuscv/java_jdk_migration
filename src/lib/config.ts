@@ -16,6 +16,19 @@ export interface PhaseState {
   prUrl: string | null
 }
 
+export interface ArtifactRegistry {
+  /** Registry type. Use 'none' to disable internal dependency checks. */
+  type: 'nexus3' | 'artifactory' | 'none'
+  /** Base URL of the registry, e.g. "https://nexus-release-corp.ccorp.local" */
+  url: string
+  /**
+   * Group ID prefixes that belong to this organisation's internal artifacts.
+   * Used to filter which dependencies to check for SB3-compatible versions.
+   * Example: ["com.mycompany", "com.mycompany.platform"]
+   */
+  internalGroupIds: string[]
+}
+
 export interface JdkMigrationConfig {
   sourceJdk: '6' | '8'
   targetJdk: '21'
@@ -28,6 +41,8 @@ export interface JdkMigrationConfig {
   testCoverageThreshold: number
   dryRunBeforeExecute: boolean
   phases: Record<PhaseNumber, PhaseState>
+  /** Optional: internal artifact registry for checking dep compatibility before migration. */
+  artifactRegistry?: ArtifactRegistry
 }
 
 const CONFIG_FILENAME = 'jdk-migration.config.json'

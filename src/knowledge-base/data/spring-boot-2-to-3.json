@@ -1,0 +1,200 @@
+[
+  {
+    "pattern": "io.springfox",
+    "type": "framework-incompatibility",
+    "severity": "critical",
+    "context": "Spring Boot 3 / Spring MVC 6",
+    "description": "Springfox está abandonado (último release 2020) e não inicializa com Spring Boot 3. O Spring MVC 6 mudou o contrato de PathMatcher, causando NoSuchMethodError em startup.",
+    "replacement": "springdoc-openapi-starter-webmvc-ui:2.x",
+    "automationAvailable": false,
+    "recipe": null,
+    "affectsStacks": ["spring-boot"],
+    "migrationSteps": [
+      "Remover springfox-swagger2 e springfox-swagger-ui dos pom.xml",
+      "Adicionar springdoc-openapi-starter-webmvc-ui:2.x",
+      "Remover @EnableSwagger2 e classe SwaggerConfig com Docket",
+      "Substituir @ApiOperation → @Operation (io.swagger.v3.oas.annotations)",
+      "Substituir @ApiModelProperty → @Schema (io.swagger.v3.oas.annotations.media)",
+      "Substituir @Api → @Tag",
+      "Swagger UI disponível em /swagger-ui/index.html (não mais /swagger-ui.html)"
+    ],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  },
+  {
+    "pattern": "APPLICATION_JSON_UTF8_VALUE",
+    "type": "api-removal",
+    "severity": "critical",
+    "context": "Spring Framework 6 (Spring Boot 3)",
+    "description": "MediaType.APPLICATION_JSON_UTF8_VALUE foi deprecated no Spring 5.2 e REMOVIDO no Spring 6. Causa falha de compilação.",
+    "replacement": "MediaType.APPLICATION_JSON_VALUE",
+    "automationAvailable": true,
+    "recipe": null,
+    "affectsStacks": ["spring-boot", "rest"],
+    "migrationSteps": [
+      "Substituição global: APPLICATION_JSON_UTF8_VALUE → APPLICATION_JSON_VALUE"
+    ],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  },
+  {
+    "pattern": "springfox-swagger",
+    "type": "framework-incompatibility",
+    "severity": "critical",
+    "context": "Spring Boot 3 / Spring MVC 6",
+    "description": "Alias para detecção de dependência springfox-swagger2 ou springfox-swagger-ui no pom.xml.",
+    "replacement": "springdoc-openapi-starter-webmvc-ui:2.x",
+    "automationAvailable": false,
+    "recipe": null,
+    "affectsStacks": ["spring-boot"],
+    "migrationSteps": [],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  },
+  {
+    "pattern": "io.github.openfeign:feign-core:[0-9]|[0-9][0-9]\\.",
+    "type": "api-break",
+    "severity": "medium",
+    "context": "OpenFeign 11+",
+    "description": "O construtor Request.Options(int connectTimeout, int readTimeout) foi removido no OpenFeign 11. Agora requer TimeUnit como parâmetro. Causa falha de compilação ao fazer upgrade.",
+    "replacement": "new Request.Options(connectTimeout, TimeUnit.MILLISECONDS, readTimeout, TimeUnit.MILLISECONDS, true)",
+    "automationAvailable": false,
+    "recipe": null,
+    "affectsStacks": ["spring-boot", "rest"],
+    "migrationSteps": [
+      "Atualizar versão feign.version para 12.x ou superior no pom.xml",
+      "Atualizar chamadas de new Request.Options(connectTimeout, readTimeout) adicionando TimeUnit.MILLISECONDS"
+    ],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  },
+  {
+    "pattern": "org.apache.httpcomponents:httpclient",
+    "type": "version-conflict",
+    "severity": "medium",
+    "context": "Spring Boot 3 / Spring Framework 6",
+    "description": "Spring Framework 6 migrou para Apache HttpClient 5. Versões explícitas 4.x (httpclient:4.x, httpcore:4.x) podem conflitar com o BOM do Spring Boot 3. No HttpClient 5 o prefixo de pacote muda de org.apache.http.* para org.apache.hc.*.",
+    "replacement": "Remover versões explícitas e deixar o BOM do Spring Boot 3 gerenciar",
+    "automationAvailable": false,
+    "recipe": null,
+    "affectsStacks": ["spring-boot", "rest"],
+    "migrationSteps": [
+      "Remover propriedades httpClient.version e httpCore.version do pom.xml raiz",
+      "Remover declarações de versão explícita de httpclient e httpcore nos módulos",
+      "Se código usa org.apache.http.* diretamente, avaliar migração para org.apache.hc.* (HttpClient 5 API)"
+    ],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  },
+  {
+    "pattern": "org.glassfish.jaxb:jaxb-runtime:2\\.",
+    "type": "version-conflict",
+    "severity": "high",
+    "context": "Spring Boot 3 / Jakarta EE 9",
+    "description": "Spring Boot 3 gerencia jakarta.xml.bind-api (Jakarta EE 9). O runtime jaxb-runtime:2.x usa o namespace javax.xml.bind e é incompatível. Precisa ser atualizado para 4.x que usa jakarta.xml.bind.",
+    "replacement": "org.glassfish.jaxb:jaxb-runtime:4.0.x",
+    "automationAvailable": false,
+    "recipe": null,
+    "affectsStacks": ["spring-boot"],
+    "migrationSteps": [
+      "Atualizar org.glassfish.jaxb:jaxb-runtime de 2.x para 4.0.x no pom.xml",
+      "Atualizar imports javax.xml.bind.* → jakarta.xml.bind.* nos arquivos Java afetados"
+    ],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  },
+  {
+    "pattern": "org.glassfish.jersey.core:jersey-client:2\\.",
+    "type": "namespace-conflict",
+    "severity": "high",
+    "context": "Jakarta EE 9 / Spring Boot 3",
+    "description": "Jersey 2.x usa javax.ws.rs.* (JAX-RS 2.x). Jersey 3.x migrou para jakarta.ws.rs.*. Em um projeto Spring Boot 3, a presença de Jersey 2.x causa conflito de namespace no classpath.",
+    "replacement": "jersey-client:3.x (jakarta.ws.rs) ou java.net.http.HttpClient nativo (JDK 11+)",
+    "automationAvailable": false,
+    "recipe": null,
+    "affectsStacks": ["spring-boot", "rest"],
+    "migrationSteps": [
+      "Opção A: upgrade jersey-client e jersey-hk2 de 2.x para 3.x e atualizar imports javax.ws.rs → jakarta.ws.rs",
+      "Opção B (recomendada): substituir JerseyHttpClientFactory por java.net.http.HttpClient nativo, eliminando a dependência Jersey"
+    ],
+    "humanDecisionRequired": true,
+    "claudeCanExecute": true,
+    "decisionOptions": [
+      "Upgrade Jersey 2 → 3 (mantém a classe, atualiza imports e dependências)",
+      "Substituir por java.net.http.HttpClient nativo JDK 11+ (remove dependência externa)"
+    ]
+  },
+  {
+    "pattern": "ch.qos.logback.contrib",
+    "type": "outdated-dependency",
+    "severity": "low",
+    "context": "Spring Boot 3",
+    "description": "logback-jackson e logback-json-classic do logback-contrib estão desatualizados (último release 2017). O logstash-logback-encoder cobre o mesmo caso de uso com qualidade superior e manutenção ativa.",
+    "replacement": "net.logstash.logback:logstash-logback-encoder:7.x",
+    "automationAvailable": false,
+    "recipe": null,
+    "affectsStacks": ["spring-boot"],
+    "migrationSteps": [
+      "Remover logback-jackson e logback-json-classic do pom.xml",
+      "Garantir que logstash-logback-encoder 7.x está declarado",
+      "Atualizar logback-spring.xml para usar LogstashEncoder ao invés de JsonLayout"
+    ],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  },
+  {
+    "pattern": "management.metrics.export.prometheus",
+    "type": "property-rename",
+    "severity": "low",
+    "context": "Spring Boot 3 / Micrometer 1.10+",
+    "description": "Spring Boot 3 renomeou as propriedades de exportação do Prometheus. management.metrics.export.prometheus.* foi movido para management.prometheus.metrics.export.*.",
+    "replacement": "management.prometheus.metrics.export.*",
+    "automationAvailable": true,
+    "recipe": "org.openrewrite.java.spring.boot3.ActuatorEndpointSanitization",
+    "affectsStacks": ["spring-boot"],
+    "migrationSteps": [
+      "Substituir management.metrics.export.prometheus.enabled → management.prometheus.metrics.export.enabled",
+      "Atualizar demais propriedades management.metrics.export.prometheus.* analogamente"
+    ],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  },
+  {
+    "pattern": "junit:junit:4",
+    "type": "test-framework",
+    "severity": "medium",
+    "context": "Spring Boot 3",
+    "description": "Spring Boot 3 não inclui junit-vintage-engine por padrão. Testes JUnit 4 (@RunWith, org.junit.*) são silenciosamente ignorados sem o engine. Pode mascarar falhas.",
+    "replacement": "JUnit 5 (org.junit.jupiter) ou junit-vintage-engine como bridge",
+    "automationAvailable": true,
+    "recipe": "org.openrewrite.java.testing.junit5.JUnit4to5Migration",
+    "affectsStacks": ["spring-boot"],
+    "migrationSteps": [
+      "Opção A (paliativo): adicionar junit-vintage-engine como dependência de test em todos os módulos com testes JUnit 4",
+      "Opção B (correto): migrar testes para JUnit 5 usando @ExtendWith(MockitoExtension.class) e org.junit.jupiter.api.*"
+    ],
+    "humanDecisionRequired": true,
+    "claudeCanExecute": true,
+    "decisionOptions": [
+      "Adicionar junit-vintage-engine (zero mudança de código, paliativo rápido)",
+      "Migrar testes para JUnit 5 (correto, mais trabalho)"
+    ]
+  },
+  {
+    "pattern": "spring.cloud.version",
+    "type": "unused-property",
+    "severity": "low",
+    "context": "Spring Boot 3 migration cleanup",
+    "description": "Propriedade spring.cloud.version declarada em pom.xml mas não utilizada em nenhuma <dependency>. Projetos que usam OpenFeign standalone (io.github.openfeign) não precisam do BOM do Spring Cloud.",
+    "replacement": "Remover a propriedade",
+    "automationAvailable": false,
+    "recipe": null,
+    "affectsStacks": ["spring-boot"],
+    "migrationSteps": [
+      "Verificar se spring.cloud.version é referenciada em alguma <dependency> ou <dependencyManagement>",
+      "Se não for usada, remover a propriedade do pom.xml raiz"
+    ],
+    "humanDecisionRequired": false,
+    "claudeCanExecute": true
+  }
+]

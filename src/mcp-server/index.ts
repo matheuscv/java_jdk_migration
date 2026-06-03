@@ -5,16 +5,18 @@ import { registerDiscoverProject } from './tools/discover-project.js'
 import { registerBuildMigrationPlan } from './tools/build-migration-plan.js'
 import { registerExecutePhase } from './tools/execute-phase.js'
 import { registerAuxiliaryTools } from './tools/auxiliary.js'
+import { registerCheckDependencies } from './tools/check-dependencies.js'
 
 const server = new McpServer({
   name: 'jdk-migration',
-  version: '0.1.0',
+  version: '0.2.0',
 })
 
 registerDiscoverProject(server)
 registerBuildMigrationPlan(server)
 registerExecutePhase(server)
 registerAuxiliaryTools(server)
+registerCheckDependencies(server)
 
 const transport = new StdioServerTransport()
 await server.connect(transport)

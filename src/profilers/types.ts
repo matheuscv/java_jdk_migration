@@ -19,6 +19,12 @@ export interface ManualReviewItem {
   description: string
   suggestedApproach: string
   files: string[]
+  /** True when only a human can make this decision (architectural, policy, compliance). */
+  requiresHumanDecision?: boolean
+  /** True when Claude Code can research/verify this item (e.g. check a registry, scan files). */
+  claudeCanResearch?: boolean
+  /** Options presented to the human when requiresHumanDecision is true. */
+  decisionOptions?: string[]
 }
 
 export interface PrerequisiteCheck {

@@ -37,6 +37,29 @@ function loadEntries(sourceJdk: number): KnowledgeEntry[] {
   return JSON.parse(readFileSync(file, 'utf-8')) as KnowledgeEntry[]
 }
 
+// ─── Spring Boot 2 → 3 framework incompatibilities ───────────────────────────
+
+export interface SpringBoot3Entry {
+  pattern: string
+  type: 'framework-incompatibility' | 'api-removal' | 'api-break' | 'version-conflict' | 'namespace-conflict' | 'outdated-dependency' | 'property-rename' | 'test-framework' | 'unused-property'
+  severity: RiskSeverity
+  context: string
+  description: string
+  replacement: string | null
+  automationAvailable: boolean
+  recipe: string | null
+  affectsStacks: StackType[]
+  migrationSteps: string[]
+  humanDecisionRequired: boolean
+  claudeCanExecute: boolean
+  decisionOptions?: string[]
+}
+
+export function getSpringBoot3Entries(): SpringBoot3Entry[] {
+  const file = join(__dirname, 'data/spring-boot-2-to-3.json')
+  return JSON.parse(readFileSync(file, 'utf-8')) as SpringBoot3Entry[]
+}
+
 export function getEntriesForJdk(sourceJdk: number, targetJdk: number): KnowledgeEntry[] {
   return loadEntries(sourceJdk).filter(e => e.removedInJdk <= targetJdk)
 }

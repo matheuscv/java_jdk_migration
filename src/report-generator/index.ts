@@ -92,10 +92,12 @@ function buildHtml(ctx: BuildContext): string {
     .card { flex: 1; min-width: 140px; background: #f8fafd; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; text-align: center; }
     .card .num { font-size: 28px; font-weight: 700; }
     .card .lbl { font-size: 11px; color: #64748b; margin-top: 4px; }
-    .card.red .num  { color: #dc2626; }
+    .card.red .num    { color: #dc2626; }
     .card.orange .num { color: #ea580c; }
-    .card.green .num { color: #16a34a; }
-    .card.blue .num  { color: #2563eb; }
+    .card.green .num  { color: #16a34a; }
+    .card.blue .num   { color: #2563eb; }
+    .card.purple .num { color: #7c3aed; }
+    .card.cyan .num   { color: #0891b2; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { text-align: left; background: #f1f5f9; color: #475569; font-weight: 600; padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
     td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
@@ -124,6 +126,33 @@ function buildHtml(ctx: BuildContext): string {
     .phase-num { background: #0f3460; color: #fff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
     footer { text-align: center; font-size: 11px; color: #94a3b8; padding: 16px 0; }
     .empty { color: #94a3b8; font-style: italic; font-size: 13px; }
+    /* ── Execution Plan ── */
+    section.plan-section { border-left: 4px solid #0891b2; }
+    section.plan-section h2 { color: #0e7490; border-color: #cffafe; }
+    .owner-you    { display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#0e7490;background:#ecfeff;border:1px solid #a5f3fc;border-radius:12px;padding:2px 10px;white-space:nowrap; }
+    .owner-claude { display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#5b21b6;background:#faf5ff;border:1px solid #ddd6fe;border-radius:12px;padding:2px 10px;white-space:nowrap; }
+    .step-num { display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-size:11px;font-weight:700;flex-shrink:0; }
+    .step-you    { background:#ecfeff;color:#0e7490;border:1px solid #67e8f9; }
+    .step-claude { background:#faf5ff;color:#7c3aed;border:1px solid #c4b5fd; }
+    tr.row-you    td { background:#f0fdff; }
+    tr.row-you:hover td { background:#e0f9ff; }
+    tr.row-claude td { background:#fdf8ff; }
+    tr.row-claude:hover td { background:#f5eeff; }
+    tr.row-you    td:first-child { border-left:3px solid #22d3ee; }
+    tr.row-claude td:first-child { border-left:3px solid #a78bfa; }
+    .phase-div td { background:#f1f5f9!important;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;padding:6px 10px; }
+    .phase-div td:first-child { border-left:3px solid #cbd5e1; }
+    .resp-grid { display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px; }
+    .resp-box { border-radius:8px;padding:16px; }
+    .resp-box-you    { background:#ecfeff;border:1px solid #a5f3fc; }
+    .resp-box-claude { background:#faf5ff;border:1px solid #ddd6fe; }
+    .resp-box h4 { font-size:13px;font-weight:700;margin-bottom:10px; }
+    .resp-box-you    h4 { color:#0e7490; }
+    .resp-box-claude h4 { color:#5b21b6; }
+    .resp-box ul { padding-left:18px;font-size:13px;line-height:1.8; }
+    .resp-box-you    ul { color:#164e63; }
+    .resp-box-claude ul { color:#3b0764; }
+    .crit-path { background:#fef9c3;border:1px solid #fde047;border-left:4px solid #eab308;border-radius:6px;padding:12px 16px;margin-top:16px;font-size:13px;color:#713f12; }
   </style>
 </head>
 <body>
@@ -144,6 +173,7 @@ function buildHtml(ctx: BuildContext): string {
   ${buildRiskRegister(allRiskItems)}
   ${buildPhaseStatus(ctx)}
   ${buildManualItems(allManualItems)}
+  ${buildExecutionPlan(allRiskItems, allManualItems)}
   ${buildAuditTrail(ctx)}
 
   <footer>
@@ -162,6 +192,7 @@ function buildExecutiveSummary(ctx: BuildContext): string {
   const total = phaseList.length
   const critical = allRiskItems.filter(r => r.severity === 'critical').length
   const high = allRiskItems.filter(r => r.severity === 'high').length
+  const humanSteps = allManualItems.filter((m: any) => m.requiresHumanDecision === true).length
   return `
   <section>
     <h2>Resumo Executivo</h2>
@@ -181,6 +212,10 @@ function buildExecutiveSummary(ctx: BuildContext): string {
       <div class="card ${allManualItems.length > 0 ? 'orange' : 'green'}">
         <div class="num">${allManualItems.length}</div>
         <div class="lbl">Itens Manuais</div>
+      </div>
+      <div class="card ${humanSteps > 0 ? 'purple' : 'green'}">
+        <div class="num">${humanSteps}</div>
+        <div class="lbl">Decisões Humanas</div>
       </div>
     </div>
   </section>`
@@ -326,6 +361,284 @@ function buildManualItems(items: any[]): string {
         </tr>`).join('')}
       </tbody>
     </table>
+  </section>`
+}
+
+function buildExecutionPlan(risks: any[], manuals: any[]): string {
+  interface PlanStep {
+    num: number
+    owner: 'you' | 'claude'
+    task: string
+    detail: string
+    dependsOn: string
+    phase: string
+  }
+
+  // ── Fixed steps derived from standard migration flow ──────────────────
+  const steps: PlanStep[] = []
+  let stepNum = 1
+  let hasRegistry = false  // will be populated from manuals if present
+
+  // Phase A: Verification steps (all Claude — scanning + registry)
+  const hasInternalDeps = risks.some((r: any) =>
+    r.id?.startsWith('sb3-') && r.severity === 'critical',
+  ) || manuals.some((m: any) => m.claudeCanResearch === true)
+
+  if (hasInternalDeps) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'A',
+      task: 'Verificar dependências internas no registry',
+      detail: 'Executar check_internal_dependencies para listar versões disponíveis de cada dep interna e indicar compatibilidade com Spring Boot 3.',
+      dependsOn: '—',
+    })
+    hasRegistry = true
+  }
+
+  // Phase A: Human decisions
+  const humanDecisionItems = manuals.filter((m: any) => m.requiresHumanDecision === true)
+  for (const item of humanDecisionItems) {
+    steps.push({
+      num: stepNum++, owner: 'you', phase: 'A',
+      task: `Decidir: ${escHtml(item.title ?? '')}`,
+      detail: item.decisionOptions?.length
+        ? escHtml(item.decisionOptions.map((o: string, i: number) => `Opção ${String.fromCharCode(65 + i)}: ${o}`).join(' | '))
+        : escHtml((item.suggestedApproach ?? '').slice(0, 160)),
+      dependsOn: hasRegistry ? '1' : '—',
+    })
+  }
+
+  const firstClaudeImplStep = stepNum
+
+  // Phase B: Claude implementation tasks derived from risk items
+  const criticalRisks = risks.filter((r: any) => r.severity === 'critical')
+  const highRisks = risks.filter((r: any) => r.severity === 'high' && r.automationAvailable)
+  const mediumRisks = risks.filter((r: any) => r.severity === 'medium' && r.automationAvailable)
+
+  if (risks.some((r: any) => r.id === 'sb-version-upgrade' || r.id?.startsWith('sb-version'))) {
+    const depOnSteps = steps.filter(s => s.owner === 'you').map(s => String(s.num)).join(', ') || '—'
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Atualizar spring-boot-starter-parent no pom.xml raiz',
+      detail: 'Trocar versão 2.x pela versão alvo SB3 escolhida. Remover propriedades obsoletas (ex: spring.cloud.version não utilizada).',
+      dependsOn: depOnSteps,
+    })
+  }
+
+  if (criticalRisks.some((r: any) => r.id === 'sb3-utf8-mediatype-removed')) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Substituir APPLICATION_JSON_UTF8_VALUE → APPLICATION_JSON_VALUE',
+      detail: 'Busca e substituição global em todos os arquivos afetados.',
+      dependsOn: String(firstClaudeImplStep),
+    })
+  }
+
+  const javaxRisks = risks.filter((r: any) =>
+    r.id?.includes('javax') || r.recipe?.includes('Javax') || r.recipe?.includes('Jakarta'),
+  )
+  if (javaxRisks.length > 0) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: `Migrar imports javax.* → jakarta.* (${javaxRisks.length} tipo(s) de namespace)`,
+      detail: javaxRisks.map((r: any) => escHtml(r.title ?? '')).slice(0, 3).join('; '),
+      dependsOn: String(firstClaudeImplStep),
+    })
+  }
+
+  if (risks.some((r: any) => r.id === 'sb3-jaxb-runtime-version')) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Atualizar jaxb-runtime 2.x → 4.x',
+      detail: 'Atualizar versão no pom.xml raiz. Migrar imports javax.xml.bind.* → jakarta.xml.bind.* nos arquivos afetados.',
+      dependsOn: String(firstClaudeImplStep),
+    })
+  }
+
+  if (criticalRisks.some((r: any) => r.id === 'sb3-springfox-blocker')) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Substituir Springfox → springdoc-openapi',
+      detail: 'Remover springfox dos POMs. Adicionar springdoc-openapi-starter-webmvc-ui:2.x. Reescrever SwaggerConfig. Substituir anotações @ApiOperation → @Operation, @ApiModelProperty → @Schema.',
+      dependsOn: String(firstClaudeImplStep),
+    })
+  }
+
+  if (risks.some((r: any) => r.id === 'sb3-feign-options-api-break')) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Upgrade OpenFeign + corrigir construtor Request.Options',
+      detail: 'Atualizar feign.version para 12.x no pom.xml. Adicionar TimeUnit.MILLISECONDS aos construtores Request.Options.',
+      dependsOn: String(firstClaudeImplStep),
+    })
+  }
+
+  if (risks.some((r: any) => r.id === 'sb3-httpclient4-explicit')) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Remover versões explícitas do Apache HttpClient 4.x',
+      detail: 'Retirar propriedades httpClient.version e httpCore.version. Deixar o BOM do SB3 gerenciar.',
+      dependsOn: String(firstClaudeImplStep),
+    })
+  }
+
+  if (risks.some((r: any) => r.id === 'sb3-jersey2-namespace')) {
+    const jerseyDecision = manuals.find((m: any) => m.id === 'sb3-jersey2-decision')
+    const depOn = jerseyDecision
+      ? String(steps.find(s => s.task.includes('Jersey') || s.task.includes('Decidir'))?.num ?? firstClaudeImplStep)
+      : String(firstClaudeImplStep)
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Implementar decisão sobre Jersey (passo de decisão)',
+      detail: 'Opção A: upgrade Jersey 2→3, atualizar imports. Opção B: substituir por java.net.http.HttpClient nativo.',
+      dependsOn: depOn,
+    })
+  }
+
+  if (risks.some((r: any) => r.id === 'sb-junit4')) {
+    const junitDecision = manuals.find((m: any) => m.id === 'sb3-junit4-strategy')
+    const depOn = junitDecision
+      ? String(steps.find(s => s.task.includes('JUnit') || s.task.includes('testes'))?.num ?? firstClaudeImplStep)
+      : String(firstClaudeImplStep)
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Implementar decisão sobre JUnit 4 (passo de decisão)',
+      detail: 'Opção A: adicionar junit-vintage-engine como dep de test. Opção B: migrar para JUnit 5.',
+      dependsOn: depOn,
+    })
+  }
+
+  if (risks.some((r: any) => r.id === 'sb3-actuator-props-renamed')) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Atualizar propriedades Actuator/Prometheus renomeadas',
+      detail: 'Substituir management.metrics.export.prometheus.* → management.prometheus.metrics.export.* nas properties.',
+      dependsOn: String(firstClaudeImplStep),
+    })
+  }
+
+  // Internal deps update step (if registry check was done)
+  if (hasRegistry) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'B',
+      task: 'Atualizar versões das dependências internas nos POMs',
+      detail: 'Usar as versões SB3-compatíveis confirmadas pelo check_internal_dependencies. Registrar como impedimento as que não tiverem versão disponível.',
+      dependsOn: `1, ${firstClaudeImplStep}`,
+    })
+  }
+
+  // Build check
+  const lastBStep = stepNum - 1
+  steps.push({
+    num: stepNum++, owner: 'claude', phase: 'B',
+    task: 'Executar mvn clean compile e corrigir erros residuais',
+    detail: 'Primeira compilação completa. Erros esperados: imports faltantes, APIs removidas, conflitos de versão. Corrigir iterativamente até build limpo.',
+    dependsOn: `todos os passos anteriores (até ${lastBStep})`,
+  })
+
+  // Phase C: Human validation
+  steps.push({
+    num: stepNum++, owner: 'you', phase: 'C',
+    task: 'Testar a aplicação localmente',
+    detail: 'Verificar: startup sem erros, Swagger UI em /swagger-ui/index.html, endpoints críticos, conexões com banco e sistemas externos. Requer acesso à infraestrutura real.',
+    dependsOn: String(stepNum - 2),
+  })
+
+  steps.push({
+    num: stepNum++, owner: 'you', phase: 'C',
+    task: 'Aprovar gate da fase de migração',
+    detail: 'Confirmar formalmente que a aplicação está operacional com Spring Boot 3 + JDK 21. Encerra o ciclo de migração.',
+    dependsOn: String(stepNum - 2),
+  })
+
+  // Phase D: Low priority cleanup
+  const lowItems = risks.filter((r: any) => r.severity === 'low')
+  if (lowItems.length > 0) {
+    steps.push({
+      num: stepNum++, owner: 'claude', phase: 'D',
+      task: `Limpeza pós-migração (${lowItems.length} item(s) de baixa prioridade)`,
+      detail: lowItems.map((r: any) => escHtml(r.title ?? '')).slice(0, 4).join('; '),
+      dependsOn: String(stepNum - 2),
+    })
+  }
+
+  if (steps.length === 0) {
+    return ''
+  }
+
+  const phaseLabels: Record<string, string> = {
+    A: 'Fase A — Verificações e Decisões (antes de qualquer implementação)',
+    B: 'Fase B — Implementação (Claude executa)',
+    C: 'Fase C — Validação e Encerramento (você valida)',
+    D: 'Fase D — Limpeza Pós-migração (baixa prioridade)',
+  }
+
+  let rows = ''
+  let lastPhase = ''
+  for (const step of steps) {
+    if (step.phase !== lastPhase) {
+      rows += `<tr class="phase-div"><td colspan="5">${escHtml(phaseLabels[step.phase] ?? step.phase)}</td></tr>`
+      lastPhase = step.phase
+    }
+    const isYou = step.owner === 'you'
+    rows += `
+    <tr class="${isYou ? 'row-you' : 'row-claude'}">
+      <td><span class="step-num ${isYou ? 'step-you' : 'step-claude'}">${step.num}</span></td>
+      <td>${isYou ? '<span class="owner-you">👤 Você</span>' : '<span class="owner-claude">🤖 Claude</span>'}</td>
+      <td>${escHtml(step.task)}</td>
+      <td style="font-size:12px;color:#475569">${step.detail}</td>
+      <td style="font-size:12px;white-space:nowrap">${escHtml(step.dependsOn)}</td>
+    </tr>`
+  }
+
+  const youSteps = steps.filter(s => s.owner === 'you')
+  const claudeSteps = steps.filter(s => s.owner === 'claude')
+
+  return `
+  <section class="plan-section">
+    <h2>Plano de Execução — Divisão de Responsabilidades</h2>
+    <p style="font-size:13px;color:#475569;margin-bottom:16px">
+      Passos derivados automaticamente dos riscos e itens manuais identificados.
+      <strong style="color:#5b21b6">Claude Code</strong> executa verificações, implementações e compilação.
+      <strong style="color:#0e7490">Você</strong> toma decisões arquiteturais e valida com infraestrutura real.
+      A coluna "Depende de" indica pré-requisitos.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th style="width:110px">Responsável</th>
+          <th>Tarefa</th>
+          <th>Detalhe</th>
+          <th style="width:100px">Depende de</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div class="resp-grid">
+      <div class="resp-box resp-box-you">
+        <h4>👤 Exclusivamente seu (${youSteps.length} passo(s))</h4>
+        <ul>
+          ${youSteps.map(s => `<li>${escHtml(s.task)}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="resp-box resp-box-claude">
+        <h4>🤖 Claude Code executa (${claudeSteps.length} passo(s))</h4>
+        <ul>
+          ${claudeSteps.map(s => `<li>${escHtml(s.task)}</li>`).join('')}
+        </ul>
+      </div>
+    </div>
+
+    <div class="crit-path">
+      <strong>Caminho crítico:</strong>
+      ${hasRegistry
+        ? 'Claude executa a verificação do registry primeiro (passo 1). ' +
+          'Você toma as decisões com base nesse relatório. ' +
+          'A implementação começa após suas decisões.'
+        : 'As decisões arquiteturais (passos de "Você" na Fase A) desbloqueiam toda a implementação. ' +
+          'Configure <code>artifactRegistry</code> no jdk-migration.config.json para que Claude verifique deps internas automaticamente.'}
+    </div>
   </section>`
 }
 
