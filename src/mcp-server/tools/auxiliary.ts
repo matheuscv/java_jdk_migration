@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { readConfig, writeConfig, configExists } from '../../lib/config.js'
+import type { MigrationStep } from '../../lib/config.js'
 import { MigrationError } from '../../lib/errors.js'
 import { generateGateToken, getTokenIssuedAt } from '../../orchestrator/gate-validator.js'
 import { rollbackPhase } from '../../orchestrator/git-checkpoint.js'
@@ -223,6 +224,91 @@ export function registerAuxiliaryTools(server: McpServer): void {
             phase,
             restoredBranch: phaseState.baseBranch,
             message: `Fase ${phase} revertida. Branch '${phaseState.gitBranch}' preservada como histórico.`,
+          }, null, 2),
+        }],
+      }
+    },
+  )
+
+  server.registerTool(
+    'update_step_status',
+    {
+      title: 'Update Step Status',
+      description:
+        'Registra ou atualiza o progresso de um step individual dentro da fase ativa de migração. ' +
+        'Persiste os dados em jdk-migration.config.json para que generate_report inclua ' +
+        'automaticamente o progresso dos steps no relatório HTML de auditoria. ' +
+        'Chame este tool sempre que um step for concluído, iniciado ou pulado.',
+      inputSchema: {
+        projectPath: z
+          .string()
+          .describe('Caminho absoluto da raiz do projeto Java'),
+        stepNum: z
+          .number()
+          .int()
+          .min(1)
+          .describe('Número sequencial do step (1, 2, 3…)'),
+        owner: z
+          .enum(['claude', 'you'])
+          .describe('Responsável: "claude" para Claude Code, "you" para o usuário humano'),
+        phase: z
+          .enum(['A', 'B', 'C', 'D'])
+          .describe('Fase do plano de execução — A: Verificações/Decisões, B: Implementação, C: Validação, D: Limpeza'),
+        task: z
+          .string()
+          .describe('Descrição curta da tarefa do step'),
+        status: z
+          .enum(['done', 'pending', 'skipped'])
+          .describe('Status atual: done=concluído, pending=pendente, skipped=pulado intencionalmente'),
+        commit: z
+          .string()
+          .optional()
+          .describe('Hash curto do commit Git associado (ex: "235acc2"). Opcional.'),
+        note: z
+          .string()
+          .optional()
+          .describe('Nota adicional: arquivos afetados, decisão tomada, motivo do skip. Opcional.'),
+      },
+    },
+    async ({ projectPath, stepNum, owner, phase, task, status, commit, note }) => {
+      const config = readConfig(projectPath)
+
+      const steps: MigrationStep[] = config.steps ?? []
+      const existingIdx = steps.findIndex(s => s.num === stepNum)
+
+      const updatedStep: MigrationStep = {
+        id: `step-${stepNum}`,
+        num: stepNum,
+        owner,
+        phase,
+        task,
+        status,
+        ...(commit ? { commit } : {}),
+        ...(note ? { note } : {}),
+        ...(status === 'done' ? { completedAt: new Date().toISOString() } : {}),
+      }
+
+      if (existingIdx >= 0) {
+        steps[existingIdx] = updatedStep
+      } else {
+        steps.push(updatedStep)
+        steps.sort((a, b) => a.num - b.num)
+      }
+
+      config.steps = steps
+      writeConfig(projectPath, config)
+
+      const doneCount = steps.filter(s => s.status === 'done').length
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            status: 'ok',
+            step: updatedStep,
+            totalSteps: steps.length,
+            doneSteps: doneCount,
+            message: `Step ${stepNum} registrado como "${status}". ${doneCount}/${steps.length} steps concluídos.`,
           }, null, 2),
         }],
       }

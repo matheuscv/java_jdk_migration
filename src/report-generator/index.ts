@@ -55,7 +55,9 @@ export async function generateAuditReport(projectPath: string): Promise<AuditRep
   const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const reportPath = join(migrationDir, `audit-report-${timestamp}.html`)
 
-  const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath })
+  const steps: any[] = config?.steps ?? []
+
+  const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps })
   writeFileSync(reportPath, html, 'utf-8')
 
   return {
@@ -78,10 +80,11 @@ interface BuildContext {
   allManualItems: any[]
   now: Date
   projectPath: string
+  steps: any[]
 }
 
 function buildHtml(ctx: BuildContext): string {
-  const { plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath } = ctx
+  const { plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps } = ctx
   const sourceJdk = config?.sourceJdk ?? discovery?.sourceJdk ?? '?'
   const stacks: string[] = config?.stack ?? discovery?.detectedStacks ?? []
   const buildSystem: string = config?.buildSystem ?? discovery?.buildSystem ?? '?'
@@ -166,6 +169,24 @@ function buildHtml(ctx: BuildContext): string {
     .resp-box-you    ul { color:#164e63; }
     .resp-box-claude ul { color:#3b0764; }
     .crit-path { background:#fef9c3;border:1px solid #fde047;border-left:4px solid #eab308;border-radius:6px;padding:12px 16px;margin-top:16px;font-size:13px;color:#713f12; }
+    /* ── Step Progress ── */
+    section.steps-section { border-left: 4px solid #16a34a; }
+    section.steps-section h2 { color: #15803d; border-color: #bbf7d0; }
+    .steps-progress-bar { background:#e2e8f0; border-radius:99px; height:10px; margin-bottom:16px; overflow:hidden; }
+    .steps-progress-fill { background: linear-gradient(90deg,#16a34a,#22c55e); height:100%; border-radius:99px; }
+    .steps-progress-label { font-size:12px; color:#475569; margin-bottom:8px; }
+    tr.step-done td { background:#f0fdf4!important; }
+    tr.step-done:hover td { background:#dcfce7!important; }
+    tr.step-done td:first-child { border-left:3px solid #22c55e; }
+    tr.step-pending td { background:#f8fafc!important; }
+    tr.step-pending:hover td { background:#f1f5f9!important; }
+    tr.step-pending td:first-child { border-left:3px solid #cbd5e1; }
+    tr.step-skipped td { background:#fffbeb!important; }
+    tr.step-skipped td:first-child { border-left:3px solid #fbbf24; }
+    .badge-step-done    { background:#f0fdf4;color:#15803d;border:1px solid #86efac; }
+    .badge-step-pending { background:#f8fafc;color:#64748b;border:1px solid #e2e8f0; }
+    .badge-step-skipped { background:#fffbeb;color:#b45309;border:1px solid #fde68a; }
+    .commit-ref { font-family:monospace;font-size:11px;background:#f1f5f9;color:#475569;padding:1px 5px;border-radius:3px; }
   </style>
 </head>
 <body>
@@ -185,6 +206,7 @@ function buildHtml(ctx: BuildContext): string {
   ${buildDiscoverySummary(ctx)}
   ${buildRiskRegister(allRiskItems)}
   ${buildPhaseStatus(ctx)}
+  ${buildStepProgress(ctx)}
   ${buildManualItems(allManualItems)}
   ${buildExecutionPlan(allRiskItems, allManualItems)}
   ${buildAuditTrail(ctx)}
@@ -199,20 +221,26 @@ function buildHtml(ctx: BuildContext): string {
 }
 
 function buildExecutiveSummary(ctx: BuildContext): string {
-  const { phases, allRiskItems, allManualItems } = ctx
+  const { phases, allRiskItems, allManualItems, steps } = ctx
   const phaseList = Object.values(phases) as any[]
-  const completed = phaseList.filter(p => p.status === 'completed').length
+  const approvedOrCompleted = phaseList.filter(p => p.status === 'approved' || p.status === 'completed').length
   const total = phaseList.length
   const critical = allRiskItems.filter(r => r.severity === 'critical').length
   const high = allRiskItems.filter(r => r.severity === 'high').length
   const humanSteps = allManualItems.filter((m: any) => m.requiresHumanDecision === true).length
+  const stepsDone = steps.filter(s => s.status === 'done').length
+  const stepsTotal = steps.length
   return `
   <section>
     <h2>Resumo Executivo</h2>
     <div class="cards">
-      <div class="card ${completed === total && total > 0 ? 'green' : 'blue'}">
-        <div class="num">${completed}/${total}</div>
-        <div class="lbl">Fases Concluídas</div>
+      <div class="card ${approvedOrCompleted === total && total > 0 ? 'green' : 'blue'}">
+        <div class="num">${approvedOrCompleted}/${total}</div>
+        <div class="lbl">Fases Aprovadas</div>
+      </div>
+      <div class="card ${stepsTotal > 0 && stepsDone === stepsTotal ? 'green' : stepsTotal > 0 ? 'cyan' : 'blue'}">
+        <div class="num">${stepsTotal > 0 ? `${stepsDone}/${stepsTotal}` : '—'}</div>
+        <div class="lbl">Steps Concluídos</div>
       </div>
       <div class="card ${critical > 0 ? 'red' : 'green'}">
         <div class="num">${critical}</div>
@@ -221,10 +249,6 @@ function buildExecutiveSummary(ctx: BuildContext): string {
       <div class="card ${high > 0 ? 'orange' : 'green'}">
         <div class="num">${high}</div>
         <div class="lbl">Riscos Altos</div>
-      </div>
-      <div class="card ${allManualItems.length > 0 ? 'orange' : 'green'}">
-        <div class="num">${allManualItems.length}</div>
-        <div class="lbl">Itens Manuais</div>
       </div>
       <div class="card ${humanSteps > 0 ? 'purple' : 'green'}">
         <div class="num">${humanSteps}</div>
@@ -652,6 +676,82 @@ function buildExecutionPlan(risks: any[], manuals: any[]): string {
         : 'As decisões arquiteturais (passos de "Você" na Fase A) desbloqueiam toda a implementação. ' +
           'Configure <code>artifactRegistry</code> no jdk-migration.config.json para que Claude verifique deps internas automaticamente.'}
     </div>
+  </section>`
+}
+
+function buildStepProgress(ctx: BuildContext): string {
+  const { steps } = ctx
+
+  if (steps.length === 0) {
+    return `
+  <section class="steps-section">
+    <h2>Progresso dos Steps (Fase Ativa)</h2>
+    <p class="empty">Nenhum step registrado ainda. Use a tool <code>update_step_status</code> para registrar o progresso granular dentro da fase ativa.</p>
+  </section>`
+  }
+
+  const sorted = [...steps].sort((a, b) => a.num - b.num)
+  const doneCount = sorted.filter(s => s.status === 'done').length
+  const total = sorted.length
+  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0
+
+  const phaseLabels: Record<string, string> = {
+    A: 'Fase A — Verificações e Decisões (antes de qualquer implementação)',
+    B: 'Fase B — Implementação (Claude executa)',
+    C: 'Fase C — Validação e Encerramento (você valida)',
+    D: 'Fase D — Limpeza Pós-migração (baixa prioridade)',
+  }
+
+  let rows = ''
+  let lastPhase = ''
+
+  for (const step of sorted) {
+    const stepPhase = step.phase ?? ''
+    if (stepPhase && stepPhase !== lastPhase) {
+      rows += `<tr class="phase-div"><td colspan="5">${escHtml(phaseLabels[stepPhase] ?? stepPhase)}</td></tr>`
+      lastPhase = stepPhase
+    }
+
+    const isYou = step.owner === 'you'
+    const statusBadge = step.status === 'done'
+      ? '<span class="badge badge-step-done">✓ Concluído</span>'
+      : step.status === 'skipped'
+        ? '<span class="badge badge-step-skipped">↷ Pulado</span>'
+        : '<span class="badge badge-step-pending">⏳ Pendente</span>'
+
+    const commitCell = step.commit
+      ? `<span class="commit-ref">${escHtml(step.commit)}</span>${step.note ? ` — ${escHtml(step.note)}` : ''}`
+      : step.note
+        ? escHtml(step.note)
+        : '—'
+
+    rows += `
+    <tr class="step-${step.status ?? 'pending'}">
+      <td>${step.num}</td>
+      <td>${isYou ? '<span class="owner-you">👤 Você</span>' : '<span class="owner-claude">🤖 Claude</span>'}</td>
+      <td>${escHtml(step.task ?? '')}</td>
+      <td>${statusBadge}</td>
+      <td style="font-size:12px">${commitCell}</td>
+    </tr>`
+  }
+
+  return `
+  <section class="steps-section">
+    <h2>Progresso dos Steps (${doneCount}/${total} concluídos · ${pct}%)</h2>
+    <p class="steps-progress-label">${doneCount} de ${total} steps concluídos</p>
+    <div class="steps-progress-bar"><div class="steps-progress-fill" style="width:${pct}%"></div></div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th style="width:110px">Responsável</th>
+          <th>Tarefa</th>
+          <th style="width:110px">Status</th>
+          <th>Commit / Nota</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
   </section>`
 }
 

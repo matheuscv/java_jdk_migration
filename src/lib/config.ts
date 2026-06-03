@@ -16,6 +16,18 @@ export interface PhaseState {
   prUrl: string | null
 }
 
+export interface MigrationStep {
+  id: string              // e.g. "step-1"
+  num: number             // 1, 2, 3...
+  owner: 'claude' | 'you'
+  phase: 'A' | 'B' | 'C' | 'D'
+  task: string
+  status: 'done' | 'pending' | 'skipped'
+  commit?: string         // short git hash
+  note?: string           // context / decision taken
+  completedAt?: string    // ISO 8601
+}
+
 export interface ArtifactRegistry {
   /** Registry type. Use 'none' to disable internal dependency checks. */
   type: 'nexus3' | 'artifactory' | 'none'
@@ -43,6 +55,8 @@ export interface JdkMigrationConfig {
   phases: Record<PhaseNumber, PhaseState>
   /** Optional: internal artifact registry for checking dep compatibility before migration. */
   artifactRegistry?: ArtifactRegistry
+  /** Granular step progress within the active phase — persisted by update_step_status tool. */
+  steps?: MigrationStep[]
 }
 
 const CONFIG_FILENAME = 'jdk-migration.config.json'
