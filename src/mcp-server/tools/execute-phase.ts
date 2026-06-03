@@ -15,6 +15,7 @@ import {
 } from '../../orchestrator/git-checkpoint.js'
 import { runBuild, runTests } from '../../orchestrator/build-validator.js'
 import { executePhaseTransform } from '../../transform-engine/index.js'
+import { generateAuditReportSilent } from '../../report-generator/index.js'
 import type { PhaseNumber } from '../../types.js'
 
 export function registerExecutePhase(server: McpServer): void {
@@ -216,6 +217,9 @@ async function _executePhaseUnlocked(
   })
   writeConfig(projectPath, config)
 
+  // ── 13a. Relatório automático de auditoria ────────────────────────────────
+  const autoReportPath = await generateAuditReportSilent(projectPath)
+
   // ── 14. PR (opcional — não falha se gh ausente) ───────────────────────────
   const prUrl = await createPullRequest(
     projectPath,
@@ -239,6 +243,7 @@ async function _executePhaseUnlocked(
     buildPassed: true,
     testsPassed: testResult.testsPassed,
     diffSummary: transformResult.diffSummary,
+    auditReport: autoReportPath ?? null,
     nextStep: `Execute approve_gate(projectPath, ${phase}, "<seu nome>") para liberar a Fase ${phase + 1}.`,
   }
 }

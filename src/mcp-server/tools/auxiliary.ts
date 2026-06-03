@@ -5,7 +5,7 @@ import { MigrationError } from '../../lib/errors.js'
 import { generateGateToken, getTokenIssuedAt } from '../../orchestrator/gate-validator.js'
 import { rollbackPhase } from '../../orchestrator/git-checkpoint.js'
 import { updatePhaseStatus } from '../../orchestrator/state-machine.js'
-import { generateAuditReport } from '../../report-generator/index.js'
+import { generateAuditReport, generateAuditReportSilent } from '../../report-generator/index.js'
 import type { PhaseNumber } from '../../types.js'
 
 const FORBIDDEN_APPROVER_NAMES = new Set(['bot', 'automation', 'ci', 'cd', 'system', 'auto'])
@@ -130,6 +130,9 @@ export function registerAuxiliaryTools(server: McpServer): void {
 
       writeConfig(projectPath, config)
 
+      // Gera relatório de auditoria automaticamente após cada aprovação de gate
+      const autoReportPath = await generateAuditReportSilent(projectPath)
+
       return {
         content: [
           {
@@ -142,6 +145,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
                 approvedAt: now,
                 tokenIssuedAt: getTokenIssuedAt(token)?.toISOString(),
                 gateToken: token,
+                auditReport: autoReportPath ?? null,
                 message: `Gate da Fase ${phaseNumber} aprovado. Use o gateToken para liberar a Fase ${phaseNumber + 1} via execute_phase.`,
               },
               null,

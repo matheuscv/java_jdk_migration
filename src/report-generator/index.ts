@@ -10,6 +10,19 @@ export interface AuditReportResult {
   criticalRisks: number
 }
 
+/**
+ * Versão silenciosa — não lança exceção. Usada para geração automática ao fim de cada fase.
+ * Retorna o caminho do relatório gerado ou null em caso de falha.
+ */
+export async function generateAuditReportSilent(projectPath: string): Promise<string | null> {
+  try {
+    const result = await generateAuditReport(projectPath)
+    return result.reportPath
+  } catch {
+    return null
+  }
+}
+
 export async function generateAuditReport(projectPath: string): Promise<AuditReportResult> {
   const migrationDir = join(projectPath, '.jdk-migration')
   const planPath = join(migrationDir, 'migration-plan.json')
