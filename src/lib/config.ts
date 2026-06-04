@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { StackType, PhaseNumber, PhaseStatus, BuildSystem, AppServer, CiSystem } from '../types.js'
 import { MigrationError } from './errors.js'
+import type { SerializedTools } from './tool-detector.js'
 
 export interface PhaseState {
   status: PhaseStatus
@@ -63,6 +64,8 @@ export interface JdkMigrationConfig {
    * 'phase-gate-step' → report gerado também ao término de cada Step individual.
    */
   reportMode?: 'phase-gate' | 'phase-gate-step'
+  /** Ferramentas detectadas durante a Fase 0 (discover_project). */
+  detectedTools?: SerializedTools
 }
 
 const CONFIG_FILENAME = 'jdk-migration.config.json'

@@ -9,10 +9,12 @@ import { detectStack, detectStackDeep } from '../../skill/stack-detector.js'
 import { runStaticAnalysis } from '../../static-analysis/index.js'
 import { correlate, getEntriesForJdk } from '../../knowledge-base/index.js'
 import { getProfilersForStacks } from '../../orchestrator/profiler-registry.js'
+import { detectTools, buildMissingToolsMessage, serializeTools } from '../../lib/tool-detector.js'
 import type { ProfilerReport } from '../../profilers/types.js'
 import type { StackType, RiskSeverity } from '../../types.js'
 import type { EnrichedIssue } from '../../knowledge-base/index.js'
 import type { StaticAnalysisResult } from '../../static-analysis/index.js'
+import type { SerializedTools } from '../../lib/tool-detector.js'
 
 export interface DiscoveryReport {
   projectPath: string
@@ -45,6 +47,12 @@ export interface DiscoveryReport {
     gitAvailable: boolean
     compiledClassesFound: boolean
   }
+  /** Ferramentas detectadas no ambiente de build */
+  detectedTools: SerializedTools
+  /** Se false, o agente deve perguntar ao usuário pelos caminhos ausentes antes de prosseguir */
+  allToolsFound: boolean
+  /** Mensagem a exibir ao usuário quando alguma ferramenta obrigatória não foi encontrada */
+  missingToolsMessage?: string
   savedReportPath: string
 }
 
@@ -61,11 +69,20 @@ export function registerDiscoverProject(server: McpServer): void {
         projectPath: z
           .string()
           .describe('Caminho absoluto da raiz do projeto Java a ser analisado'),
+        toolOverrides: z
+          .record(z.string())
+          .optional()
+          .default({})
+          .describe(
+            'Caminhos de ferramentas informados pelo usuário quando a auto-detecção falha. ' +
+            'Chaves aceitas: JAVA_HOME, MAVEN_HOME, M2_HOME, GRADLE_HOME, GIT_EXEC_PATH. ' +
+            'Exemplo: { "JAVA_HOME": "C:\\\\Program Files\\\\Zulu\\\\zulu-21", "MAVEN_HOME": "C:\\\\maven" }',
+          ),
       },
     },
-    async ({ projectPath }) => {
+    async ({ projectPath, toolOverrides = {} }) => {
       try {
-        const report = await discoverProject(projectPath)
+        const report = await discoverProject(projectPath, toolOverrides)
         return {
           content: [{ type: 'text', text: JSON.stringify(report, null, 2) }],
         }
@@ -86,7 +103,10 @@ export function registerDiscoverProject(server: McpServer): void {
 
 export { discoverProject as discoverProjectForTest }
 
-async function discoverProject(projectPath: string): Promise<DiscoveryReport> {
+async function discoverProject(
+  projectPath: string,
+  toolOverrides: Record<string, string> = {},
+): Promise<DiscoveryReport> {
   // 1. Determine stack and JDK from config (if exists) or auto-detect
   let sourceJdk: string
   let detectedStacks: StackType[]
@@ -111,6 +131,37 @@ async function discoverProject(projectPath: string): Promise<DiscoveryReport> {
     sourceJdk = shallow.detectedJdk ?? '8'
     detectedStacks = [...shallow.detectedStacks]
     buildSystem = shallow.buildSystem
+  }
+
+  // 1b. Detectar ferramentas do ambiente de build
+  const toolDetection = await detectTools(toolOverrides)
+  const serializedTools = serializeTools(toolDetection)
+
+  // Se alguma ferramenta obrigatória está ausente, retorna imediatamente com a mensagem
+  if (!toolDetection.allRequiredFound) {
+    const missingToolsMessage = buildMissingToolsMessage(toolDetection.missing)
+    // Ainda persiste o report parcial para não perder o que foi detectado
+    const reportDir = join(projectPath, '.jdk-migration')
+    mkdirSync(reportDir, { recursive: true })
+    const partialReport: DiscoveryReport = {
+      projectPath,
+      timestamp: new Date().toISOString(),
+      sourceJdk: '?',
+      detectedStacks: [],
+      buildSystem: '?',
+      isMultiModule: false,
+      staticAnalysis: { jdeprscanItemCount: 0, sourceItemCount: 0, jdepsViolations: [], splitPackages: [], runtimeWarnings: [], javaHomeUsed: null, compiledClassesFound: false },
+      knowledgeCorrelation: [],
+      profilerReports: [],
+      riskSummary: { critical: 0, high: 0, medium: 0, low: 0, manualReviewRequired: false, estimatedEffortDays: 0 },
+      prerequisites: { jdk21Available: false, gitAvailable: false, compiledClassesFound: false },
+      detectedTools: serializedTools,
+      allToolsFound: false,
+      missingToolsMessage,
+      savedReportPath: join(reportDir, 'discovery-report.json'),
+    }
+    writeFileSync(partialReport.savedReportPath, JSON.stringify(partialReport, null, 2), 'utf-8')
+    return partialReport
   }
 
   // 2. Deep stack detection — merge additional stacks found in source/XML
@@ -181,6 +232,8 @@ async function discoverProject(projectPath: string): Promise<DiscoveryReport> {
     profilerReports,
     riskSummary,
     prerequisites,
+    detectedTools: serializedTools,
+    allToolsFound: true,
     savedReportPath: reportPath,
   }
 
@@ -201,7 +254,12 @@ async function discoverProject(projectPath: string): Promise<DiscoveryReport> {
       dryRunBeforeExecute: true,
       reportMode: 'phase-gate',
       phases: createDefaultPhases(),
+      detectedTools: serializedTools,
     })
+  } else {
+    // Atualiza apenas detectedTools no config existente
+    const existing = readConfig(projectPath)
+    writeConfig(projectPath, { ...existing, detectedTools: serializedTools })
   }
   ensureGitignoreEntries(projectPath)
 

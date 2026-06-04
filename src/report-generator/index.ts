@@ -206,6 +206,16 @@ function buildHtml(ctx: BuildContext): string {
     .badge-step-pending { background:#f8fafc;color:#64748b;border:1px solid #e2e8f0; }
     .badge-step-skipped { background:#fffbeb;color:#b45309;border:1px solid #fde68a; }
     .commit-ref { font-family:monospace;font-size:11px;background:#f1f5f9;color:#475569;padding:1px 5px;border-radius:3px; }
+    /* ── Build Environment ── */
+    section.env-section { border-left: 4px solid #0891b2; }
+    section.env-section h2 { color: #0e7490; border-color: #cffafe; }
+    .tool-found    td:first-child { border-left: 3px solid #22c55e; }
+    .tool-missing  td:first-child { border-left: 3px solid #dc2626; }
+    .tool-provided td:first-child { border-left: 3px solid #a78bfa; }
+    .tool-path { font-family: monospace; font-size: 11px; color: #475569; word-break: break-all; }
+    .badge-found    { background:#f0fdf4;color:#15803d;border:1px solid #86efac; }
+    .badge-missing  { background:#fef2f2;color:#dc2626;border:1px solid #fecaca; }
+    .badge-provided { background:#faf5ff;color:#7c3aed;border:1px solid #ddd6fe; }
   </style>
 </head>
 <body>
@@ -222,6 +232,7 @@ function buildHtml(ctx: BuildContext): string {
 
   ${buildExecutiveSummary(ctx)}
   ${buildProjectInfo(ctx)}
+  ${buildBuildEnvironment(ctx)}
   ${buildDiscoverySummary(ctx)}
   ${buildRiskRegister(allRiskItems)}
   ${buildPhaseStatus(ctx)}
@@ -297,6 +308,61 @@ function buildProjectInfo(ctx: BuildContext): string {
       <div class="info-item"><label>Multi-módulo</label><span>${multiModule ? 'Sim' : 'Não'}</span></div>
       <div class="info-item"><label>Esforço Estimado</label><span>${escHtml(String(totalDays))} dias</span></div>
     </div>
+  </section>`
+}
+
+function buildBuildEnvironment(ctx: BuildContext): string {
+  const { config, discovery } = ctx
+  const tools: any[] = config?.detectedTools?.tools ?? discovery?.detectedTools?.tools ?? []
+  const detectedAt: string | undefined = config?.detectedTools?.detectedAt ?? discovery?.detectedTools?.detectedAt
+
+  if (tools.length === 0) {
+    return `
+  <section class="env-section">
+    <h2>Ambiente de Build</h2>
+    <p class="empty">Ferramentas ainda não detectadas — execute discover_project para preencher esta seção.</p>
+  </section>`
+  }
+
+  const allFound = tools.filter(t => t.required).every(t => t.status !== 'not_found')
+  const rows = tools.map(t => {
+    const cls = t.status === 'not_found' ? 'tool-missing' : t.status === 'user_provided' ? 'tool-provided' : 'tool-found'
+    const badge = t.status === 'not_found' ? 'missing' : t.status === 'user_provided' ? 'provided' : 'found'
+    const badgeLabel = t.status === 'not_found' ? 'Não encontrado' : t.status === 'user_provided' ? 'Informado pelo usuário' : 'Encontrado'
+    const requiredBadge = t.required
+      ? `<span class="badge badge-critical" style="font-size:10px">obrigatório</span>`
+      : `<span class="badge badge-low" style="font-size:10px">opcional</span>`
+    return `
+    <tr class="${cls}">
+      <td>${escHtml(t.name)}&nbsp;${requiredBadge}</td>
+      <td><span class="badge badge-${badge}">${badgeLabel}</span></td>
+      <td class="tool-path">${escHtml(t.path)}</td>
+      <td class="tool-path">${escHtml(t.version ?? '—')}</td>
+      <td style="font-size:11px;color:#64748b">${escHtml(t.source)}</td>
+    </tr>`
+  }).join('')
+
+  const summary = allFound
+    ? `<p style="font-size:13px;color:#15803d;margin-bottom:12px">✔ Todas as ferramentas obrigatórias foram localizadas automaticamente.</p>`
+    : `<p style="font-size:13px;color:#dc2626;margin-bottom:12px">⚠️ Uma ou mais ferramentas obrigatórias <strong>não foram encontradas</strong>. Informe os caminhos via <code>toolOverrides</code> ao chamar <code>discover_project</code>.</p>`
+
+  return `
+  <section class="env-section">
+    <h2>Ambiente de Build</h2>
+    ${summary}
+    <table>
+      <thead>
+        <tr>
+          <th>Ferramenta</th>
+          <th>Status</th>
+          <th>Caminho / Home</th>
+          <th>Versão</th>
+          <th>Origem da detecção</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${detectedAt ? `<p style="font-size:11px;color:#94a3b8;margin-top:10px">Detectado em: ${escHtml(new Date(detectedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }))}</p>` : ''}
   </section>`
 }
 
