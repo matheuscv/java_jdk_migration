@@ -6,7 +6,7 @@ import { MigrationError } from '../../lib/errors.js'
 import { generateGateToken, getTokenIssuedAt } from '../../orchestrator/gate-validator.js'
 import { rollbackPhase } from '../../orchestrator/git-checkpoint.js'
 import { updatePhaseStatus } from '../../orchestrator/state-machine.js'
-import { generateAuditReport, generateAuditReportSilent } from '../../report-generator/index.js'
+import { generateAuditReport, generateAuditReportSilent, generateFinalReport } from '../../report-generator/index.js'
 import type { PhaseNumber } from '../../types.js'
 
 const FORBIDDEN_APPROVER_NAMES = new Set(['bot', 'automation', 'ci', 'cd', 'system', 'auto'])
@@ -131,9 +131,20 @@ export function registerAuxiliaryTools(server: McpServer): void {
 
       writeConfig(projectPath, config)
 
-      // Gera relatório de auditoria automaticamente após cada aprovação de gate
-      const autoReportPath = await generateAuditReportSilent(projectPath)
+      // Fase 5 (última): gera report incremental + audit-report-final.html fixo
+      // Demais fases: apenas report incremental com timestamp
+      let autoReportPath: string | null = null
+      let finalReportPath: string | null = null
 
+      if (phaseNumber === 5) {
+        const finalResult = await generateFinalReport(projectPath)
+        autoReportPath = finalResult.timestamped
+        finalReportPath = finalResult.final
+      } else {
+        autoReportPath = await generateAuditReportSilent(projectPath)
+      }
+
+      const isFinalPhase = phaseNumber === 5
       return {
         content: [
           {
@@ -147,7 +158,10 @@ export function registerAuxiliaryTools(server: McpServer): void {
                 tokenIssuedAt: getTokenIssuedAt(token)?.toISOString(),
                 gateToken: token,
                 auditReport: autoReportPath ?? null,
-                message: `Gate da Fase ${phaseNumber} aprovado. Use o gateToken para liberar a Fase ${phaseNumber + 1} via execute_phase.`,
+                ...(isFinalPhase ? { finalReport: finalReportPath ?? null } : {}),
+                message: isFinalPhase
+                  ? `Migracao concluida! Gate da Fase 5 aprovado por ${approverName.trim()}. Relatorio final salvo em audit-report-final.html.`
+                  : `Gate da Fase ${phaseNumber} aprovado. Use o gateToken para liberar a Fase ${phaseNumber + 1} via execute_phase.`,
               },
               null,
               2,

@@ -23,6 +23,25 @@ export async function generateAuditReportSilent(projectPath: string): Promise<st
   }
 }
 
+/**
+ * Gera o relatório final de encerramento da migração.
+ * Grava o snapshot com timestamp normal (como qualquer outro report) E sobrescreve
+ * audit-report-final.html — artefato fixo que marca a conclusão total da migração.
+ * Não lança exceção.
+ */
+export async function generateFinalReport(projectPath: string): Promise<{ timestamped: string | null; final: string | null }> {
+  try {
+    const result = await generateAuditReport(projectPath)
+    const finalPath = join(result.reportPath.replace(/audit-report-.+\.html$/, ''), 'audit-report-final.html')
+    // Copia o HTML já gerado para o nome fixo
+    const html = readFileSync(result.reportPath, 'utf-8')
+    writeFileSync(finalPath, html, 'utf-8')
+    return { timestamped: result.reportPath, final: finalPath }
+  } catch {
+    return { timestamped: null, final: null }
+  }
+}
+
 export async function generateAuditReport(projectPath: string): Promise<AuditReportResult> {
   const migrationDir = join(projectPath, '.jdk-migration')
   const planPath = join(migrationDir, 'migration-plan.json')
