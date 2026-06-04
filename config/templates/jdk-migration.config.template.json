@@ -11,9 +11,9 @@
   "testCoverageThreshold": 60,
   "dryRunBeforeExecute": true,
   "artifactRegistry": {
-    "type": "none",
-    "url": "",
-    "internalGroupIds": []
+    "type": "nexus3",
+    "url": "https://nexus-release-corp.ccorp.local",
+    "internalGroupIds": ["br.com.cielo"]
   },
   "phases": {
     "0": { "status": "pending", "gateToken": null, "approvedBy": null, "approvedAt": null },
