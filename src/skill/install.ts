@@ -66,7 +66,7 @@ export async function install(
 }
 
 // Garante que .gitignore exclui os arquivos de metadados da ferramenta
-function ensureGitignoreEntries(projectPath: string): void {
+export function ensureGitignoreEntries(projectPath: string): void {
   const ENTRIES = ['.jdk-migration/', 'jdk-migration.config.json']
   const gitignorePath = join(projectPath, '.gitignore')
   const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, 'utf-8') : ''

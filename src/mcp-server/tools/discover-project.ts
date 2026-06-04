@@ -2,7 +2,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { readConfig, configExists } from '../../lib/config.js'
+import { readConfig, writeConfig, configExists, createDefaultPhases } from '../../lib/config.js'
+import { ensureGitignoreEntries } from '../../skill/install.js'
 import { MigrationError } from '../../lib/errors.js'
 import { detectStack, detectStackDeep } from '../../skill/stack-detector.js'
 import { runStaticAnalysis } from '../../static-analysis/index.js'
@@ -184,6 +185,26 @@ async function discoverProject(projectPath: string): Promise<DiscoveryReport> {
   }
 
   writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8')
+
+  // 9. Create jdk-migration.config.json if not present + ensure .gitignore entries
+  if (!configExists(projectPath)) {
+    writeConfig(projectPath, {
+      sourceJdk: sourceJdk as '6' | '8',
+      targetJdk: '21',
+      stack: detectedStacks,
+      buildSystem: buildSystem as 'maven' | 'gradle' | 'ant',
+      appServer: null,
+      multiModule: isMultiModule,
+      modulePaths: [],
+      ciSystem: null,
+      testCoverageThreshold: 80,
+      dryRunBeforeExecute: true,
+      reportMode: 'phase-gate',
+      phases: createDefaultPhases(),
+    })
+  }
+  ensureGitignoreEntries(projectPath)
+
   return report
 }
 

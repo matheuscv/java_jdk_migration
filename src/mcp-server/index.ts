@@ -9,7 +9,7 @@ import { registerCheckDependencies } from './tools/check-dependencies.js'
 
 const server = new McpServer({
   name: 'jdk-migration',
-  version: '0.2.2',
+  version: '0.3.2',
 })
 
 registerDiscoverProject(server)
