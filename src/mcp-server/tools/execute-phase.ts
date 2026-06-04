@@ -109,6 +109,13 @@ async function _executePhaseUnlocked(
   // ── 2. Ler config ─────────────────────────────────────────────────────────
   let config = readConfig(projectPath)
 
+  // ── 3a. Se a fase está 'failed', o git já foi revertido automaticamente.
+  //        Resetar para 'pending' para permitir retry sem edição manual do config.
+  if (config.phases[phase].status === 'failed') {
+    config = updatePhaseStatus(config, phase, 'pending')
+    writeConfig(projectPath, config)
+  }
+
   // ── 3. Verificar se pode executar esta fase ───────────────────────────────
   if (!canExecutePhase(config, phase)) {
     const prevPhase = phase > 0 ? config.phases[(phase - 1) as PhaseNumber] : null
@@ -183,6 +190,24 @@ async function _executePhaseUnlocked(
     config = updatePhaseStatus(config, phase, 'failed')
     writeConfig(projectPath, config)
     await rollbackPhase(projectPath, checkpoint)
+
+    if (buildResult.failureReason === 'missing_artifact') {
+      throw new MigrationError(
+        'BUILD_FAILED',
+        `Build falhou na fase ${phase}: artifact(s) Maven inacessível(is) — provavelmente dependência privada ausente do repositório local ou de um registry interno não configurado. ` +
+          `Configure 'artifactRegistry' em jdk-migration.config.json ou garanta que o registry interno está acessível. Rollback aplicado.`,
+        { failureReason: 'missing_artifact', missingArtifacts: buildResult.missingArtifacts, exitCode: buildResult.exitCode },
+      )
+    }
+    if (buildResult.failureReason === 'command_not_found') {
+      throw new MigrationError(
+        'BUILD_FAILED',
+        `Build falhou na fase ${phase}: ferramenta de build não encontrada no PATH do processo MCP. ` +
+          `Adicione o diretório bin do Maven/Gradle à variável PATH no env do MCP server em ~/.claude.json e reinicie o Claude Code.`,
+        { failureReason: 'command_not_found', stderr: buildResult.stderr },
+      )
+    }
+
     throw new MigrationError(
       'BUILD_FAILED',
       `Build falhou na fase ${phase} (${buildResult.failureReason}). Rollback aplicado automaticamente.`,

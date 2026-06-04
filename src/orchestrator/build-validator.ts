@@ -5,9 +5,10 @@ export interface BuildResult {
   exitCode: number
   stdout: string
   stderr: string
-  failureReason: 'compilation' | 'tests' | 'timeout' | null
+  failureReason: 'compilation' | 'tests' | 'timeout' | 'missing_artifact' | 'command_not_found' | null
   testsPassed: number | null
   testsFailed: number | null
+  missingArtifacts?: string[]
 }
 
 const BUILD_TIMEOUT_MS = 10 * 60_000  // 10 minutos
@@ -26,9 +27,28 @@ export async function runBuild(
     return { success: false, exitCode: -1, stdout: result.stdout, stderr: result.stderr, failureReason: 'timeout', testsPassed: null, testsFailed: null }
   }
 
+  if (result.exitCode === -1 && result.stderr.includes('não encontrado')) {
+    return { success: false, exitCode: -1, stdout: result.stdout, stderr: result.stderr, failureReason: 'command_not_found', testsPassed: null, testsFailed: null }
+  }
+
+  const combined = result.stdout + result.stderr
+  const missingArtifacts = detectMissingArtifacts(combined)
+  if (missingArtifacts.length > 0) {
+    return {
+      success: false,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      failureReason: 'missing_artifact',
+      testsPassed: null,
+      testsFailed: null,
+      missingArtifacts,
+    }
+  }
+
   const compilationFailed =
     result.exitCode !== 0 &&
-    (result.stdout.includes('COMPILATION ERROR') ||
+    (combined.includes('COMPILATION ERROR') ||
       result.stderr.includes('error:') ||
       result.stderr.includes('cannot find symbol'))
 
@@ -68,6 +88,21 @@ export async function runTests(
     testsPassed: passed,
     testsFailed: failed,
   }
+}
+
+function detectMissingArtifacts(output: string): string[] {
+  const patterns = [
+    /Could not resolve(?:\s+artifact)?\s+([\w.:-]+)/g,
+    /Artifact ([\w.:-]+) not found/g,
+    /Could not find artifact ([\w.:-]+)/g,
+    /Non-resolvable (?:parent POM|import POM)[^:]*:\s*([\w.:-]+)/g,
+  ]
+  const found = new Set<string>()
+  for (const re of patterns) {
+    let m: RegExpExecArray | null
+    while ((m = re.exec(output)) !== null) found.add(m[1])
+  }
+  return [...found]
 }
 
 function parseTestCounts(

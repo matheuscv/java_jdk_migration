@@ -9,7 +9,7 @@ const VALID_TRANSITIONS: Record<PhaseStatus, PhaseStatus[]> = {
   awaiting_gate: ['approved', 'rolled_back'],
   approved:      ['completed'],
   completed:     [],
-  failed:        ['pending'],
+  failed:        ['pending', 'rolled_back'],
   rolled_back:   ['pending'],
 }
 

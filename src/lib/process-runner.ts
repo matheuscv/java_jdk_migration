@@ -1,10 +1,30 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join, isAbsolute } from 'node:path'
 
 export interface ProcessResult {
   exitCode: number
   stdout: string
   stderr: string
   timedOut: boolean
+}
+
+/**
+ * No Windows, Node.js não resolve arquivos .cmd/.bat sem shell:true.
+ * Esta função procura o wrapper .cmd no PATH para comandos sem extensão,
+ * evitando shell:true (que quebraria args com aspas via cmd.exe).
+ */
+function resolveWindowsCmd(command: string, env: NodeJS.ProcessEnv): string {
+  if (process.platform !== 'win32') return command
+  if (isAbsolute(command) || command.includes('/') || command.includes('\\')) return command
+  if (/\.(cmd|bat|exe|com)$/i.test(command)) return command
+
+  const pathDirs = (env.PATH ?? '').split(';')
+  for (const dir of pathDirs) {
+    const candidate = join(dir, command + '.cmd')
+    if (existsSync(candidate)) return candidate
+  }
+  return command
 }
 
 export async function runProcess(
@@ -15,11 +35,12 @@ export async function runProcess(
   return new Promise((resolve) => {
     const timeoutMs = options.timeoutMs ?? 300_000
     let timedOut = false
+    const env = options.env ?? process.env
+    const resolvedCommand = resolveWindowsCmd(command, env)
 
-    const child = spawn(command, args, {
+    const child = spawn(resolvedCommand, args, {
       cwd: options.cwd,
-      env: options.env ?? process.env,
-      // sem shell: true — args nunca passam por interpretador de shell
+      env,
     })
 
     let stdout = ''
@@ -33,10 +54,14 @@ export async function runProcess(
       child.kill()
     }, timeoutMs)
 
-    // Captura ENOENT e outros erros de spawn (comando não encontrado)
-    child.on('error', (err) => {
+    child.on('error', (err: NodeJS.ErrnoException) => {
       clearTimeout(timer)
-      resolve({ exitCode: -1, stdout, stderr: err.message, timedOut: false })
+      const isEnoent = err.code === 'ENOENT'
+      const detail = isEnoent
+        ? `Comando '${command}' não encontrado. Verifique se está instalado e no PATH. ` +
+          `No Windows, certifique-se que o diretório bin (ex: apache-maven/bin) está no PATH do MCP server (env em ~/.claude.json).`
+        : err.message
+      resolve({ exitCode: -1, stdout, stderr: detail, timedOut: false })
     })
 
     child.on('close', (code) => {
