@@ -78,16 +78,28 @@ export function registerBuildMigrationPlan(server: McpServer): void {
       description:
         'Consolida o relatório de diagnóstico em um plano de migração faseado, ' +
         'classificado por criticidade, com gates de aprovação definidos. ' +
-        'Requer que discover_project tenha sido executado antes.',
+        'Requer que discover_project tenha sido executado antes. ' +
+        'Use reportMode para controlar a frequência de geração automática de audit reports: ' +
+        '"phase-gate" (padrão) gera ao término de cada Fase/Gate; ' +
+        '"phase-gate-step" gera também ao término de cada Step individual.',
       inputSchema: {
         projectPath: z
           .string()
           .describe('Caminho absoluto da raiz do projeto Java'),
+        reportMode: z
+          .enum(['phase-gate', 'phase-gate-step'])
+          .optional()
+          .default('phase-gate')
+          .describe(
+            'Frequência de geração automática do audit report. ' +
+            '"phase-gate": apenas ao término de cada Fase e Gate (padrão). ' +
+            '"phase-gate-step": também ao término de cada Step individual da seção Progresso dos Steps.',
+          ),
       },
     },
-    async ({ projectPath }) => {
+    async ({ projectPath, reportMode = 'phase-gate' }) => {
       try {
-        const plan = await buildMigrationPlan(projectPath)
+        const plan = await buildMigrationPlan(projectPath, reportMode)
         return { content: [{ type: 'text', text: JSON.stringify(plan, null, 2) }] }
       } catch (err) {
         if (err instanceof MigrationError) {
@@ -104,7 +116,10 @@ export function registerBuildMigrationPlan(server: McpServer): void {
   )
 }
 
-async function buildMigrationPlan(projectPath: string): Promise<MigrationPlan> {
+async function buildMigrationPlan(
+  projectPath: string,
+  reportMode: 'phase-gate' | 'phase-gate-step' = 'phase-gate',
+): Promise<MigrationPlan> {
   // 1. Lê discovery report (obrigatório — discover_project deve ter rodado antes)
   const discoveryPath = join(projectPath, '.jdk-migration', 'discovery-report.json')
   if (!existsSync(discoveryPath)) {
@@ -120,6 +135,11 @@ async function buildMigrationPlan(projectPath: string): Promise<MigrationPlan> {
   let config: JdkMigrationConfig
   if (configExists(projectPath)) {
     config = readConfig(projectPath)
+    // Atualiza reportMode se foi explicitamente passado ou se ainda não está definido
+    if (reportMode !== 'phase-gate' || config.reportMode === undefined) {
+      config = { ...config, reportMode }
+      writeConfig(projectPath, config)
+    }
   } else {
     config = {
       sourceJdk: discovery.sourceJdk as '6' | '8',
@@ -129,6 +149,7 @@ async function buildMigrationPlan(projectPath: string): Promise<MigrationPlan> {
       appServer: null, multiModule: discovery.isMultiModule,
       modulePaths: [], ciSystem: null,
       testCoverageThreshold: 80, dryRunBeforeExecute: true,
+      reportMode,
       phases: {} as never,
     }
     writeConfig(projectPath, config)

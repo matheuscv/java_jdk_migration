@@ -51,6 +51,7 @@ export async function install(
     ciSystem: overrides?.ciSystem ?? null,
     testCoverageThreshold: overrides?.testCoverageThreshold ?? 80,
     dryRunBeforeExecute: overrides?.dryRunBeforeExecute ?? true,
+    reportMode: overrides?.reportMode ?? 'phase-gate',
     phases: createDefaultPhases(),
   }
 

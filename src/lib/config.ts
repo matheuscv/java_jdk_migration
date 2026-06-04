@@ -57,6 +57,12 @@ export interface JdkMigrationConfig {
   artifactRegistry?: ArtifactRegistry
   /** Granular step progress within the active phase — persisted by update_step_status tool. */
   steps?: MigrationStep[]
+  /**
+   * Controls when audit reports are auto-generated.
+   * 'phase-gate'      → report gerado ao término de cada Fase e Gate (padrão).
+   * 'phase-gate-step' → report gerado também ao término de cada Step individual.
+   */
+  reportMode?: 'phase-gate' | 'phase-gate-step'
 }
 
 const CONFIG_FILENAME = 'jdk-migration.config.json'

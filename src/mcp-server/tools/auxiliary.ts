@@ -238,7 +238,9 @@ export function registerAuxiliaryTools(server: McpServer): void {
         'Registra ou atualiza o progresso de um step individual dentro da fase ativa de migração. ' +
         'Persiste os dados em jdk-migration.config.json para que generate_report inclua ' +
         'automaticamente o progresso dos steps no relatório HTML de auditoria. ' +
-        'Chame este tool sempre que um step for concluído, iniciado ou pulado.',
+        'Chame este tool sempre que um step for concluído, iniciado ou pulado. ' +
+        'Se reportMode="phase-gate-step" estiver configurado, gera um novo audit-report-<timestamp>.html ' +
+        'automaticamente após cada chamada, refletindo o progresso atualizado dos steps.',
       inputSchema: {
         projectPath: z
           .string()
@@ -298,6 +300,12 @@ export function registerAuxiliaryTools(server: McpServer): void {
       config.steps = steps
       writeConfig(projectPath, config)
 
+      // Gera audit report automaticamente se reportMode === 'phase-gate-step'
+      let autoReportPath: string | null = null
+      if (config.reportMode === 'phase-gate-step') {
+        autoReportPath = await generateAuditReportSilent(projectPath)
+      }
+
       const doneCount = steps.filter(s => s.status === 'done').length
 
       return {
@@ -309,6 +317,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
             totalSteps: steps.length,
             doneSteps: doneCount,
             message: `Step ${stepNum} registrado como "${status}". ${doneCount}/${steps.length} steps concluídos.`,
+            ...(autoReportPath ? { auditReport: autoReportPath } : {}),
           }, null, 2),
         }],
       }
