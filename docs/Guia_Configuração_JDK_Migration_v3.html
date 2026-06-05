@@ -397,9 +397,9 @@
       <div class="code-label"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>~/.claude.json — trecho do servidor jdk-migration</div>
       <pre>{
   <span class="s-key">"mcpServers"</span>: {
-    <span class="s-key">"jdk-migration-mcp@0.3.11"</span>: {
+    <span class="s-key">"jdk-migration"</span>: {
       <span class="s-key">"env"</span>: {
-        <span class="s-key">"PATH"</span>: <span class="s-str">"C:\\devtools\\Apache\\maven\\bin;C:\\Program Files\\Zulu\\zulu-21\\bin;C:\\Program Files\\Git\\cmd;C:\\WINDOWS\\system32"</span>,
+        <span class="s-key">"PATH"</span>: <span class="s-str">"C:\\Program Files\\nodejs;C:\\Users\\SEU_USUARIO\\AppData\\Roaming\\npm;C:\\devtools\\Apache\\maven\\bin;C:\\Program Files\\Zulu\\zulu-21\\bin;C:\\Program Files\\Git\\cmd;C:\\WINDOWS\\system32"</span>,
         <span class="s-key">"PATHEXT"</span>: <span class="s-str">".COM;.EXE;.BAT;.CMD;.VBS;.WSH;.MSC"</span>,
         <span class="s-key">"JAVA_HOME"</span>: <span class="s-str">"C:\\Program Files\\Zulu\\zulu-21"</span>,
         <span class="s-key">"MAVEN_HOME"</span>: <span class="s-str">"C:\\devtools\\Apache\\maven"</span>
@@ -411,7 +411,9 @@
     <div class="warning-box">
       <div class="warn-title">⚠ Importante</div>
       <ul>
-        <li>Ajuste os caminhos para os diretórios reais de instalação na sua máquina</li>
+        <li><strong>Node.js é obrigatório no PATH</strong> — sem <code>C:\Program Files\nodejs</code>, o comando <code>npx</code> não é encontrado e o MCP server não inicia. Este é o erro mais comum de configuração.</li>
+        <li>Inclua também <code>C:\Users\SEU_USUARIO\AppData\Roaming\npm</code> para pacotes npm globais</li>
+        <li>Ajuste todos os caminhos para os diretórios reais de instalação na sua máquina</li>
         <li>Após editar <code>~/.claude.json</code>, <strong>reinicie o Claude Code</strong> para que as variáveis sejam carregadas</li>
         <li>Use barras duplas <code>\\</code> nos caminhos Windows dentro do JSON</li>
       </ul>
@@ -937,6 +939,20 @@ Aprovado. PIN: <span class="s-num">XXXXXX</span>. Aprovador: Matheus Castro
   <div class="section-title" id="troubleshooting">
     <div class="section-number">11</div>
     <div><h2>Troubleshooting</h2><p>Problemas comuns e como resolver</p></div>
+  </div>
+
+  <div class="step-card">
+    <div class="step-header"><div class="step-num red">T0</div><div>
+      <div class="step-title">MCP server não inicia — <code>npx</code> não encontrado</div>
+      <div class="step-desc">O Claude Code não consegue iniciar o servidor MCP porque <code>npx</code> não está no PATH configurado.</div>
+    </div></div>
+    <div class="warning-box"><div class="warn-title">⚠ Causa</div><p>O env do MCP em <code>~/.claude.json</code> não contém <code>C:\Program Files\nodejs</code>. Sem Node.js no PATH, <code>npx jdk-migration-mcp</code> falha antes mesmo de carregar qualquer tool.</p></div>
+    <div class="validation-box"><div class="val-title">✔ Solução</div><ul>
+      <li>Adicione <code>C:\Program Files\nodejs</code> <strong>no início</strong> do PATH no env do MCP (veja Seção 4)</li>
+      <li>Adicione também <code>C:\Users\SEU_USUARIO\AppData\Roaming\npm</code> para pacotes globais</li>
+      <li>Reinicie o Claude Code após editar <code>~/.claude.json</code></li>
+      <li>Teste: <code>claude mcp list</code> deve mostrar <code>jdk-migration: ✓ Connected</code></li>
+    </ul></div>
   </div>
 
   <div class="step-card">
