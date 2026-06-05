@@ -63,6 +63,7 @@ describe('discover_project — jdk8-spring-boot fixture', () => {
           estimatedEffortDays: 0,
         },
         prerequisites: { jdk21Available: false, gitAvailable: false, compiledClassesFound: false },
+        containerCi: { findings: [], filesScanned: [], hasIncompatibleImages: false, hasIncompatibleCiJdk: false },
         detectedTools: { detectedAt: new Date().toISOString(), allRequiredFound: false, tools: [] },
         allToolsFound: false,
         savedReportPath: join(projectPath, '.jdk-migration', 'discovery-report.json'),

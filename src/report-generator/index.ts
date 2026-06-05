@@ -216,6 +216,14 @@ function buildHtml(ctx: BuildContext): string {
     .badge-found    { background:#f0fdf4;color:#15803d;border:1px solid #86efac; }
     .badge-missing  { background:#fef2f2;color:#dc2626;border:1px solid #fecaca; }
     .badge-provided { background:#faf5ff;color:#7c3aed;border:1px solid #ddd6fe; }
+    /* ── Containers & CI ── */
+    section.cci-section { border-left: 4px solid #dc2626; }
+    section.cci-section h2 { color: #b91c1c; border-color: #fecaca; }
+    section.cci-ok { border-left: 4px solid #16a34a; }
+    section.cci-ok h2 { color: #15803d; border-color: #bbf7d0; }
+    .cci-file-type { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 6px;border-radius:3px;background:#f1f5f9;color:#475569; }
+    .cci-code { font-family:monospace;font-size:11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:3px;padding:2px 6px;color:#334155;word-break:break-all; }
+    .human-flag { font-size:11px;color:#b45309;font-weight:600; }
   </style>
 </head>
 <body>
@@ -233,6 +241,7 @@ function buildHtml(ctx: BuildContext): string {
   ${buildExecutiveSummary(ctx)}
   ${buildProjectInfo(ctx)}
   ${buildBuildEnvironment(ctx)}
+  ${buildContainerCi(ctx)}
   ${buildDiscoverySummary(ctx)}
   ${buildRiskRegister(allRiskItems)}
   ${buildPhaseStatus(ctx)}
@@ -308,6 +317,77 @@ function buildProjectInfo(ctx: BuildContext): string {
       <div class="info-item"><label>Multi-módulo</label><span>${multiModule ? 'Sim' : 'Não'}</span></div>
       <div class="info-item"><label>Esforço Estimado</label><span>${escHtml(String(totalDays))} dias</span></div>
     </div>
+  </section>`
+}
+
+function buildContainerCi(ctx: BuildContext): string {
+  const { discovery, config } = ctx
+  const cci = discovery?.containerCi ?? (config as any)?.containerCi
+  if (!cci) return ''
+
+  const { findings, filesScanned, hasIncompatibleImages, hasIncompatibleCiJdk } = cci as any
+  const hasIssues = (findings?.length ?? 0) > 0
+
+  if (!hasIssues) {
+    const scanned = (filesScanned as string[] ?? [])
+    if (scanned.length === 0) return ''
+    return `
+  <section class="cci-ok">
+    <h2>Containers &amp; CI</h2>
+    <p style="font-size:13px;color:#15803d">✔ Nenhuma incompatibilidade de JDK detectada nos arquivos de infraestrutura.</p>
+    <p style="font-size:11px;color:#94a3b8;margin-top:8px">Arquivos verificados: ${escHtml(scanned.join(', '))}</p>
+  </section>`
+  }
+
+  const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, info: 3 }
+  const sorted = [...(findings as any[])].sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9))
+
+  const fileTypeLabel: Record<string, string> = {
+    dockerfile: 'Dockerfile', 'docker-compose': 'Compose',
+    'github-actions': 'GitHub Actions', 'gitlab-ci': 'GitLab CI',
+    jenkinsfile: 'Jenkinsfile', 'azure-pipelines': 'Azure Pipelines',
+    travis: 'Travis CI', circleci: 'CircleCI', 'other-ci': 'CI',
+  }
+
+  const rows = sorted.map((f: any) => {
+    const typeLabel = fileTypeLabel[f.fileType] ?? f.fileType
+    const humanFlag = f.requiresHumanDecision
+      ? `<br><span class="human-flag">⚠️ Requer decisão humana</span>`
+      : ''
+    return `
+    <tr>
+      <td><span class="badge badge-${f.severity}">${escHtml(f.severity)}</span></td>
+      <td><span class="cci-file-type">${escHtml(typeLabel)}</span></td>
+      <td class="filepath">${escHtml(f.file)}<br><span style="color:#94a3b8;font-size:10px">linha ${f.line}</span></td>
+      <td><span class="cci-code">${escHtml(f.content?.slice(0, 80) ?? '')}${(f.content?.length ?? 0) > 80 ? '…' : ''}</span></td>
+      <td style="font-size:12px">${escHtml(f.description)}${humanFlag}</td>
+      <td style="font-size:12px;color:#475569">${escHtml(f.suggestion)}</td>
+    </tr>`
+  }).join('')
+
+  const alertMsg = [
+    hasIncompatibleImages ? '🐳 Imagens Docker desatualizadas' : '',
+    hasIncompatibleCiJdk ? '⚙️ Pipelines CI com JDK incompatível' : '',
+  ].filter(Boolean).join(' &nbsp;|&nbsp; ')
+
+  return `
+  <section class="cci-section">
+    <h2>Containers &amp; CI — ${findings.length} incompatibilidade(s) detectada(s)</h2>
+    <p style="font-size:13px;color:#b91c1c;margin-bottom:12px">${alertMsg}</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Severidade</th>
+          <th>Tipo</th>
+          <th>Arquivo / Linha</th>
+          <th>Conteúdo</th>
+          <th>Problema</th>
+          <th>Sugestão</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${filesScanned?.length > 0 ? `<p style="font-size:11px;color:#94a3b8;margin-top:10px">Arquivos verificados: ${escHtml((filesScanned as string[]).join(', '))}</p>` : ''}
   </section>`
 }
 

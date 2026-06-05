@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { detectTools, buildMissingToolsMessage, serializeTools } from '../../src/lib/tool-detector.js'
 
+const TIMEOUT = 30_000  // detectTools lança 5 processos em paralelo
+
 describe('detectTools', () => {
   it('retorna estrutura com tools, allRequiredFound e missing', async () => {
     const result = await detectTools()
@@ -9,7 +11,7 @@ describe('detectTools', () => {
     expect(result).toHaveProperty('missing')
     expect(Array.isArray(result.tools)).toBe(true)
     expect(Array.isArray(result.missing)).toBe(true)
-  })
+  }, TIMEOUT)
 
   it('cada tool tem os campos obrigatórios', async () => {
     const result = await detectTools()
@@ -21,12 +23,12 @@ describe('detectTools', () => {
       expect(t).toHaveProperty('required')
       expect(['found', 'not_found', 'user_provided']).toContain(t.status)
     }
-  })
+  }, TIMEOUT)
 
   it('override inválido não derruba a detecção', async () => {
     const result = await detectTools({ JAVA_HOME: '/nao/existe/de/jeito-nenhum' })
     expect(result.tools.length).toBeGreaterThan(0)
-  })
+  }, TIMEOUT)
 
   it('missing é subconjunto de tools required', async () => {
     const result = await detectTools()
@@ -34,7 +36,7 @@ describe('detectTools', () => {
       expect(m.required).toBe(true)
       expect(m.status).toBe('not_found')
     }
-  })
+  }, TIMEOUT)
 
   it('allRequiredFound é false quando há missing', async () => {
     const result = await detectTools()
@@ -42,7 +44,7 @@ describe('detectTools', () => {
     if (hasMissing) {
       expect(result.allRequiredFound).toBe(false)
     }
-  })
+  }, TIMEOUT)
 })
 
 describe('buildMissingToolsMessage', () => {
@@ -73,5 +75,5 @@ describe('serializeTools', () => {
     for (const t of serialized.tools) {
       expect(t).not.toHaveProperty('missingMessage')
     }
-  })
+  }, TIMEOUT)
 })

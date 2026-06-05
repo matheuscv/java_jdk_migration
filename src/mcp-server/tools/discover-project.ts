@@ -13,7 +13,7 @@ import { detectTools, buildMissingToolsMessage, serializeTools } from '../../lib
 import type { ProfilerReport } from '../../profilers/types.js'
 import type { StackType, RiskSeverity } from '../../types.js'
 import type { EnrichedIssue } from '../../knowledge-base/index.js'
-import type { StaticAnalysisResult } from '../../static-analysis/index.js'
+import type { StaticAnalysisResult, ContainerCiScanResult } from '../../static-analysis/index.js'
 import type { SerializedTools } from '../../lib/tool-detector.js'
 
 export interface DiscoveryReport {
@@ -32,6 +32,8 @@ export interface DiscoveryReport {
     javaHomeUsed: string | null
     compiledClassesFound: boolean
   }
+  /** Findings de Dockerfile, docker-compose e pipelines CI */
+  containerCi: ContainerCiScanResult
   knowledgeCorrelation: EnrichedIssue[]
   profilerReports: ProfilerReport[]
   riskSummary: {
@@ -155,6 +157,7 @@ async function discoverProject(
       profilerReports: [],
       riskSummary: { critical: 0, high: 0, medium: 0, low: 0, manualReviewRequired: false, estimatedEffortDays: 0 },
       prerequisites: { jdk21Available: false, gitAvailable: false, compiledClassesFound: false },
+      containerCi: { findings: [], filesScanned: [], hasIncompatibleImages: false, hasIncompatibleCiJdk: false },
       detectedTools: serializedTools,
       allToolsFound: false,
       missingToolsMessage,
@@ -232,6 +235,7 @@ async function discoverProject(
     profilerReports,
     riskSummary,
     prerequisites,
+    containerCi: staticResult.containerCi,
     detectedTools: serializedTools,
     allToolsFound: true,
     savedReportPath: reportPath,
