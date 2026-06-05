@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { StackType, PhaseNumber, PhaseStatus, BuildSystem, AppServer, CiSystem } from '../types.js'
 import { MigrationError } from './errors.js'
@@ -114,4 +114,36 @@ export function readConfig(projectPath: string): JdkMigrationConfig {
 export function writeConfig(projectPath: string, config: JdkMigrationConfig): void {
   const configPath = join(projectPath, CONFIG_FILENAME)
   writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
+}
+
+// ─── PIN store (aprovação humana) ─────────────────────────────────────────────
+// Arquivo separado do config principal — não é retornado por nenhuma MCP tool,
+// ficando fora do alcance do agente de IA.
+
+const PIN_STORE_FILENAME = '.gate-pins.json'
+
+export interface PinEntry {
+  pin: string
+  expiresAt: string  // ISO 8601
+  phaseNumber: number
+}
+
+export type PinStore = Partial<Record<number, PinEntry>>
+
+export function readPinStore(projectPath: string): PinStore {
+  const p = join(projectPath, '.jdk-migration', PIN_STORE_FILENAME)
+  if (!existsSync(p)) return {}
+  try { return JSON.parse(readFileSync(p, 'utf-8')) as PinStore } catch { return {} }
+}
+
+export function writePinStore(projectPath: string, store: PinStore): void {
+  const dir = join(projectPath, '.jdk-migration')
+  if (!existsSync(dir)) { mkdirSync(dir, { recursive: true }) }
+  writeFileSync(join(dir, PIN_STORE_FILENAME), JSON.stringify(store, null, 2), 'utf-8')
+}
+
+export function deletePinEntry(projectPath: string, phase: number): void {
+  const store = readPinStore(projectPath)
+  delete store[phase]
+  writePinStore(projectPath, store)
 }

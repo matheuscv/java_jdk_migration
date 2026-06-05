@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { readConfig, writeConfig, configExists } from '../../lib/config.js'
+import { readConfig, writeConfig, configExists, readPinStore, writePinStore, deletePinEntry } from '../../lib/config.js'
 import type { MigrationStep } from '../../lib/config.js'
 import { MigrationError } from '../../lib/errors.js'
 import { generateGateToken, getTokenIssuedAt } from '../../orchestrator/gate-validator.js'
@@ -8,8 +8,16 @@ import { rollbackPhase } from '../../orchestrator/git-checkpoint.js'
 import { updatePhaseStatus } from '../../orchestrator/state-machine.js'
 import { generateAuditReport, generateAuditReportSilent, generateFinalReport } from '../../report-generator/index.js'
 import type { PhaseNumber } from '../../types.js'
+import { randomInt } from 'node:crypto'
 
-const FORBIDDEN_APPROVER_NAMES = new Set(['bot', 'automation', 'ci', 'cd', 'system', 'auto'])
+// Nomes que identificam sistemas automatizados — bloqueados em approve_gate
+const FORBIDDEN_APPROVER_NAMES = new Set([
+  'bot', 'automation', 'ci', 'cd', 'system', 'auto',
+  'claude', 'claude code', 'assistant', 'ai', 'agent', 'robot',
+  'openai', 'anthropic', 'gpt', 'llm', 'copilot',
+])
+
+const PIN_VALIDITY_MS = 30 * 60 * 1000 // 30 minutos
 
 export function registerAuxiliaryTools(server: McpServer): void {
   server.registerTool(
@@ -83,13 +91,78 @@ export function registerAuxiliaryTools(server: McpServer): void {
   )
 
   server.registerTool(
+    'request_gate_approval',
+    {
+      title: 'Request Gate Approval',
+      description:
+        'Solicita a aprovação humana para uma fase. Gera um PIN de 6 dígitos que é ' +
+        'exibido ao responsável técnico. O PIN deve ser informado de volta pelo humano ' +
+        'na chamada de approve_gate. SEMPRE chame esta tool ANTES de approve_gate e ' +
+        'AGUARDE o humano fornecer o PIN — nunca tente adivinhar ou reutilizar PINs anteriores.',
+      inputSchema: {
+        projectPath: z.string().describe('Caminho absoluto da raiz do projeto Java'),
+        phaseNumber: z.number().int().min(0).max(5).describe('Número da fase a aprovar (0–5)'),
+      },
+    },
+    async ({ projectPath, phaseNumber }) => {
+      const config = readConfig(projectPath)
+      const phase = phaseNumber as PhaseNumber
+      const phaseState = config.phases[phase]
+
+      if (phaseState.status !== 'awaiting_gate') {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              error: 'PHASE_OUT_OF_ORDER',
+              message: `Fase ${phase} está com status '${phaseState.status}'. ` +
+                `Só é possível solicitar aprovação de fases no estado awaiting_gate.`,
+            }, null, 2),
+          }],
+        }
+      }
+
+      const pin = String(randomInt(100000, 999999))
+      const expiresAt = new Date(Date.now() + PIN_VALIDITY_MS).toISOString()
+
+      // Salva o PIN em disco — Claude não tem acesso a este arquivo
+      const pinStore = readPinStore(projectPath)
+      pinStore[phase] = { pin, expiresAt, phaseNumber: phase }
+      writePinStore(projectPath, pinStore)
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            status: 'awaiting_human_pin',
+            phase,
+            pinExpiresAt: expiresAt,
+            instructions: [
+              '══════════════════════════════════════════════════',
+              `  PIN DE APROVAÇÃO — FASE ${phase}`,
+              `  ➜  ${pin}`,
+              '══════════════════════════════════════════════════',
+              '',
+              `Digite este PIN ao confirmar a aprovação.`,
+              `O PIN expira em 30 minutos (${expiresAt}).`,
+              'NÃO compartilhe este PIN com sistemas automatizados.',
+            ].join('\n'),
+          }, null, 2),
+        }],
+      }
+    },
+  )
+
+  server.registerTool(
     'approve_gate',
     {
       title: 'Approve Gate',
       description:
         'Registra a aprovação humana para uma fase e emite o token que libera a fase ' +
-        'seguinte. NUNCA deve ser chamado por automação — approverName é obrigatório e ' +
-        'não pode ser vazio ou identificar um sistema automatizado.',
+        'seguinte. REQUER que request_gate_approval tenha sido chamado antes e que o ' +
+        'humano forneça o PIN gerado. NUNCA deve ser chamado por automação — ' +
+        'approverName não pode identificar um sistema automatizado e humanPin deve ser ' +
+        'o código de 6 dígitos que o humano digitou explicitamente nesta conversa.',
       inputSchema: {
         projectPath: z
           .string()
@@ -103,17 +176,58 @@ export function registerAuxiliaryTools(server: McpServer): void {
         approverName: z
           .string()
           .min(2)
-          .describe('Nome completo do responsável pela aprovação humana'),
+          .describe('Nome completo do responsável humano pela aprovação'),
+        humanPin: z
+          .string()
+          .length(6)
+          .regex(/^\d{6}$/)
+          .describe(
+            'PIN de 6 dígitos gerado por request_gate_approval e informado pelo humano. ' +
+            'NUNCA inferir, reutilizar ou adivinhar este valor — deve vir explicitamente do responsável técnico.',
+          ),
       },
     },
-    async ({ projectPath, phaseNumber, approverName }) => {
+    async ({ projectPath, phaseNumber, approverName, humanPin }) => {
+      // ── Bloquear nomes de sistemas automatizados ──────────────────────────────
       const normalizedName = approverName.trim().toLowerCase()
       if (FORBIDDEN_APPROVER_NAMES.has(normalizedName)) {
         throw new MigrationError(
           'GATE_TOKEN_INVALID',
-          `approverName "${approverName}" não é permitido — approve_gate deve ser chamado por um humano, não por automação.`,
+          `approverName "${approverName}" não é permitido — approve_gate deve ser chamado por um humano.`,
         )
       }
+
+      // ── Validar PIN ───────────────────────────────────────────────────────────
+      const pinStore = readPinStore(projectPath)
+      const pinEntry = pinStore[phaseNumber as PhaseNumber]
+
+      if (!pinEntry) {
+        throw new MigrationError(
+          'GATE_TOKEN_INVALID',
+          `Nenhum PIN foi gerado para a Fase ${phaseNumber}. ` +
+            `Chame request_gate_approval primeiro e aguarde o responsável técnico fornecer o PIN.`,
+        )
+      }
+
+      if (new Date(pinEntry.expiresAt) < new Date()) {
+        deletePinEntry(projectPath, phaseNumber as PhaseNumber)
+        throw new MigrationError(
+          'GATE_TOKEN_INVALID',
+          `O PIN da Fase ${phaseNumber} expirou (${pinEntry.expiresAt}). ` +
+            `Chame request_gate_approval novamente para gerar um novo PIN.`,
+        )
+      }
+
+      if (pinEntry.pin !== humanPin) {
+        throw new MigrationError(
+          'GATE_TOKEN_INVALID',
+          `PIN incorreto para a Fase ${phaseNumber}. ` +
+            `Verifique o código exibido por request_gate_approval e tente novamente.`,
+        )
+      }
+
+      // PIN válido — consumir (uso único)
+      deletePinEntry(projectPath, phaseNumber as PhaseNumber)
 
       const config = readConfig(projectPath)
       const phase = config.phases[phaseNumber as PhaseNumber]
