@@ -339,6 +339,119 @@ export function registerAuxiliaryTools(server: McpServer): void {
   )
 
   server.registerTool(
+    'record_manual_phase',
+    {
+      title: 'Record Manual Phase',
+      description:
+        'Registra uma fase que foi executada manualmente fora do MCP — por exemplo, quando ' +
+        'o execute_phase falhou por problema ambiental (EINVAL, ENOENT) e o trabalho foi ' +
+        'realizado diretamente na linha de comando. Avança a fase para awaiting_gate, ' +
+        'preservando a trilha de auditoria, e permite que approve_gate seja chamado ' +
+        'normalmente. NÃO aplica nenhuma transformação — apenas registra o estado.',
+      inputSchema: {
+        projectPath: z
+          .string()
+          .describe('Caminho absoluto da raiz do projeto Java'),
+        phaseNumber: z
+          .number()
+          .int()
+          .min(0)
+          .max(5)
+          .describe('Número da fase que foi executada manualmente (0–5)'),
+        gitBranch: z
+          .string()
+          .describe(
+            'Nome da branch Git onde as alterações manuais foram commitadas. ' +
+            'Pode ser a branch da fase (jdk-migration/phase-N-...) ou a branch principal de migração.',
+          ),
+        gitCommit: z
+          .string()
+          .describe('Hash (curto ou completo) do commit que representa o trabalho realizado.'),
+        recipesApplied: z
+          .array(z.string())
+          .optional()
+          .default([])
+          .describe('Lista das recipes/transformações aplicadas manualmente (para auditoria).'),
+        note: z
+          .string()
+          .describe(
+            'Descrição do que foi feito manualmente e o motivo pelo qual o execute_phase ' +
+            'não pôde ser usado (ex: "spawn EINVAL — mvn.cmd executado diretamente via CLI").',
+          ),
+      },
+    },
+    async ({ projectPath, phaseNumber, gitBranch, gitCommit, recipesApplied = [], note }) => {
+      const config = readConfig(projectPath)
+      const phase = phaseNumber as PhaseNumber
+      const phaseState = config.phases[phase]
+
+      // Permite registrar a partir de pending, in_progress ou failed
+      const allowedFromStatuses = ['pending', 'in_progress', 'failed']
+      if (!allowedFromStatuses.includes(phaseState.status)) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              error: 'PHASE_OUT_OF_ORDER',
+              message: `Fase ${phase} está com status '${phaseState.status}'. ` +
+                `record_manual_phase só pode ser chamado em fases com status: ${allowedFromStatuses.join(', ')}.`,
+            }, null, 2),
+          }],
+        }
+      }
+
+      const now = new Date().toISOString()
+
+      // Grava diretamente no config sem passar pela state machine (é um override manual)
+      config.phases[phase] = {
+        ...phaseState,
+        status: 'awaiting_gate',
+        executedAt: phaseState.executedAt ?? now,
+        gitBranch,
+        gitCommit,
+        baseBranch: phaseState.baseBranch ?? gitBranch,
+        baseCommit: phaseState.baseCommit ?? gitCommit,
+      }
+
+      // Adiciona nota de auditoria ao array de steps
+      const auditStep = {
+        id: `manual-phase-${phase}-${Date.now()}`,
+        num: (config.steps?.length ?? 0) + 1,
+        owner: 'claude' as const,
+        phase: 'B' as const,
+        task: `[MANUAL] Fase ${phase} executada fora do MCP`,
+        status: 'done' as const,
+        commit: gitCommit.slice(0, 8),
+        note: `${note}${recipesApplied.length > 0 ? ` | Recipes: ${recipesApplied.join(', ')}` : ''}`,
+        completedAt: now,
+      }
+      config.steps = [...(config.steps ?? []), auditStep]
+
+      writeConfig(projectPath, config)
+
+      const autoReportPath = await generateAuditReportSilent(projectPath)
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            status: 'awaiting_gate',
+            phase,
+            gitBranch,
+            gitCommit,
+            recipesApplied,
+            note,
+            auditReport: autoReportPath ?? null,
+            message:
+              `Fase ${phase} registrada como concluída manualmente (awaiting_gate). ` +
+              `Execute approve_gate(projectPath, ${phase}, "<seu nome>") para liberar a Fase ${phase + 1}.`,
+          }, null, 2),
+        }],
+      }
+    },
+  )
+
+  server.registerTool(
     'generate_report',
     {
       title: 'Generate Report',
