@@ -28,6 +28,7 @@ export interface StaticAnalysisResult {
 
 export type { ContainerCiScanResult } from './container-ci-scanner.js'
 export type { ContainerFinding } from './container-ci-scanner.js'
+export type { EnrichedContainerFinding } from './container-registry-enricher.js'
 
 export async function runStaticAnalysis(
   projectPath: string,

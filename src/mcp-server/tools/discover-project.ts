@@ -10,6 +10,7 @@ import { runStaticAnalysis } from '../../static-analysis/index.js'
 import { correlate, getEntriesForJdk } from '../../knowledge-base/index.js'
 import { getProfilersForStacks } from '../../orchestrator/profiler-registry.js'
 import { detectTools, buildMissingToolsMessage, serializeTools } from '../../lib/tool-detector.js'
+import { enrichContainerFindings } from '../../static-analysis/container-registry-enricher.js'
 import type { ProfilerReport } from '../../profilers/types.js'
 import type { StackType, RiskSeverity } from '../../types.js'
 import type { EnrichedIssue } from '../../knowledge-base/index.js'
@@ -239,6 +240,28 @@ async function discoverProject(
     detectedTools: serializedTools,
     allToolsFound: true,
     savedReportPath: reportPath,
+  }
+
+  // 8b. Enriquecer findings de container com dados do registry (se configurado)
+  const existingConfig = configExists(projectPath) ? readConfig(projectPath) : null
+  const registry = existingConfig?.artifactRegistry
+  if (registry && registry.type !== 'none' && registry.url) {
+    const enriched = await enrichContainerFindings(
+      report.containerCi.findings,
+      registry,
+      '21',
+    )
+    report.containerCi = {
+      ...report.containerCi,
+      findings: enriched,
+      // Reclassifica flags após enriquecimento
+      hasIncompatibleImages: enriched.some(
+        f => f.fileType === 'dockerfile' || f.fileType === 'docker-compose',
+      ),
+      hasIncompatibleCiJdk: enriched.some(
+        f => !['dockerfile', 'docker-compose'].includes(f.fileType),
+      ),
+    }
   }
 
   writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8')

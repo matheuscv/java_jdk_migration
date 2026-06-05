@@ -27,6 +27,10 @@ export interface ContainerFinding {
   severity: ContainerFindingSeverity
   /** true = precisa de decisão humana (ex: imagem privada corporativa) */
   requiresHumanDecision: boolean
+  /** Imagem substituta sugerida após consulta ao registry (preenchido pelo enricher) */
+  suggestedReplacement?: string | null
+  /** true = a sugestão veio de consulta ao registry corporativo */
+  replacementFromRegistry?: boolean
 }
 
 export interface ContainerCiScanResult {

@@ -354,13 +354,19 @@ function buildContainerCi(ctx: BuildContext): string {
     const humanFlag = f.requiresHumanDecision
       ? `<br><span class="human-flag">⚠️ Requer decisão humana</span>`
       : ''
+    const replacementCell = f.suggestedReplacement
+      ? `<br><span style="color:#15803d;font-size:11px;font-weight:600">
+           ✔ Substituta encontrada no registry:<br>
+           <span class="cci-code">${escHtml(f.suggestedReplacement)}</span>
+         </span>`
+      : ''
     return `
     <tr>
       <td><span class="badge badge-${f.severity}">${escHtml(f.severity)}</span></td>
       <td><span class="cci-file-type">${escHtml(typeLabel)}</span></td>
       <td class="filepath">${escHtml(f.file)}<br><span style="color:#94a3b8;font-size:10px">linha ${f.line}</span></td>
       <td><span class="cci-code">${escHtml(f.content?.slice(0, 80) ?? '')}${(f.content?.length ?? 0) > 80 ? '…' : ''}</span></td>
-      <td style="font-size:12px">${escHtml(f.description)}${humanFlag}</td>
+      <td style="font-size:12px">${escHtml(f.description)}${humanFlag}${replacementCell}</td>
       <td style="font-size:12px;color:#475569">${escHtml(f.suggestion)}</td>
     </tr>`
   }).join('')
