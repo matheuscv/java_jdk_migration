@@ -75,7 +75,20 @@ export async function generateAuditReport(projectPath: string): Promise<AuditRep
   const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const reportPath = join(migrationDir, `audit-report-${timestamp}.html`)
 
-  const manualSteps: any[] = config?.steps ?? []
+  // Coleta steps de TODAS as fontes:
+  // 1. config.steps — array global (gravado por update_step_status)
+  // 2. config.phases[N].steps — array por fase (gravado manualmente ou por record_manual_phase)
+  const globalSteps: any[] = config?.steps ?? []
+  const phaseSteps: any[] = Object.values(phases).flatMap((p: any) => p.steps ?? [])
+
+  // Mescla sem duplicatas (por num + commit)
+  const seenKeys = new Set<string>()
+  const manualSteps: any[] = []
+  for (const s of [...globalSteps, ...phaseSteps]) {
+    const key = `${s.num}-${s.commit ?? s.task}`
+    if (!seenKeys.has(key)) { seenKeys.add(key); manualSteps.push(s) }
+  }
+  manualSteps.sort((a, b) => (a.num ?? 0) - (b.num ?? 0))
 
   // Deriva steps automaticamente do git log de cada fase concluída/em andamento
   // quando não há steps manuais registrados para aquela fase
