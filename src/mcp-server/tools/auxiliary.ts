@@ -537,15 +537,18 @@ export function registerAuxiliaryTools(server: McpServer): void {
 
       const now = new Date().toISOString()
 
-      // Grava diretamente no config sem passar pela state machine (é um override manual)
+      // Grava diretamente no config sem passar pela state machine (é um override manual).
+      // gitBranch e gitCommit só sobrescrevem se execute_phase ainda não tiver gravado
+      // uma branch real — evita apagar a branch criada pelo execute_phase caso
+      // record_manual_phase seja chamado em seguida para complementar o registro.
       config.phases[phase] = {
         ...phaseState,
         status: 'awaiting_gate',
         executedAt: phaseState.executedAt ?? now,
-        gitBranch,
-        gitCommit,
-        baseBranch: phaseState.baseBranch ?? gitBranch,
-        baseCommit: phaseState.baseCommit ?? gitCommit,
+        gitBranch:   phaseState.gitBranch  ?? gitBranch,
+        gitCommit:   phaseState.gitCommit  ?? gitCommit,
+        baseBranch:  phaseState.baseBranch ?? gitBranch,
+        baseCommit:  phaseState.baseCommit ?? gitCommit,
       }
 
       // ── Merge de steps: upsert por num ────────────────────────────────────────
