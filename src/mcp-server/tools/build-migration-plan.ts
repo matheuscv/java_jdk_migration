@@ -90,15 +90,15 @@ export function registerBuildMigrationPlan(server: McpServer): void {
         reportMode: z
           .enum(['phase-gate', 'phase-gate-step'])
           .optional()
-          .default('phase-gate')
+          .default('phase-gate-step')
           .describe(
             'Frequência de geração automática do audit report. ' +
-            '"phase-gate": apenas ao término de cada Fase e Gate (padrão). ' +
-            '"phase-gate-step": também ao término de cada Step individual da seção Progresso dos Steps.',
+            '"phase-gate-step": gerado a cada Step individual (padrão). ' +
+            '"phase-gate": apenas ao término de cada Fase e Gate.',
           ),
       },
     },
-    async ({ projectPath, reportMode = 'phase-gate' }) => {
+    async ({ projectPath, reportMode = 'phase-gate-step' }) => {
       try {
         const plan = await buildMigrationPlan(projectPath, reportMode)
         return { content: [{ type: 'text', text: JSON.stringify(plan, null, 2) }] }
@@ -119,7 +119,7 @@ export function registerBuildMigrationPlan(server: McpServer): void {
 
 async function buildMigrationPlan(
   projectPath: string,
-  reportMode: 'phase-gate' | 'phase-gate-step' = 'phase-gate',
+  reportMode: 'phase-gate' | 'phase-gate-step' = 'phase-gate-step',
 ): Promise<MigrationPlan> {
   // 1. Lê discovery report (obrigatório — discover_project deve ter rodado antes)
   const discoveryPath = join(projectPath, '.jdk-migration', 'discovery-report.json')
@@ -136,8 +136,9 @@ async function buildMigrationPlan(
   let config: JdkMigrationConfig
   if (configExists(projectPath)) {
     config = readConfig(projectPath)
-    // Atualiza reportMode se foi explicitamente passado ou se ainda não está definido
-    if (reportMode !== 'phase-gate' || config.reportMode === undefined) {
+    // Atualiza reportMode se ainda não está definido OU se o valor atual for diferente do desejado
+    // (garante que configs criados antes da v0.3.10 sejam migrados para phase-gate-step)
+    if (config.reportMode === undefined || config.reportMode !== reportMode) {
       config = { ...config, reportMode }
       writeConfig(projectPath, config)
     }
