@@ -110,11 +110,31 @@ A Skill grava `jdk-migration.config.json` na raiz da aplicação-alvo. Campos pr
 | JSF / PrimeFaces | **Crítica** | Parcial — namespace automático; UI manual |
 | WebLogic | Alta | Alta via recipes Oracle oficiais |
 
+## Execução manual de fases (quando execute_phase falha)
+
+Quando `execute_phase` falhar por problema ambiental (ex: `spawn EINVAL` no Windows, `ENOENT`, timeout de Maven), siga este protocolo **antes de iniciar qualquer trabalho manual**:
+
+```bash
+# 1. Crie a branch isolada da fase ANTES de qualquer alteração
+git checkout -b jdk-migration/phase-N-YYYYMMDDHHMMSS
+# Exemplo: git checkout -b jdk-migration/phase-3-20260605170000
+
+# 2. Realize o trabalho manualmente (mvn, edições, etc.)
+# 3. Commit na branch criada
+git add -A && git commit -m "chore(jdk-migration): fase N -- <descricao>"
+
+# 4. Registre no MCP com record_manual_phase, passando a branch criada
+```
+
+**Por que isso importa:** sem a branch isolada, o trabalho fica na branch da fase anterior, o relatório mostra a branch errada e o rollback fica inviável de forma independente. Com a branch criada antes, cada fase tem sua própria trilha auditável no GitHub — igual ao comportamento automático do `execute_phase`.
+
+**Resumo:** `execute_phase` cria a branch automaticamente. Quando for manual, você/Claude criam antes com `git checkout -b`.
+
 ## Princípios inegociáveis
 
 - **Nunca avançar de fase sem token de gate aprovado** — token único por fase, registrado explicitamente.
 - **Nunca aplicar transformações semânticas automaticamente** em EJB/JTA — apenas sinalizar e organizar revisão humana.
-- **Cada fase em branch Git isolada** — rollback automático em falha de build; nunca commit direto na branch principal.
+- **Cada fase em branch Git isolada** — rollback automático em falha de build; nunca commit direto na branch principal. Em execução manual, criar a branch ANTES de iniciar o trabalho.
 - **dryRun obrigatório antes de qualquer execute_phase** em stacks de alta/crítica complexidade.
 - **Ordem de recipes importa:** recipe JDK antes do recipe WebLogic (ordem oficial Oracle).
 

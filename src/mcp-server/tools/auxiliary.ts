@@ -464,7 +464,14 @@ export function registerAuxiliaryTools(server: McpServer): void {
         'normalmente. NÃO aplica nenhuma transformação — apenas registra o estado. ' +
         'Use o parâmetro steps para registrar todos os steps do trabalho manual em uma ' +
         'única chamada atômica — isso garante que a seção "Progresso dos Steps" do ' +
-        'relatório HTML fique completa sem precisar chamar update_step_status N vezes.',
+        'relatório HTML fique completa sem precisar chamar update_step_status N vezes. ' +
+        'IMPORTANTE — isolamento Git: ANTES de iniciar qualquer trabalho manual, crie uma ' +
+        'branch isolada com o padrão oficial: ' +
+        'git checkout -b jdk-migration/phase-N-YYYYMMDDHHMMSS ' +
+        '(ex: git checkout -b jdk-migration/phase-3-20260605170000). ' +
+        'Isso garante que cada fase tenha sua própria branch no repositório, mantendo o ' +
+        'histórico auditável e permitindo rollback independente. Só omita se a branch já ' +
+        'foi criada por uma tentativa anterior de execute_phase.',
       inputSchema: {
         projectPath: z
           .string()
