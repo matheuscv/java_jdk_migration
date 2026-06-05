@@ -1,6 +1,6 @@
 {
   "name": "jdk-migration-mcp",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "description": "MCP server that orchestrates Java JDK 6/8 → 21 migrations with human-in-the-loop gates",
   "type": "module",
   "main": "dist/mcp-server/index.js",

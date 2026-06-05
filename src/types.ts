@@ -12,4 +12,4 @@ export type BuildSystem = 'maven' | 'gradle' | 'ant'
 export type AppServer = 'weblogic' | 'jboss' | 'tomcat' | 'liberty' | null
 export type CiSystem = 'github-actions' | 'jenkins' | 'gitlab-ci' | null
 export type RiskSeverity = 'critical' | 'high' | 'medium' | 'low'
-export type ManualReviewCategory = 'semantic' | 'security' | 'behavioral' | 'ui'
+export type ManualReviewCategory = 'semantic' | 'security' | 'behavioral' | 'ui' | 'infrastructure'

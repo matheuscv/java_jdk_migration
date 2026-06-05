@@ -10,6 +10,7 @@ import type { RiskItem, ManualReviewItem, ProfilerReport } from '../../profilers
 import type { StackType, PhaseNumber } from '../../types.js'
 import type { JdkMigrationConfig } from '../../lib/config.js'
 import type { DiscoveryReport } from './discover-project.js'
+import type { ContainerFinding } from '../../static-analysis/index.js'
 
 export interface PhasePlan {
   number: PhaseNumber
@@ -166,6 +167,11 @@ async function buildMigrationPlan(
   const allRiskItems = profilerReports.flatMap(pr => pr.riskItems)
   const allManualItems = profilerReports.flatMap(pr => pr.manualReviewItems)
 
+  // 4b. Converte containerCi.findings em RiskItems e ManualItems para as fases corretas
+  const containerFindings: ContainerFinding[] = discovery.containerCi?.findings ?? []
+  const containerRiskItems = containerFindingsToRiskItems(containerFindings)
+  const containerManualItems = containerFindingsToManualItems(containerFindings)
+
   // 5. Constrói os PhasePlans
   const phases: PhasePlan[] = [0, 1, 2, 3, 4, 5].map(n => {
     const phase = n as PhaseNumber
@@ -187,9 +193,17 @@ async function buildMigrationPlan(
       }
     }
 
-    // Risk items relevantes por fase
-    const phaseRiskItems = phaseRisks(phase, allRiskItems, discovery)
-    const phaseManualItems = phase === 4 ? allManualItems : []
+    // Risk items relevantes por fase (inclui findings de Dockerfile/CI na Fase 1)
+    const phaseRiskItems = [
+      ...phaseRisks(phase, allRiskItems, discovery),
+      ...(phase === 1 ? containerRiskItems : []),
+    ]
+
+    // Manual items: profilers → Fase 4; container/CI → Fase 1 (requer decisão antes do build CI)
+    const phaseManualItems = [
+      ...(phase === 4 ? allManualItems : []),
+      ...(phase === 1 ? containerManualItems : []),
+    ]
 
     const estimatedDays = computePhaseDays(phase, phaseRiskItems, phaseManualItems)
     const automationLevel = computeAutomation(phase, recipes.length, phaseManualItems.length)
@@ -212,7 +226,9 @@ async function buildMigrationPlan(
 
   const totalDays = phases.filter(p => p.applicable).reduce((s, p) => s + p.estimatedDays, 0)
   const manualReviewRequired = allManualItems.length > 0 ||
-    allRiskItems.some(r => r.severity === 'critical')
+    containerManualItems.length > 0 ||
+    allRiskItems.some(r => r.severity === 'critical') ||
+    containerRiskItems.some(r => r.severity === 'critical')
 
   const plan: MigrationPlan = {
     projectPath,
@@ -238,6 +254,57 @@ async function buildMigrationPlan(
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+const FILE_TYPE_LABEL: Record<string, string> = {
+  dockerfile: 'Dockerfile',
+  'docker-compose': 'docker-compose',
+  'github-actions': 'GitHub Actions',
+  'gitlab-ci': 'GitLab CI',
+  jenkinsfile: 'Jenkinsfile',
+  'azure-pipelines': 'Azure Pipelines',
+  travis: 'Travis CI',
+  circleci: 'CircleCI',
+  'other-ci': 'CI pipeline',
+}
+
+/**
+ * Converte findings de Dockerfile/CI que NÃO requerem decisão humana em RiskItems.
+ * Estes são riscos técnicos que podem bloquear o build/deploy na Fase 1.
+ */
+function containerFindingsToRiskItems(findings: ContainerFinding[]): RiskItem[] {
+  return findings
+    .filter(f => !f.requiresHumanDecision)
+    .map(f => ({
+      id: `container-ci-${f.fileType}-${f.line}`,
+      severity: f.severity === 'info' ? 'low' : f.severity,
+      title: `${FILE_TYPE_LABEL[f.fileType] ?? f.fileType} — JDK ${f.detectedJdkVersion ?? '?'} incompatível com target JDK 21`,
+      description: `${f.description} Arquivo: ${f.file} (linha ${f.line}). Sugestão: ${f.suggestion}`,
+      file: f.file,
+      line: f.line,
+      automationAvailable: false,
+      recipe: null,
+    } satisfies RiskItem))
+}
+
+/**
+ * Converte findings que requerem decisão humana (ex: imagens privadas corporativas)
+ * em ManualReviewItems para a Fase 1.
+ * Precisam ser resolvidos ANTES do gate da Fase 1 para o CI/CD funcionar com JDK 21.
+ */
+function containerFindingsToManualItems(findings: ContainerFinding[]): ManualReviewItem[] {
+  return findings
+    .filter(f => f.requiresHumanDecision)
+    .map(f => ({
+      id: `container-ci-manual-${f.fileType}-${f.line}`,
+      category: 'infrastructure' as const,
+      title: `[${FILE_TYPE_LABEL[f.fileType] ?? f.fileType}] Atualizar imagem/versão JDK — requer decisão humana`,
+      description: f.description,
+      suggestedApproach: f.suggestion,
+      files: [f.file],
+      requiresHumanDecision: true,
+      claudeCanResearch: false,
+    } satisfies ManualReviewItem))
+}
 
 function phaseRisks(phase: PhaseNumber, all: RiskItem[], discovery: DiscoveryReport): RiskItem[] {
   if (phase === 0) return []
@@ -289,7 +356,21 @@ function buildPrerequisites(
 ): string[] {
   const prereqs: string[] = []
   if (phase === 0) prereqs.push('Cobertura de testes ≥ 80%', 'Acesso ao repositório Git do projeto')
-  if (phase === 1) prereqs.push('JDK 21 instalado no ambiente de CI', `${config.buildSystem === 'maven' ? 'Maven' : 'Gradle'} disponível no PATH`)
+  if (phase === 1) {
+    prereqs.push(
+      'JDK 21 instalado no ambiente de CI',
+      `${config.buildSystem === 'maven' ? 'Maven' : 'Gradle'} disponível no PATH`,
+    )
+    // Acrescenta aviso explícito para imagens Docker/CI que precisam de atualização humana
+    const humanDecisionFindings = (discovery.containerCi?.findings ?? []).filter(f => f.requiresHumanDecision)
+    if (humanDecisionFindings.length > 0) {
+      prereqs.push(
+        `⚠️ Resolver ${humanDecisionFindings.length} imagem(ns) Docker/CI com versão JDK incompatível ANTES do gate — ` +
+          `o pipeline CI/CD falhará se a imagem de build ainda usar JDK ${humanDecisionFindings[0]?.detectedJdkVersion ?? 'antigo'}. ` +
+          `Arquivos afetados: ${[...new Set(humanDecisionFindings.map(f => f.file))].join(', ')}`,
+      )
+    }
+  }
   if (phase === 2) prereqs.push('Fase 1 concluída com build verde no JDK 21', 'Code review do diff gerado pelo OpenRewrite')
   if (phase === 3) prereqs.push('Ambiente de staging com servidor de aplicação configurado', 'Smoke tests definidos para validar inicialização')
   if (phase === 4) prereqs.push('Lista de casos de teste funcionais mapeados', 'Ambiente de homologação disponível')
