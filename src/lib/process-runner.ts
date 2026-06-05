@@ -38,9 +38,16 @@ export async function runProcess(
     const env = options.env ?? process.env
     const resolvedCommand = resolveWindowsCmd(command, env)
 
+    // Arquivos .cmd/.bat no Windows são scripts de batch — não são executáveis
+    // nativos e não podem ser iniciados por CreateProcess sem cmd.exe.
+    // Usamos shell:true apenas para esses casos; para .exe e binários nativos
+    // (incluindo node, java, git) mantemos shell:false para não manchar os args.
+    const isBatchFile = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCommand)
+
     const child = spawn(resolvedCommand, args, {
       cwd: options.cwd,
       env,
+      shell: isBatchFile,
     })
 
     let stdout = ''

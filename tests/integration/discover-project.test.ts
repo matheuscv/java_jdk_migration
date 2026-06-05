@@ -63,12 +63,14 @@ describe('discover_project — jdk8-spring-boot fixture', () => {
           estimatedEffortDays: 0,
         },
         prerequisites: { jdk21Available: false, gitAvailable: false, compiledClassesFound: false },
+        detectedTools: { detectedAt: new Date().toISOString(), allRequiredFound: false, tools: [] },
+        allToolsFound: false,
         savedReportPath: join(projectPath, '.jdk-migration', 'discovery-report.json'),
       }
     } else {
       report = await discoverProjectForTest(projectPath)
     }
-  })
+  }, 30_000) // detectTools lança 5 processos em paralelo — timeout generoso
 
   afterAll(() => {
     rmSync(projectPath, { recursive: true, force: true })
