@@ -100,12 +100,112 @@ export async function generateAuditReport(projectPath: string): Promise<AuditRep
   const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps })
   writeFileSync(reportPath, html, 'utf-8')
 
+  generatePhase5Checklist(migrationDir, config, plan, now)
+
   return {
     reportPath,
     phasesCompleted,
     phasesTotal,
     openManualItems: allManualItems.length,
     criticalRisks,
+  }
+}
+
+// ─── phase 5 checklist ───────────────────────────────────────────────────────
+
+const PHASE_NAMES: Record<number, string> = {
+  0: 'Descoberta & Baseline',
+  1: 'Infraestrutura & Build',
+  2: 'Modernização de Linguagem',
+  3: 'Namespace Jakarta & Frameworks',
+  4: 'Refatoração Semântica Assistida',
+  5: 'Validação Final & Cutover',
+}
+
+function generatePhase5Checklist(migrationDir: string, config: any, plan: any, now: Date): void {
+  try {
+    const phases: Record<string, any> = config?.phases ?? {}
+    const phase5 = phases[5] ?? phases['5'] ?? {}
+    const phase5Status: string = phase5.status ?? 'pending'
+    const isCompleted = phase5Status === 'completed' || phase5Status === 'approved'
+
+    // Histórico de fases para tabela no final
+    const phaseRows = Array.from({ length: 6 }, (_, i) => {
+      const p = phases[i] ?? phases[String(i)] ?? {}
+      const statusLabel =
+        p.status === 'approved' || p.status === 'completed'
+          ? 'Aprovada'
+          : p.status === 'awaiting_gate'
+            ? 'Aguardando gate'
+            : p.status === 'in_progress'
+              ? 'Em andamento'
+              : 'Pendente'
+      const approvedAt = p.approvedAt ? new Date(p.approvedAt).toISOString() : '—'
+      return `| ${i} | ${PHASE_NAMES[i] ?? `Fase ${i}`} | ${statusLabel} | ${approvedAt} |`
+    }).join('\n')
+
+    // Porta padrão da aplicação (tenta extrair do plan se disponível)
+    const appPort: string = plan?.appPort ?? '8081'
+
+    const generatedAt = now.toISOString().slice(0, 10)
+    const completionNote = isCompleted
+      ? `\n> ✅ **MIGRAÇÃO CONCLUÍDA** — Gate da Fase 5 aprovado em ${phase5.approvedAt ?? '—'} por ${phase5.approvedBy ?? '—'}.\n`
+      : ''
+
+    const md = `# Fase 5 — Checklist de Validação Final & Cutover
+${completionNote}
+> Gerado em: ${generatedAt} | Projeto: ${config?.projectPath ?? migrationDir} | JDK ${config?.sourceJdk ?? '?'} → ${config?.targetJdk ?? '21'}
+
+---
+
+## A. Build & Testes
+- [ ] \`mvn clean verify\` passa sem erros em JDK ${config?.targetJdk ?? '21'}
+- [ ] Cobertura Jacoco mantida (relatório em \`target/site/jacoco/index.html\`)
+- [ ] Nenhum warning de compilação novo introduzido pela migração
+
+## B. Startup da Aplicação
+- [ ] Aplicação sobe sem erros no ambiente de homologação
+- [ ] Logs estruturados JSON aparecem normalmente
+- [ ] Atuador responde: \`GET /actuator/health\` → \`{"status":"UP"}\`
+- [ ] Prometheus responde: \`GET /actuator/prometheus\`
+
+## C. Swagger UI
+- [ ] **Nova URL**: \`http://localhost:${appPort}/swagger-ui/index.html\` carrega ✅
+- [ ] **URL antiga** \`http://localhost:${appPort}/swagger-ui.html\` **não funciona mais** — comunicar consumidores internos
+- [ ] Todos os endpoints aparecem na UI
+
+## D. Integrações Críticas (smoke tests)
+- [ ] Endpoints principais respondem HTTP 200 com dados corretos
+- [ ] Integrações com bancos de dados funcionando sem erros de driver/dialect
+- [ ] Clientes HTTP externos (Feign / RestTemplate / WebClient) respondendo normalmente
+- [ ] Mensageria (Kafka / RabbitMQ / JMS) publicando e consumindo sem erros
+
+## E. Regressão de Comportamento
+- [ ] Tratamento de exceções retorna payloads corretos (status codes e bodies)
+- [ ] Autenticação / autorização funcionando normalmente
+- [ ] Feature flags e configurações de ambiente carregando corretamente
+
+## F. Rollback
+- [ ] Branch de rollback identificada: \`${phases[3]?.gitBranch ?? phases['3']?.gitBranch ?? '<branch-pre-migracao>'}\`
+- [ ] Procedimento documentado: \`git checkout <branch-rollback> && mvn clean install && deploy\`
+- [ ] Responsável pelo rollback designado e ciente
+
+## G. Sign-offs
+- [ ] **Responsável técnico** assina (valida itens A–E)
+- [ ] **Responsável funcional** assina (valida item D)
+
+---
+
+## Histórico de Fases
+
+| Fase | Nome | Status | Aprovado em |
+|------|------|--------|-------------|
+${phaseRows}
+`
+
+    writeFileSync(join(migrationDir, 'phase5-checklist.md'), md, 'utf-8')
+  } catch {
+    // Falha silenciosa — não deve interromper a geração do relatório HTML
   }
 }
 
