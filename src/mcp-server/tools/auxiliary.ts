@@ -347,7 +347,10 @@ export function registerAuxiliaryTools(server: McpServer): void {
         'o execute_phase falhou por problema ambiental (EINVAL, ENOENT) e o trabalho foi ' +
         'realizado diretamente na linha de comando. Avança a fase para awaiting_gate, ' +
         'preservando a trilha de auditoria, e permite que approve_gate seja chamado ' +
-        'normalmente. NÃO aplica nenhuma transformação — apenas registra o estado.',
+        'normalmente. NÃO aplica nenhuma transformação — apenas registra o estado. ' +
+        'Use o parâmetro steps para registrar todos os steps do trabalho manual em uma ' +
+        'única chamada atômica — isso garante que a seção "Progresso dos Steps" do ' +
+        'relatório HTML fique completa sem precisar chamar update_step_status N vezes.',
       inputSchema: {
         projectPath: z
           .string()
@@ -378,9 +381,27 @@ export function registerAuxiliaryTools(server: McpServer): void {
             'Descrição do que foi feito manualmente e o motivo pelo qual o execute_phase ' +
             'não pôde ser usado (ex: "spawn EINVAL — mvn.cmd executado diretamente via CLI").',
           ),
+        steps: z
+          .array(z.object({
+            num:    z.number().int().min(1).describe('Número sequencial do step (1, 2, 3…)'),
+            owner:  z.enum(['claude', 'you']).describe('"claude" ou "you"'),
+            phase:  z.enum(['A', 'B', 'C', 'D']).describe('A=Verificações, B=Implementação, C=Validação, D=Limpeza'),
+            task:   z.string().describe('Descrição curta da tarefa'),
+            status: z.enum(['done', 'pending', 'skipped']),
+            commit: z.string().optional().describe('Hash curto do commit Git associado'),
+            note:   z.string().optional().describe('Nota adicional ou decisão tomada'),
+          }))
+          .optional()
+          .default([])
+          .describe(
+            'Steps detalhados do trabalho realizado. Quando fornecidos, são mesclados com ' +
+            'os steps existentes no config (upsert por num), garantindo que a seção ' +
+            '"Progresso dos Steps" do relatório fique completa em uma única chamada. ' +
+            'Se omitido, apenas um step de auditoria genérico [MANUAL] é registrado.',
+          ),
       },
     },
-    async ({ projectPath, phaseNumber, gitBranch, gitCommit, recipesApplied = [], note }) => {
+    async ({ projectPath, phaseNumber, gitBranch, gitCommit, recipesApplied = [], note, steps: incomingSteps = [] }) => {
       const config = readConfig(projectPath)
       const phase = phaseNumber as PhaseNumber
       const phaseState = config.phases[phase]
@@ -413,23 +434,60 @@ export function registerAuxiliaryTools(server: McpServer): void {
         baseCommit: phaseState.baseCommit ?? gitCommit,
       }
 
-      // Adiciona nota de auditoria ao array de steps
-      const auditStep = {
-        id: `manual-phase-${phase}-${Date.now()}`,
-        num: (config.steps?.length ?? 0) + 1,
-        owner: 'claude' as const,
-        phase: 'B' as const,
-        task: `[MANUAL] Fase ${phase} executada fora do MCP`,
-        status: 'done' as const,
-        commit: gitCommit.slice(0, 8),
-        note: `${note}${recipesApplied.length > 0 ? ` | Recipes: ${recipesApplied.join(', ')}` : ''}`,
-        completedAt: now,
+      // ── Merge de steps: upsert por num ────────────────────────────────────────
+      const existingSteps: MigrationStep[] = config.steps ?? []
+
+      let stepsToMerge: MigrationStep[]
+      if (incomingSteps.length > 0) {
+        // O agente forneceu steps detalhados — usa-os diretamente
+        stepsToMerge = incomingSteps.map(s => ({
+          id: `step-${s.num}`,
+          num: s.num,
+          owner: s.owner,
+          phase: s.phase,
+          task: s.task,
+          status: s.status,
+          ...(s.commit ? { commit: s.commit } : {}),
+          ...(s.note   ? { note: s.note }     : {}),
+          ...(s.status === 'done' ? { completedAt: now } : {}),
+        }))
+      } else {
+        // Fallback: registra um único step genérico de auditoria
+        const nextNum = existingSteps.length > 0
+          ? Math.max(...existingSteps.map(s => s.num)) + 1
+          : 1
+        stepsToMerge = [{
+          id: `manual-phase-${phase}-${Date.now()}`,
+          num: nextNum,
+          owner: 'claude',
+          phase: 'B',
+          task: `[MANUAL] Fase ${phase} executada fora do MCP`,
+          status: 'done',
+          commit: gitCommit.slice(0, 8),
+          note: `${note}${recipesApplied.length > 0 ? ` | Recipes: ${recipesApplied.join(', ')}` : ''}`,
+          completedAt: now,
+        }]
       }
-      config.steps = [...(config.steps ?? []), auditStep]
+
+      // Upsert: substitui step existente de mesmo num, adiciona os novos
+      const mergedSteps = [...existingSteps]
+      for (const incoming of stepsToMerge) {
+        const idx = mergedSteps.findIndex(s => s.num === incoming.num)
+        if (idx >= 0) {
+          mergedSteps[idx] = incoming
+        } else {
+          mergedSteps.push(incoming)
+        }
+      }
+      mergedSteps.sort((a, b) => a.num - b.num)
+      config.steps = mergedSteps
 
       writeConfig(projectPath, config)
 
       const autoReportPath = await generateAuditReportSilent(projectPath)
+
+      const doneCount  = mergedSteps.filter(s => s.status === 'done').length
+      const totalCount = mergedSteps.length
 
       return {
         content: [{
@@ -441,9 +499,12 @@ export function registerAuxiliaryTools(server: McpServer): void {
             gitCommit,
             recipesApplied,
             note,
+            stepsRegistered: stepsToMerge.length,
+            stepsSummary: `${doneCount}/${totalCount} steps concluídos`,
             auditReport: autoReportPath ?? null,
             message:
               `Fase ${phase} registrada como concluída manualmente (awaiting_gate). ` +
+              `${stepsToMerge.length} step(s) gravados. ` +
               `Execute approve_gate(projectPath, ${phase}, "<seu nome>") para liberar a Fase ${phase + 1}.`,
           }, null, 2),
         }],
