@@ -256,7 +256,7 @@ async function discoverProject(
       ciSystem: null,
       testCoverageThreshold: 80,
       dryRunBeforeExecute: true,
-      reportMode: 'phase-gate',
+      reportMode: 'phase-gate-step',
       phases: createDefaultPhases(),
       detectedTools: serializedTools,
     })
