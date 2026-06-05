@@ -40,13 +40,28 @@ export async function updateBuildVersion(
     }
   }
 
+  // Oracle JDBC: ojdbc8 → ojdbc11 (Maven)
+  if (existsSync(pomPath)) {
+    const original = readFileSync(pomPath, 'utf-8')
+    const updated = updateOjdbc(original)
+    if (updated !== original) {
+      if (!modified.includes('pom.xml')) modified.push('pom.xml')
+      diffs.push(buildDiff('pom.xml (ojdbc8→ojdbc11)', original, updated))
+      if (!dryRun) writeFileSync(pomPath, updated, 'utf-8')
+    }
+  }
+
+  const recipesApplied = [`update-compiler-target-${targetJdk}`]
+  const ojdbcFixed = diffs.some(d => d.includes('ojdbc'))
+  if (ojdbcFixed) recipesApplied.push('update-ojdbc8-to-ojdbc11')
+
   const prefix = dryRun ? '[dry-run] ' : ''
   const summary = modified.length === 0
     ? `${prefix}Nenhuma alteração necessária — alvo já é JDK ${targetJdk}`
     : `${prefix}JDK target atualizado para ${targetJdk} em: ${modified.join(', ')}`
 
   return {
-    recipesApplied: [`update-compiler-target-${targetJdk}`],
+    recipesApplied,
     filesModified: dryRun ? 0 : modified.length,
     filesAdded: 0,
     diffSummary: summary,
@@ -97,6 +112,15 @@ export function updateGradleVersion(gradle: string, targetJdk: string): string {
     `JavaLanguageVersion.of(${targetJdk})`,
   )
   return result
+}
+
+/**
+ * Substitui ojdbc8 por ojdbc11 no pom.xml.
+ * Apenas o artifactId muda — groupId (com.oracle.database.jdbc) e versao permanecem.
+ * A API JDBC e identica, nenhuma alteracao de codigo Java necessaria.
+ */
+export function updateOjdbc(pom: string): string {
+  return pom.replace(/<artifactId>ojdbc8<\/artifactId>/g, '<artifactId>ojdbc11</artifactId>')
 }
 
 // Gera diff mínimo (linhas removidas/adicionadas) para o diffSummary

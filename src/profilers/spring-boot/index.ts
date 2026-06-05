@@ -367,6 +367,24 @@ export const springBootProfiler: StackProfiler = {
       })
     }
 
+    // ── Oracle JDBC: ojdbc8 → ojdbc11 ────────────────────────────────────
+    const hasOjdbc8 = hasPomDependency(pom, 'ojdbc8')
+    if (hasOjdbc8) {
+      riskItems.push({
+        id: 'oracle-ojdbc8-jdk21',
+        severity: 'high',
+        title: 'ojdbc8 detectado — substituir por ojdbc11 para JDK 21',
+        description:
+          'ojdbc8 e otimizado para JDK 8 e pode apresentar problemas com o module system do JDK 11+. ' +
+          'Para JDK 21, use ojdbc11 (mesmo groupId com.oracle.database.jdbc, mesma versao). ' +
+          'A API JDBC e identica — nenhuma mudanca de codigo necessaria.',
+        file: 'pom.xml',
+        line: null,
+        automationAvailable: true,
+        recipe: 'update-ojdbc8-to-ojdbc11',
+      })
+    }
+
     const effort = computeEffort(riskItems, manualItems)
 
     return {
