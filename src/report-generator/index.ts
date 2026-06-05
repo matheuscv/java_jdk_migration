@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MigrationError } from '../lib/errors.js'
+import { runProcess } from '../lib/process-runner.js'
 
 export interface AuditReportResult {
   reportPath: string
@@ -74,7 +75,14 @@ export async function generateAuditReport(projectPath: string): Promise<AuditRep
   const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const reportPath = join(migrationDir, `audit-report-${timestamp}.html`)
 
-  const steps: any[] = config?.steps ?? []
+  const manualSteps: any[] = config?.steps ?? []
+
+  // Deriva steps automaticamente do git log de cada fase concluída/em andamento
+  // quando não há steps manuais registrados para aquela fase
+  const gitDerivedSteps = await deriveStepsFromGit(phases, projectPath)
+
+  // Mescla: steps manuais têm prioridade; git-derived preenchem o que sobrou
+  const steps = mergeSteps(manualSteps, gitDerivedSteps)
 
   const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps })
   writeFileSync(reportPath, html, 'utf-8')
@@ -86,6 +94,85 @@ export async function generateAuditReport(projectPath: string): Promise<AuditRep
     openManualItems: allManualItems.length,
     criticalRisks,
   }
+}
+
+// ─── git-derived steps ────────────────────────────────────────────────────────
+
+/**
+ * Lê o git log de cada fase que tem commits registrados e converte em steps
+ * derivados automaticamente. Usado como fallback quando update_step_status
+ * não foi chamado.
+ */
+async function deriveStepsFromGit(
+  phases: Record<string, any>,
+  projectPath: string,
+): Promise<any[]> {
+  const derived: any[] = []
+  let globalNum = 1000  // números altos para não conflitar com steps manuais (1–999)
+
+  for (const [phaseNum, phase] of Object.entries(phases)) {
+    const { baseCommit, gitCommit, gitBranch, status } = phase as any
+    if (!baseCommit || !gitCommit) continue
+    if (!['awaiting_gate', 'approved', 'completed', 'in_progress'].includes(status)) continue
+
+    try {
+      // git log baseCommit..gitCommit --format="%H|%h|%s|%ai|%an"
+      const result = await runProcess(
+        'git',
+        ['log', `${baseCommit}..${gitCommit}`, '--format=%H|%h|%s|%ai|%an', '--no-merges'],
+        { cwd: projectPath, timeoutMs: 10_000 },
+      )
+
+      if (result.exitCode !== 0 || !result.stdout.trim()) continue
+
+      const lines = result.stdout.trim().split('\n').reverse()  // cronológico
+
+      for (const line of lines) {
+        const [, shortHash, subject, date] = line.split('|')
+        if (!shortHash || !subject) continue
+
+        derived.push({
+          id: `git-${shortHash}`,
+          num: globalNum++,
+          owner: 'claude',
+          phase: 'B',
+          task: subject.trim(),
+          status: 'done',
+          commit: shortHash.trim(),
+          note: `Fase ${phaseNum} · ${gitBranch ?? ''} · ${date?.slice(0, 10) ?? ''}`.trim(),
+          completedAt: date?.trim() ?? null,
+          _fromGit: true,   // flag interna para distinguir no HTML
+        })
+      }
+    } catch {
+      // git indisponível ou repo sem commits — ignora silenciosamente
+    }
+  }
+
+  return derived
+}
+
+/**
+ * Mescla steps manuais (registrados via update_step_status) com steps derivados do git.
+ * Steps manuais têm prioridade absoluta. Steps git complementam o que ficou vazio.
+ * Se há steps manuais, os git-derived são adicionados apenas para fases sem cobertura.
+ */
+function mergeSteps(manual: any[], gitDerived: any[]): any[] {
+  if (manual.length === 0) return gitDerived
+  if (gitDerived.length === 0) return manual
+
+  // Fases que já têm steps manuais (pelo campo "note" ou pelo phase)
+  const manualCommits = new Set(manual.map(s => s.commit).filter(Boolean))
+
+  // Adiciona git-derived apenas se o commit não está já coberto por um step manual
+  const extra = gitDerived.filter(g => !manualCommits.has(g.commit))
+
+  return [...manual, ...extra].sort((a, b) => {
+    // Steps manuais primeiro, depois git-derived pelo num
+    if (!a._fromGit && b._fromGit) return -1
+    if (a._fromGit && !b._fromGit) return 1
+    return a.num - b.num
+  })
 }
 
 // ─── HTML builder ──────────────────────────────────────────────────────────────
@@ -206,6 +293,10 @@ function buildHtml(ctx: BuildContext): string {
     .badge-step-pending { background:#f8fafc;color:#64748b;border:1px solid #e2e8f0; }
     .badge-step-skipped { background:#fffbeb;color:#b45309;border:1px solid #fde68a; }
     .commit-ref { font-family:monospace;font-size:11px;background:#f1f5f9;color:#475569;padding:1px 5px;border-radius:3px; }
+    .git-badge { font-size:10px;font-weight:600;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;padding:1px 6px;border-radius:8px;margin-left:5px;white-space:nowrap; }
+    tr.row-git td { background:#f0f9ff!important; }
+    tr.row-git:hover td { background:#e0f2fe!important; }
+    tr.row-git td:first-child { border-left:3px solid #38bdf8; }
     /* ── Build Environment ── */
     section.env-section { border-left: 4px solid #0891b2; }
     section.env-section h2 { color: #0e7490; border-color: #cffafe; }
@@ -856,34 +947,57 @@ function buildStepProgress(ctx: BuildContext): string {
   if (steps.length === 0) {
     return `
   <section class="steps-section">
-    <h2>Progresso dos Steps (Fase Ativa)</h2>
-    <p class="empty">Nenhum step registrado ainda. Use a tool <code>update_step_status</code> para registrar o progresso granular dentro da fase ativa.</p>
+    <h2>Progresso dos Steps</h2>
+    <p class="empty">Nenhum commit de fase encontrado ainda. Execute as fases para que os steps sejam derivados automaticamente do git log.</p>
   </section>`
   }
 
-  const sorted = [...steps].sort((a, b) => a.num - b.num)
+  const sorted = [...steps].sort((a, b) => {
+    if (!a._fromGit && b._fromGit) return -1
+    if (a._fromGit && !b._fromGit) return 1
+    return a.num - b.num
+  })
+
   const doneCount = sorted.filter(s => s.status === 'done').length
   const total = sorted.length
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0
+  const hasGitSteps = sorted.some(s => s._fromGit)
+  const hasManualSteps = sorted.some(s => !s._fromGit)
 
   const phaseLabels: Record<string, string> = {
-    A: 'Fase A — Verificações e Decisões (antes de qualquer implementação)',
-    B: 'Fase B — Implementação (Claude executa)',
-    C: 'Fase C — Validação e Encerramento (você valida)',
-    D: 'Fase D — Limpeza Pós-migração (baixa prioridade)',
+    A: 'Fase A — Verificações e Decisões',
+    B: 'Fase B — Implementação',
+    C: 'Fase C — Validação e Encerramento',
+    D: 'Fase D — Limpeza',
   }
 
   let rows = ''
-  let lastPhase = ''
+  let lastGroup = ''
 
   for (const step of sorted) {
-    const stepPhase = step.phase ?? ''
-    if (stepPhase && stepPhase !== lastPhase) {
-      rows += `<tr class="phase-div"><td colspan="5">${escHtml(phaseLabels[stepPhase] ?? stepPhase)}</td></tr>`
-      lastPhase = stepPhase
+    // Agrupa: steps manuais por phase (A/B/C/D), git-derived por nota de fase
+    const group = step._fromGit
+      ? (step.note?.split('·')[0]?.trim() ?? 'Git')
+      : (step.phase ?? '')
+
+    const groupLabel = step._fromGit
+      ? `Commits registrados — ${step.note?.split('·')[0]?.trim() ?? ''}`
+      : (phaseLabels[step.phase ?? ''] ?? step.phase ?? '')
+
+    if (group && group !== lastGroup) {
+      rows += `<tr class="phase-div"><td colspan="5">${escHtml(groupLabel)}</td></tr>`
+      lastGroup = group
     }
 
     const isYou = step.owner === 'you'
+    const isGit = !!step._fromGit
+
+    const ownerCell = isGit
+      ? '<span class="git-badge">⎇ git</span>'
+      : isYou
+        ? '<span class="owner-you">👤 Você</span>'
+        : '<span class="owner-claude">🤖 Claude</span>'
+
     const statusBadge = step.status === 'done'
       ? '<span class="badge badge-step-done">✓ Concluído</span>'
       : step.status === 'skipped'
@@ -891,34 +1005,52 @@ function buildStepProgress(ctx: BuildContext): string {
         : '<span class="badge badge-step-pending">⏳ Pendente</span>'
 
     const commitCell = step.commit
-      ? `<span class="commit-ref">${escHtml(step.commit)}</span>${step.note ? ` — ${escHtml(step.note)}` : ''}`
+      ? `<span class="commit-ref">${escHtml(step.commit)}</span>${step.note && !isGit ? ` — ${escHtml(step.note)}` : ''}`
       : step.note
         ? escHtml(step.note)
         : '—'
 
+    const rowClass = isGit
+      ? 'row-git'
+      : `step-${step.status ?? 'pending'}`
+
+    const displayNum = isGit ? '·' : String(step.num)
+
     rows += `
-    <tr class="step-${step.status ?? 'pending'}">
-      <td>${step.num}</td>
-      <td>${isYou ? '<span class="owner-you">👤 Você</span>' : '<span class="owner-claude">🤖 Claude</span>'}</td>
+    <tr class="${rowClass}">
+      <td style="color:#94a3b8;text-align:center">${displayNum}</td>
+      <td>${ownerCell}</td>
       <td>${escHtml(step.task ?? '')}</td>
       <td>${statusBadge}</td>
       <td style="font-size:12px">${commitCell}</td>
     </tr>`
   }
 
+  const legendNote = hasGitSteps && !hasManualSteps
+    ? `<p style="font-size:11px;color:#0369a1;margin-bottom:10px">
+        ⎇ Steps derivados automaticamente do <strong>git log</strong> de cada fase.
+        Use <code>update_step_status</code> para substituí-los por descrições estruturadas.
+       </p>`
+    : hasGitSteps && hasManualSteps
+      ? `<p style="font-size:11px;color:#0369a1;margin-bottom:10px">
+          ⎇ Linhas azuis = commits git detectados automaticamente · Demais = steps registrados manualmente.
+         </p>`
+      : ''
+
   return `
   <section class="steps-section">
     <h2>Progresso dos Steps (${doneCount}/${total} concluídos · ${pct}%)</h2>
     <p class="steps-progress-label">${doneCount} de ${total} steps concluídos</p>
     <div class="steps-progress-bar"><div class="steps-progress-fill" style="width:${pct}%"></div></div>
+    ${legendNote}
     <table>
       <thead>
         <tr>
           <th style="width:36px">#</th>
           <th style="width:110px">Responsável</th>
-          <th>Tarefa</th>
+          <th>Tarefa / Commit</th>
           <th style="width:110px">Status</th>
-          <th>Commit / Nota</th>
+          <th>Ref / Nota</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
