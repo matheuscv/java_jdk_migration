@@ -77,6 +77,20 @@ export interface JdkMigrationConfig {
    * Quando ausente, usa "gradle" do PATH do processo MCP.
    */
   gradleExecutable?: string
+  /**
+   * Diretório home do JDK da aplicação-alvo (JDK 6 ou 8).
+   * Usado pela Fase 0 para compilar o projeto com o JDK original antes do jdeprscan.
+   * Fallback: variável de ambiente SOURCE_JAVA_HOME do processo MCP.
+   * Ex: "C:\\Program Files\\Zulu\\zulu-8"
+   */
+  sourceJdkHome?: string
+  /**
+   * Diretório home do JDK 21 (target da migração).
+   * Usado pelas fases 1–5 para compilar e validar com o JDK destino.
+   * Fallback: variável de ambiente JAVA_HOME do processo MCP.
+   * Ex: "C:\\Program Files\\Zulu\\zulu-21"
+   */
+  targetJdkHome?: string
 }
 
 const CONFIG_FILENAME = 'jdk-migration.config.json'

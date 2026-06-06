@@ -9,7 +9,9 @@ import { detectStack, detectStackDeep } from '../../skill/stack-detector.js'
 import { runStaticAnalysis } from '../../static-analysis/index.js'
 import { correlate, getEntriesForJdk } from '../../knowledge-base/index.js'
 import { getProfilersForStacks } from '../../orchestrator/profiler-registry.js'
-import { detectTools, buildMissingToolsMessage, serializeTools } from '../../lib/tool-detector.js'
+import { detectTools, buildMissingToolsMessage, serializeTools, extractSourceJdkHome, extractTargetJdkHome } from '../../lib/tool-detector.js'
+import { runSourceBuild } from '../../orchestrator/build-validator.js'
+import { findCompiledClasses } from '../../static-analysis/jdeprscan-runner.js'
 import { enrichContainerFindings } from '../../static-analysis/container-registry-enricher.js'
 import type { ProfilerReport } from '../../profilers/types.js'
 import type { StackType, RiskSeverity } from '../../types.js'
@@ -56,6 +58,17 @@ export interface DiscoveryReport {
   allToolsFound: boolean
   /** Mensagem a exibir ao usuário quando alguma ferramenta obrigatória não foi encontrada */
   missingToolsMessage?: string
+  /**
+   * Resultado da compilação prévia com o source JDK (Fase 0).
+   * null = classes já existiam ou source JDK não disponível (build não foi tentado).
+   * success=false indica que o build falhou — jdeprscan terá cobertura parcial.
+   */
+  sourceBuild: {
+    attempted: boolean
+    success: boolean
+    failureReason: string | null
+    stderr: string
+  } | null
   savedReportPath: string
 }
 
@@ -162,6 +175,7 @@ async function discoverProject(
       detectedTools: serializedTools,
       allToolsFound: false,
       missingToolsMessage,
+      sourceBuild: null,
       savedReportPath: join(reportDir, 'discovery-report.json'),
     }
     writeFileSync(partialReport.savedReportPath, JSON.stringify(partialReport, null, 2), 'utf-8')
@@ -174,6 +188,28 @@ async function discoverProject(
     if (!detectedStacks.includes(s)) detectedStacks.push(s)
   }
   if (deep.hasWebInf && detectedStacks.length === 0) detectedStacks.push('rest')
+
+  // 2b. Compilar com source JDK para garantir classes disponíveis para jdeprscan
+  const sourceJdkHome = extractSourceJdkHome(toolDetection)
+    ?? process.env['SOURCE_JAVA_HOME']
+    ?? null
+  const targetJdkHome = extractTargetJdkHome(toolDetection)
+    ?? process.env['JAVA_HOME']
+    ?? null
+
+  const sourceBuildResult = await (async () => {
+    if (!sourceJdkHome) return null
+    if (buildSystem === 'ant') return null  // ant não tem suporte a build automático
+    const compiledDir = findCompiledClasses(projectPath, buildSystem)
+    if (compiledDir) return null  // classes já existem — skip
+
+    const existingConfig = configExists(projectPath) ? readConfig(projectPath) : null
+    return runSourceBuild(projectPath, buildSystem as 'maven' | 'gradle', {
+      sourceJdkHome,
+      mavenExecutable: existingConfig?.mavenExecutable,
+      gradleExecutable: existingConfig?.gradleExecutable,
+    })
+  })()
 
   // 3. Static analysis (source scan always; jdeprscan only if compiled classes found)
   const staticResult: StaticAnalysisResult = await runStaticAnalysis(
@@ -239,6 +275,14 @@ async function discoverProject(
     containerCi: staticResult.containerCi,
     detectedTools: serializedTools,
     allToolsFound: true,
+    sourceBuild: sourceBuildResult
+      ? {
+          attempted: true,
+          success: sourceBuildResult.success,
+          failureReason: sourceBuildResult.failureReason,
+          stderr: sourceBuildResult.success ? '' : sourceBuildResult.stderr,
+        }
+      : null,
     savedReportPath: reportPath,
   }
 
@@ -282,11 +326,18 @@ async function discoverProject(
       reportMode: 'phase-gate-step',
       phases: createDefaultPhases(),
       detectedTools: serializedTools,
+      ...(sourceJdkHome ? { sourceJdkHome } : {}),
+      ...(targetJdkHome ? { targetJdkHome } : {}),
     })
   } else {
-    // Atualiza apenas detectedTools no config existente
+    // Atualiza detectedTools + paths dos JDKs no config existente
     const existing = readConfig(projectPath)
-    writeConfig(projectPath, { ...existing, detectedTools: serializedTools })
+    writeConfig(projectPath, {
+      ...existing,
+      detectedTools: serializedTools,
+      ...(sourceJdkHome && !existing.sourceJdkHome ? { sourceJdkHome } : {}),
+      ...(targetJdkHome && !existing.targetJdkHome ? { targetJdkHome } : {}),
+    })
   }
   ensureGitignoreEntries(projectPath)
 

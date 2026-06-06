@@ -185,7 +185,11 @@ async function _executePhaseUnlocked(
   }
 
   // ── 10. Build ──────────────────────────────────────────────────────────────
-  const buildToolOptions = { mavenExecutable: config.mavenExecutable, gradleExecutable: config.gradleExecutable }
+  const buildToolOptions = {
+    mavenExecutable: config.mavenExecutable,
+    gradleExecutable: config.gradleExecutable,
+    targetJdkHome: config.targetJdkHome ?? process.env['JAVA_HOME'],
+  }
   const buildResult = await runBuild(projectPath, config.buildSystem as 'maven' | 'gradle', buildToolOptions)
   if (!buildResult.success) {
     config = updatePhaseStatus(config, phase, 'failed')

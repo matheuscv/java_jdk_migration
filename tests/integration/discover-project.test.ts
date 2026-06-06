@@ -64,14 +64,15 @@ describe('discover_project — jdk8-spring-boot fixture', () => {
         },
         prerequisites: { jdk21Available: false, gitAvailable: false, compiledClassesFound: false },
         containerCi: { findings: [], filesScanned: [], hasIncompatibleImages: false, hasIncompatibleCiJdk: false },
-        detectedTools: { detectedAt: new Date().toISOString(), allRequiredFound: false, tools: [] },
+        detectedTools: { detectedAt: new Date().toISOString(), allRequiredFound: false, tools: [], sourceJdkHome: null, targetJdkHome: null },
         allToolsFound: false,
+        sourceBuild: null,
         savedReportPath: join(projectPath, '.jdk-migration', 'discovery-report.json'),
       }
     } else {
       report = await discoverProjectForTest(projectPath)
     }
-  }, 30_000) // detectTools lança 5 processos em paralelo — timeout generoso
+  }, 120_000) // inclui tentativa de build com source JDK — timeout aumentado
 
   afterAll(() => {
     rmSync(projectPath, { recursive: true, force: true })

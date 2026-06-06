@@ -292,6 +292,20 @@ export function buildMissingToolsMessage(missing: DetectedTool[]): string {
   return lines.join('\n')
 }
 
+/** Extrai o path do JDK da aplicação-alvo (source JDK) a partir do resultado de detecção */
+export function extractSourceJdkHome(result: ToolDetectionResult): string | null {
+  const entry = result.tools.find(t => t.name === 'Java (JDK)' && t.status !== 'not_found')
+  if (!entry || entry.path === '—') return null
+  return entry.path
+}
+
+/** Extrai o path do JDK 21 (target JDK) a partir do resultado de detecção */
+export function extractTargetJdkHome(result: ToolDetectionResult): string | null {
+  const entry = result.tools.find(t => t.name === 'Java 21 (target)' && t.status !== 'not_found')
+  if (!entry || entry.path === '—') return null
+  return entry.path
+}
+
 /** Serializa para o formato que será gravado no config / discovery-report */
 export function serializeTools(result: ToolDetectionResult): SerializedTools {
   return {
@@ -305,6 +319,8 @@ export function serializeTools(result: ToolDetectionResult): SerializedTools {
       status: t.status,
       required: t.required,
     })),
+    sourceJdkHome: extractSourceJdkHome(result),
+    targetJdkHome: extractTargetJdkHome(result),
   }
 }
 
@@ -312,4 +328,14 @@ export interface SerializedTools {
   detectedAt: string
   allRequiredFound: boolean
   tools: Omit<DetectedTool, 'missingMessage'>[]
+  /**
+   * Atalho para o path do JDK atual da aplicação (entry "Java (JDK)").
+   * null quando não detectado.
+   */
+  sourceJdkHome: string | null
+  /**
+   * Atalho para o path do JDK 21 (entry "Java 21 (target)").
+   * null quando não detectado.
+   */
+  targetJdkHome: string | null
 }
