@@ -158,10 +158,14 @@ function readJacocoReports(projectPath: string): JacocoCoverage[] {
  * compilador Java — filtrando os warnings de modelo Maven (sonar, version, etc.).
  * Retorna lista vazia se o comando não for encontrado no PATH (falha silenciosa).
  */
-async function runCompilerCheck(projectPath: string, buildSystem: string): Promise<string[]> {
+async function runCompilerCheck(
+  projectPath: string,
+  buildSystem: string,
+  options?: { mavenExecutable?: string; gradleExecutable?: string },
+): Promise<string[]> {
   try {
     const isMaven = buildSystem !== 'gradle'
-    const cmd = isMaven ? 'mvn' : 'gradle'
+    const cmd = isMaven ? (options?.mavenExecutable ?? 'mvn') : (options?.gradleExecutable ?? 'gradle')
     const args = isMaven
       ? ['compile', '-q', '--no-transfer-progress']
       : ['compileJava', '-q']
@@ -193,7 +197,10 @@ async function generatePhase5Checklist(migrationDir: string, config: any, plan: 
 
     let compilerWarnings: string[] = []
     if (isActive) {
-      compilerWarnings = await runCompilerCheck(projectPath, config?.buildSystem ?? 'maven')
+      compilerWarnings = await runCompilerCheck(projectPath, config?.buildSystem ?? 'maven', {
+        mavenExecutable: config?.mavenExecutable,
+        gradleExecutable: config?.gradleExecutable,
+      })
     }
 
     // A1

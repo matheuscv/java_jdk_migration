@@ -66,6 +66,17 @@ export interface JdkMigrationConfig {
   reportMode?: 'phase-gate' | 'phase-gate-step'
   /** Ferramentas detectadas durante a Fase 0 (discover_project). */
   detectedTools?: SerializedTools
+  /**
+   * Caminho completo para o executável Maven (ex: "C:\\apache-maven\\bin\\mvn").
+   * Quando ausente, usa "mvn" do PATH do processo MCP.
+   * Populado automaticamente pela Skill de instalação se Maven não estiver no PATH global.
+   */
+  mavenExecutable?: string
+  /**
+   * Caminho completo para o executável Gradle.
+   * Quando ausente, usa "gradle" do PATH do processo MCP.
+   */
+  gradleExecutable?: string
 }
 
 const CONFIG_FILENAME = 'jdk-migration.config.json'

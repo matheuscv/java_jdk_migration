@@ -10,6 +10,8 @@
   "ciSystem": null,
   "testCoverageThreshold": 60,
   "dryRunBeforeExecute": true,
+  "mavenExecutable": null,
+  "gradleExecutable": null,
   "artifactRegistry": {
     "type": "nexus3",
     "url": "https://nexus-release-corp.ccorp.local",

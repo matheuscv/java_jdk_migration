@@ -16,10 +16,12 @@ const BUILD_TIMEOUT_MS = 10 * 60_000  // 10 minutos
 export async function runBuild(
   projectPath: string,
   buildSystem: 'maven' | 'gradle',
+  options?: { mavenExecutable?: string; gradleExecutable?: string },
 ): Promise<BuildResult> {
+  const defaultCmd = buildSystem === 'maven' ? (options?.mavenExecutable ?? 'mvn') : (options?.gradleExecutable ?? 'gradle')
   const [cmd, args] = buildSystem === 'maven'
-    ? ['mvn', ['clean', 'compile', '-B', '-q', '-Dmaven.deploy.skip=true']]
-    : ['gradle', ['compileJava', '-q']]
+    ? [defaultCmd, ['clean', 'compile', '-B', '-q', '-Dmaven.deploy.skip=true']]
+    : [defaultCmd, ['compileJava', '-q']]
 
   const result = await runProcess(cmd, args, { cwd: projectPath, timeoutMs: BUILD_TIMEOUT_MS })
 
@@ -66,10 +68,12 @@ export async function runBuild(
 export async function runTests(
   projectPath: string,
   buildSystem: 'maven' | 'gradle',
+  options?: { mavenExecutable?: string; gradleExecutable?: string },
 ): Promise<BuildResult> {
+  const defaultCmd = buildSystem === 'maven' ? (options?.mavenExecutable ?? 'mvn') : (options?.gradleExecutable ?? 'gradle')
   const [cmd, args] = buildSystem === 'maven'
-    ? ['mvn', ['test', '-B', '-q', '-Dmaven.deploy.skip=true']]
-    : ['gradle', ['test', '-q']]
+    ? [defaultCmd, ['test', '-B', '-q', '-Dmaven.deploy.skip=true']]
+    : [defaultCmd, ['test', '-q']]
 
   const result = await runProcess(cmd, args, { cwd: projectPath, timeoutMs: BUILD_TIMEOUT_MS })
 

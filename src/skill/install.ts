@@ -1,5 +1,6 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { writeConfig, createDefaultPhases } from '../lib/config.js'
 import { MigrationError } from '../lib/errors.js'
 import { detectStack } from './stack-detector.js'
@@ -55,6 +56,11 @@ export async function install(
     phases: createDefaultPhases(),
   }
 
+  if (config.buildSystem === 'maven' && !config.mavenExecutable) {
+    const detected = detectMavenExecutable()
+    if (detected) config.mavenExecutable = detected
+  }
+
   mkdirSync(join(projectPath, '.jdk-migration'), { recursive: true })
   writeConfig(projectPath, config)
   ensureGitignoreEntries(projectPath)
@@ -76,6 +82,51 @@ export function ensureGitignoreEntries(projectPath: string): void {
     ? existing + toAdd.join('\n') + '\n'
     : existing + '\n' + toAdd.join('\n') + '\n'
   writeFileSync(gitignorePath, newContent, 'utf-8')
+}
+
+/**
+ * Tenta localizar o executável Maven. Retorna o path absoluto se encontrado fora
+ * do PATH padrão do processo, ou undefined se "mvn" já está acessível.
+ */
+function detectMavenExecutable(): string | undefined {
+  // Se mvn já está no PATH do processo, não precisa de path absoluto
+  try {
+    const whichCmd = process.platform === 'win32' ? 'where' : 'which'
+    execFileSync(whichCmd, ['mvn'], { stdio: 'pipe' })
+    return undefined // mvn encontrado no PATH — sem necessidade de override
+  } catch {
+    // mvn não está no PATH — tenta variáveis de ambiente comuns
+  }
+
+  const candidates: string[] = []
+
+  for (const envVar of ['MAVEN_HOME', 'M2_HOME', 'MVN_HOME']) {
+    const home = process.env[envVar]
+    if (home) {
+      const bin = join(home, 'bin', process.platform === 'win32' ? 'mvn.cmd' : 'mvn')
+      if (existsSync(bin)) candidates.push(bin)
+    }
+  }
+
+  // Fallback: varredura de locais comuns no Windows
+  if (process.platform === 'win32') {
+    const commonRoots = [
+      'C:\\devtools\\softwares\\Apache\\maven',
+      'C:\\Program Files\\Apache\\maven',
+      'C:\\tools\\maven',
+    ]
+    for (const root of commonRoots) {
+      if (!existsSync(root)) continue
+      try {
+        for (const entry of readdirSync(root)) {
+          const bin = join(root, entry, 'bin', 'mvn.cmd')
+          if (existsSync(bin)) { candidates.push(bin); break }
+        }
+      } catch { /* ignorar */ }
+    }
+  }
+
+  return candidates[0]
 }
 
 function resolveSourceJdk(

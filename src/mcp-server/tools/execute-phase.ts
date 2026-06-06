@@ -185,7 +185,8 @@ async function _executePhaseUnlocked(
   }
 
   // ── 10. Build ──────────────────────────────────────────────────────────────
-  const buildResult = await runBuild(projectPath, config.buildSystem as 'maven' | 'gradle')
+  const buildToolOptions = { mavenExecutable: config.mavenExecutable, gradleExecutable: config.gradleExecutable }
+  const buildResult = await runBuild(projectPath, config.buildSystem as 'maven' | 'gradle', buildToolOptions)
   if (!buildResult.success) {
     config = updatePhaseStatus(config, phase, 'failed')
     writeConfig(projectPath, config)
@@ -216,7 +217,7 @@ async function _executePhaseUnlocked(
   }
 
   // ── 11. Testes ────────────────────────────────────────────────────────────
-  const testResult = await runTests(projectPath, config.buildSystem as 'maven' | 'gradle')
+  const testResult = await runTests(projectPath, config.buildSystem as 'maven' | 'gradle', buildToolOptions)
   if (!testResult.success) {
     config = updatePhaseStatus(config, phase, 'failed')
     writeConfig(projectPath, config)
