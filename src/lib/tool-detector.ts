@@ -72,42 +72,136 @@ async function queryVersion(
   }
 }
 
+// ─── helpers de versão ───────────────────────────────────────────────────────
+
+/** Extrai o major version de uma string "1.8.0_392", "8.0.392", "21.0.1", etc. */
+function parseMajorVersion(version: string): number | null {
+  // "1.8.0_..." → major 8;  "21.0.1" → major 21
+  const m = version.match(/^(\d+)\.(\d+)/)
+  if (!m) return null
+  const first = parseInt(m[1], 10)
+  return first === 1 ? parseInt(m[2], 10) : first
+}
+
+/** Retorna true se a versão pertence à família JDK 6 ou 8 */
+function isSourceJdkVersion(version: string): boolean {
+  const major = parseMajorVersion(version)
+  return major === 6 || major === 8
+}
+
+/** Retorna true se a versão pertence ao JDK 21 */
+function isJdk21Version(version: string): boolean {
+  const major = parseMajorVersion(version)
+  return major === 21
+}
+
 // ─── detectores individuais ──────────────────────────────────────────────────
 
-async function detectJava(env: NodeJS.ProcessEnv, overrides: Record<string, string>): Promise<DetectedTool> {
+/**
+ * Detecta o JDK do projeto-alvo (source JDK — sempre JDK 6 ou 8).
+ *
+ * Estratégia (nunca usa JAVA_HOME para evitar confusão com o JDK 21 do processo MCP):
+ * 1. Override explícito do usuário via SOURCE_JAVA_HOME ou JAVA_HOME_<major>
+ * 2. Variáveis de ambiente dedicadas: SOURCE_JAVA_HOME, JAVA_HOME_8, JDK_8, JAVA_HOME_6, JDK_6
+ * 3. Varredura de paths comuns de instaladores por major version
+ * 4. not_found → solicita ao usuário
+ *
+ * NUNCA retorna um JDK 21 como source — se um candidato for versão 21, é ignorado.
+ */
+async function detectSourceJdk(
+  env: NodeJS.ProcessEnv,
+  overrides: Record<string, string>,
+  sourceJdkMajor: 6 | 8,
+): Promise<DetectedTool> {
   const name = 'Java (JDK)'
   const required = true
 
-  // 1. Override explícito do usuário
-  if (overrides['JAVA_HOME']) {
-    const exe = resolveHomeToExe(overrides['JAVA_HOME'], 'bin/java')
-    if (exe) {
-      const version = await queryVersion(exe, ['-version'], /version "([^"]+)"/)
-      return { name, source: 'override usuário', path: overrides['JAVA_HOME'], version, status: 'user_provided', required }
+  const validate = async (
+    home: string,
+    source: string,
+    status: ToolStatus,
+  ): Promise<DetectedTool | null> => {
+    const exe = resolveHomeToExe(home, 'bin/java')
+    if (!exe) return null
+    const version = await queryVersion(exe, ['-version'], /version "([^"]+)"/)
+    if (!version) return null
+    const major = parseMajorVersion(version)
+    if (major === 21) return null  // nunca aceitar JDK 21 como source
+    if (major !== sourceJdkMajor) return null  // versão não coincide com o projeto
+    return { name, source, path: home, version, status, required }
+  }
+
+  // 1. Override explícito do usuário (SOURCE_JAVA_HOME tem precedência)
+  for (const key of ['SOURCE_JAVA_HOME', `JAVA_HOME_${sourceJdkMajor}`, 'JAVA_HOME']) {
+    const override = overrides[key]
+    if (override) {
+      const result = await validate(override, `override usuário (${key})`, 'user_provided')
+      if (result) return result
     }
   }
 
-  // 2. Variável de ambiente JAVA_HOME
-  const javaHome = env.JAVA_HOME
-  if (javaHome && existsSync(javaHome)) {
-    const exe = resolveHomeToExe(javaHome, 'bin/java')
-    if (exe) {
-      const version = await queryVersion(exe, ['-version'], /version "([^"]+)"/)
-      return { name, source: 'JAVA_HOME', path: javaHome, version, status: 'found', required }
+  // 2. Variáveis de ambiente dedicadas ao source JDK (nunca JAVA_HOME — pode ser JDK 21)
+  const sourceEnvVars = [
+    `SOURCE_JAVA_HOME`,
+    `JAVA_HOME_${sourceJdkMajor}`,
+    `JDK_${sourceJdkMajor}`,
+    ...(sourceJdkMajor === 8 ? ['JAVA_HOME_1_8', 'JDK_1_8'] : ['JAVA_HOME_1_6', 'JDK_1_6']),
+  ]
+  for (const envVar of sourceEnvVars) {
+    const home = env[envVar]
+    if (home && existsSync(home)) {
+      const result = await validate(home, envVar, 'found')
+      if (result) return result
     }
   }
 
-  // 3. PATH
-  const javaInPath = findInPath('java', env)
-  if (javaInPath) {
-    const version = await queryVersion(javaInPath, ['-version'], /version "([^"]+)"/)
-    return { name, source: 'PATH', path: javaInPath, version, status: 'found', required }
+  // 3. Varredura de paths comuns de instaladores
+  const commonPaths = sourceJdkMajor === 8
+    ? [
+        // Windows — Zulu
+        'C:\\Program Files\\Zulu\\zulu-8',
+        'C:\\Program Files\\Zulu\\zulu-8.x',
+        // Windows — Eclipse Temurin / Adoptium
+        'C:\\Program Files\\Eclipse Adoptium\\jdk-8',
+        'C:\\Program Files\\Eclipse Adoptium\\jdk-8.0',
+        // Windows — Oracle / generic
+        'C:\\Program Files\\Java\\jdk1.8.0',
+        'C:\\Program Files\\Java\\jdk-8',
+        // macOS — Homebrew / Temurin
+        '/Library/Java/JavaVirtualMachines/temurin-8.jdk/Contents/Home',
+        '/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home',
+        // Linux
+        '/usr/lib/jvm/java-8-openjdk-amd64',
+        '/usr/lib/jvm/temurin-8',
+        '/usr/lib/jvm/zulu-8',
+      ]
+    : [
+        // JDK 6 — instaladores comuns (muito legado)
+        'C:\\Program Files\\Zulu\\zulu-6',
+        'C:\\Program Files\\Java\\jdk1.6.0',
+        '/usr/lib/jvm/java-6-openjdk-amd64',
+        '/usr/lib/jvm/zulu-6',
+      ]
+
+  for (const candidate of commonPaths) {
+    if (!existsSync(candidate)) continue
+    const result = await validate(candidate, candidate, 'found')
+    if (result) return result
   }
 
+  // 4. Não encontrado — pede ao usuário
   return {
-    name, source: '—', path: '—', version: null, status: 'not_found', required,
+    name,
+    source: '—',
+    path: '—',
+    version: null,
+    status: 'not_found',
+    required,
     missingMessage:
-      'Java não encontrado. Informe o JAVA_HOME (ex: C:\\Program Files\\Zulu\\zulu-21).',
+      `JDK ${sourceJdkMajor} não encontrado automaticamente. ` +
+      `O projeto-alvo usa JDK ${sourceJdkMajor} — informe o path de instalação via toolOverrides. ` +
+      `Chave: "SOURCE_JAVA_HOME". ` +
+      `Exemplo: { "SOURCE_JAVA_HOME": "C:\\\\Program Files\\\\Zulu\\\\zulu-${sourceJdkMajor}" }`,
   }
 }
 
@@ -204,45 +298,79 @@ async function detectGradle(env: NodeJS.ProcessEnv, overrides: Record<string, st
   return { name, source: '—', path: '—', version: null, status: 'not_found', required }
 }
 
-async function detectJavaTarget(env: NodeJS.ProcessEnv): Promise<DetectedTool> {
+/**
+ * Detecta o JDK 21 (target JDK — sempre e somente JDK 21).
+ * Se um candidato for encontrado mas não for versão 21, é ignorado com aviso no status.
+ */
+async function detectJavaTarget(
+  env: NodeJS.ProcessEnv,
+  overrides: Record<string, string>,
+): Promise<DetectedTool> {
   const name = 'Java 21 (target)'
   const required = true
 
-  // Procura um JDK 21 explicitamente — pode ser diferente do java padrão
-  for (const candidate of [
-    env.JAVA_HOME_21,
-    env.JDK_21,
-    // Caminhos comuns de instaladores (Zulu, Temurin, Oracle)
-    'C:\\Program Files\\Zulu\\zulu-21',
-    'C:\\Program Files\\Eclipse Adoptium\\jdk-21',
-    'C:\\Program Files\\Java\\jdk-21',
-    '/usr/lib/jvm/java-21-openjdk-amd64',
-    '/usr/lib/jvm/temurin-21',
-    '/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home',
-  ].filter(Boolean)) {
-    if (!candidate || !existsSync(candidate!)) continue
-    const exe = resolveHomeToExe(candidate!, 'bin/java')
-    if (!exe) continue
+  const validate = async (
+    home: string,
+    source: string,
+    status: ToolStatus,
+  ): Promise<DetectedTool | null> => {
+    const exe = resolveHomeToExe(home, 'bin/java')
+    if (!exe) return null
     const version = await queryVersion(exe, ['-version'], /version "([^"]+)"/)
-    if (version && version.startsWith('21')) {
-      return { name, source: candidate!, path: candidate!, version, status: 'found', required }
+    if (!version) return null
+    if (!isJdk21Version(version)) return null  // nunca aceitar versão != 21 como target
+    return { name, source, path: home, version, status, required }
+  }
+
+  // 1. Override explícito do usuário
+  for (const key of ['JAVA_HOME_21', 'JDK_21', 'JAVA_HOME']) {
+    const override = overrides[key]
+    if (override) {
+      const result = await validate(override, `override usuário (${key})`, 'user_provided')
+      if (result) return result
     }
   }
 
-  // Verifica se o java padrão já é 21
+  // 2. Variáveis de ambiente dedicadas ao JDK 21
+  for (const envVar of ['JAVA_HOME_21', 'JDK_21', 'JAVA_HOME']) {
+    const home = env[envVar]
+    if (home && existsSync(home)) {
+      const result = await validate(home, envVar, 'found')
+      if (result) return result
+    }
+  }
+
+  // 3. Paths comuns de instaladores (Zulu, Temurin, Oracle, Microsoft)
+  const commonPaths = [
+    'C:\\Program Files\\Zulu\\zulu-21',
+    'C:\\Program Files\\Eclipse Adoptium\\jdk-21',
+    'C:\\Program Files\\Java\\jdk-21',
+    'C:\\Program Files\\Microsoft\\jdk-21',
+    '/usr/lib/jvm/java-21-openjdk-amd64',
+    '/usr/lib/jvm/temurin-21',
+    '/usr/lib/jvm/zulu-21',
+    '/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home',
+    '/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home',
+  ]
+  for (const candidate of commonPaths) {
+    if (!existsSync(candidate)) continue
+    const result = await validate(candidate, candidate, 'found')
+    if (result) return result
+  }
+
+  // 4. PATH — só aceita se for versão 21
   const javaInPath = findInPath('java', env)
   if (javaInPath) {
-    const version = await queryVersion(javaInPath, ['-version'], /version "([^"]+)"/)
-    if (version && version.startsWith('21')) {
-      return { name, source: 'PATH (java padrão)', path: javaInPath, version, status: 'found', required }
-    }
+    const result = await validate(javaInPath, 'PATH', 'found')
+    if (result) return result
   }
 
   return {
     name, source: '—', path: '—', version: null, status: 'not_found', required,
     missingMessage:
       'JDK 21 não encontrado. Informe o diretório de instalação do JDK 21 ' +
-      '(ex: C:\\Program Files\\Zulu\\zulu-21 ou /usr/lib/jvm/java-21-openjdk-amd64).',
+      'via toolOverrides com a chave "JAVA_HOME_21". ' +
+      'Exemplo: { "JAVA_HOME_21": "C:\\\\Program Files\\\\Zulu\\\\zulu-21" }',
   }
 }
 
@@ -250,17 +378,23 @@ async function detectJavaTarget(env: NodeJS.ProcessEnv): Promise<DetectedTool> {
 
 /**
  * Detecta todas as ferramentas necessárias para a migração.
- * @param overrides  Caminhos informados pelo usuário para substituir auto-detecção.
- *                   Ex: { JAVA_HOME: 'C:\\zulu-21', MAVEN_HOME: 'C:\\maven' }
+ *
+ * @param overrides     Caminhos informados pelo usuário para substituir auto-detecção.
+ *                      Chaves aceitas: SOURCE_JAVA_HOME, JAVA_HOME_8, JAVA_HOME_6,
+ *                      JAVA_HOME_21, JDK_21, MAVEN_HOME, M2_HOME, GRADLE_HOME, GIT_EXEC_PATH.
+ * @param sourceJdkMajor  Major version do JDK do projeto-alvo (6 ou 8).
+ *                        Usado para buscar especificamente aquela versão na máquina.
+ *                        Default: 8.
  */
 export async function detectTools(
   overrides: Record<string, string> = {},
+  sourceJdkMajor: 6 | 8 = 8,
 ): Promise<ToolDetectionResult> {
   const env = process.env
 
   const tools = await Promise.all([
-    detectJava(env, overrides),
-    detectJavaTarget(env),
+    detectSourceJdk(env, overrides, sourceJdkMajor),
+    detectJavaTarget(env, overrides),
     detectMaven(env, overrides),
     detectGit(env, overrides),
     detectGradle(env, overrides),

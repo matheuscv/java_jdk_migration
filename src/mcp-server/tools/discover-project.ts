@@ -91,8 +91,11 @@ export function registerDiscoverProject(server: McpServer): void {
           .default({})
           .describe(
             'Caminhos de ferramentas informados pelo usuário quando a auto-detecção falha. ' +
-            'Chaves aceitas: JAVA_HOME, MAVEN_HOME, M2_HOME, GRADLE_HOME, GIT_EXEC_PATH. ' +
-            'Exemplo: { "JAVA_HOME": "C:\\\\Program Files\\\\Zulu\\\\zulu-21", "MAVEN_HOME": "C:\\\\maven" }',
+            'Chaves aceitas: ' +
+            'SOURCE_JAVA_HOME (JDK do projeto-alvo — JDK 6 ou 8, NUNCA JDK 21), ' +
+            'JAVA_HOME_21 ou JDK_21 (JDK 21 target), ' +
+            'MAVEN_HOME, M2_HOME, GRADLE_HOME, GIT_EXEC_PATH. ' +
+            'Exemplo para projeto JDK 8: { "SOURCE_JAVA_HOME": "C:\\\\Program Files\\\\Zulu\\\\zulu-8", "JAVA_HOME_21": "C:\\\\Program Files\\\\Zulu\\\\zulu-21" }',
           ),
       },
     },
@@ -150,7 +153,9 @@ async function discoverProject(
   }
 
   // 1b. Detectar ferramentas do ambiente de build
-  const toolDetection = await detectTools(toolOverrides)
+  // sourceJdkMajor guia a busca pelo JDK correto na máquina (nunca usa JAVA_HOME direto)
+  const sourceJdkMajor = (sourceJdk === '6' ? 6 : 8) as 6 | 8
+  const toolDetection = await detectTools(toolOverrides, sourceJdkMajor)
   const serializedTools = serializeTools(toolDetection)
 
   // Se alguma ferramenta obrigatória está ausente, retorna imediatamente com a mensagem
