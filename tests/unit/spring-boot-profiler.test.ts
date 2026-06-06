@@ -90,6 +90,128 @@ describe('springBootProfiler.getRecipes — fase 3', () => {
   })
 })
 
+describe('springBootProfiler — @ComponentScan com basePackages', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = join(tmpdir(), `sb-prof-${randomBytes(4).toString('hex')}`)
+    mkdirSync(join(dir, 'src/main/java/com/example'), { recursive: true })
+    writeFileSync(join(dir, 'pom.xml'), `
+<project>
+  <parent>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.7.18</version>
+  </parent>
+  <dependencies>
+    <dependency><artifactId>spring-boot-starter-web</artifactId></dependency>
+  </dependencies>
+</project>`)
+    writeFileSync(join(dir, 'src/main/java/com/example/Application.java'), `
+package com.example;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.ComponentScan;
+
+@ComponentScan(basePackages = {"com.example", "br.com.cielo.star"})
+@SpringBootApplication
+public class Application {
+    public static void main(String[] args) { SpringApplication.run(Application.class, args); }
+}`)
+  })
+
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+
+  it('detecta @ComponentScan com basePackages como risco HIGH', async () => {
+    const report = await springBootProfiler.analyze(dir, makeConfig(dir))
+    const risk = report.riskItems.find(r => r.id === 'sb3-componentscan-broad')
+    expect(risk).toBeDefined()
+    expect(risk?.severity).toBe('high')
+    expect(risk?.automationAvailable).toBe(false)
+  })
+
+  it('cria ManualReviewItem behavioral para cobrir exception handlers', async () => {
+    const report = await springBootProfiler.analyze(dir, makeConfig(dir))
+    const manual = report.manualReviewItems.find(m => m.id === 'sb3-componentscan-restrict-handlers')
+    expect(manual).toBeDefined()
+    expect(manual?.category).toBe('behavioral')
+    expect(manual?.suggestedApproach).toContain('@ExceptionHandler')
+    expect(manual?.files.some(f => f.includes('Application'))).toBe(true)
+  })
+})
+
+describe('springBootProfiler — @SpringBootApplication com scanBasePackages', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = join(tmpdir(), `sb-prof-${randomBytes(4).toString('hex')}`)
+    mkdirSync(join(dir, 'src/main/java/com/example'), { recursive: true })
+    writeFileSync(join(dir, 'pom.xml'), `
+<project>
+  <parent>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.7.18</version>
+  </parent>
+  <dependencies>
+    <dependency><artifactId>spring-boot-starter-web</artifactId></dependency>
+  </dependencies>
+</project>`)
+    writeFileSync(join(dir, 'src/main/java/com/example/Application.java'), `
+package com.example;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication(scanBasePackages = {"com.example", "br.com.third.party"})
+public class Application {
+    public static void main(String[] args) { SpringApplication.run(Application.class, args); }
+}`)
+  })
+
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+
+  it('detecta scanBasePackages em @SpringBootApplication como risco HIGH', async () => {
+    const report = await springBootProfiler.analyze(dir, makeConfig(dir))
+    const risk = report.riskItems.find(r => r.id === 'sb3-componentscan-broad')
+    expect(risk).toBeDefined()
+    expect(risk?.severity).toBe('high')
+  })
+})
+
+describe('springBootProfiler — sem @ComponentScan amplo', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = join(tmpdir(), `sb-prof-${randomBytes(4).toString('hex')}`)
+    mkdirSync(join(dir, 'src/main/java/com/example'), { recursive: true })
+    writeFileSync(join(dir, 'pom.xml'), `
+<project>
+  <parent>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.7.18</version>
+  </parent>
+  <dependencies>
+    <dependency><artifactId>spring-boot-starter-web</artifactId></dependency>
+  </dependencies>
+</project>`)
+    writeFileSync(join(dir, 'src/main/java/com/example/Application.java'), `
+package com.example;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class Application {
+    public static void main(String[] args) { SpringApplication.run(Application.class, args); }
+}`)
+  })
+
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+
+  it('não detecta risco quando @ComponentScan não tem basePackages', async () => {
+    const report = await springBootProfiler.analyze(dir, makeConfig(dir))
+    expect(report.riskItems.find(r => r.id === 'sb3-componentscan-broad')).toBeUndefined()
+    expect(report.manualReviewItems.find(m => m.id === 'sb3-componentscan-restrict-handlers')).toBeUndefined()
+  })
+})
+
 describe('springBootProfiler — projeto sem Security', () => {
   let dir: string
 

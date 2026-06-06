@@ -367,6 +367,65 @@ export const springBootProfiler: StackProfiler = {
       })
     }
 
+    // ── [SB3-09] @ComponentScan amplo — libs externas perdem varredura no Spring Boot 3 ──
+    if (majorVersion !== null && majorVersion < 3) {
+      const compScanHits = scanFiles(javaFiles, projectPath, /@ComponentScan/)
+      const basePackagesLines = scanFiles(javaFiles, projectPath, /basePackages\s*=/)
+      const sbAppHits = scanFiles(javaFiles, projectPath, /@SpringBootApplication/)
+      const scanBasePkgsLines = scanFiles(javaFiles, projectPath, /scanBasePackages\s*=/)
+
+      const broadScanFiles = compScanHits.filter(h =>
+        basePackagesLines.some(bp => bp.file === h.file),
+      )
+      const sbAppBroadFiles = sbAppHits.filter(h =>
+        scanBasePkgsLines.some(sp => sp.file === h.file) &&
+        !broadScanFiles.some(s => s.file === h.file),
+      )
+      const allBroadUsages = [...broadScanFiles, ...sbAppBroadFiles]
+
+      if (allBroadUsages.length > 0) {
+        riskItems.push({
+          id: 'sb3-componentscan-broad',
+          severity: 'high',
+          title: `@ComponentScan com basePackages explícito detectado (${allBroadUsages.length} arquivo(s)) — risco de regressão no Spring Boot 3`,
+          description:
+            'Em Spring Boot 3 / Spring Framework 6, é necessário restringir @ComponentScan aos pacotes do ' +
+            'próprio projeto para evitar carregar classes de bibliotecas que usam APIs javax.* removidas ' +
+            '(WebMvcConfigurerAdapter, javax.servlet.Filter, etc.). ' +
+            'Essa restrição tem efeito colateral: @ControllerAdvice, @Component e filtros de bibliotecas ' +
+            'deixam de ser registrados automaticamente, fazendo com que exceções de negócio ' +
+            '(ex: NotFoundException, BusinessException) retornem 500 em vez do código HTTP correto.',
+          file: allBroadUsages[0].file,
+          line: allBroadUsages[0].line,
+          automationAvailable: false,
+          recipe: null,
+        })
+        manualItems.push({
+          id: 'sb3-componentscan-restrict-handlers',
+          category: 'behavioral',
+          title: 'Cobrir @ExceptionHandler de libs externas após restringir @ComponentScan',
+          description:
+            'Ao restringir @ComponentScan para compatibilidade com Spring Boot 3, os @ControllerAdvice ' +
+            'de bibliotecas externas (ex: star-exception-handler, ou qualquer lib com @ControllerAdvice) ' +
+            'deixam de ser varridos. Exceções que antes retornavam 400/404 passam a retornar 500 genérico.',
+          suggestedApproach:
+            '1. Restringir @ComponentScan ao(s) pacote(s) do próprio projeto:\n' +
+            '   @ComponentScan(basePackages = {"com.empresa.projeto"})\n\n' +
+            '2. Identificar os @ControllerAdvice das libs que eram varridos:\n' +
+            '   jar tf dependencia.jar | grep -i "controlleradvice\\|exceptionhandler"\n\n' +
+            '3. Para cada exceção de lib sem handler, adicionar @ExceptionHandler no ' +
+            '@ControllerAdvice do próprio projeto (ex: CustomGlobalExceptionHandler):\n' +
+            '   - NotFoundException  →  HTTP 404\n' +
+            '   - BusinessException  →  HTTP derivado de errorCode.getCode()\n\n' +
+            '4. Verificar também filtros (javax.servlet.Filter → jakarta.servlet.Filter) ' +
+            'e outros @Component de libs que eram varridos automaticamente.',
+          files: [...new Set(allBroadUsages.map(h => h.file))],
+          requiresHumanDecision: false,
+          claudeCanResearch: false,
+        })
+      }
+    }
+
     // ── Oracle JDBC: ojdbc8 → ojdbc11 ────────────────────────────────────
     const hasOjdbc8 = hasPomDependency(pom, 'ojdbc8')
     if (hasOjdbc8) {
