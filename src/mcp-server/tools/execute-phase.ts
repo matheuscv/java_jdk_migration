@@ -185,10 +185,15 @@ async function _executePhaseUnlocked(
   }
 
   // ── 10. Build ──────────────────────────────────────────────────────────────
+  // Fase 0 = baseline: compilar/testar com o JDK de origem (JDK 6/8).
+  // Fases 1–5: usar o JDK destino (JDK 21).
+  const jdkHome = phase === 0
+    ? (config.sourceJdkHome ?? process.env['SOURCE_JAVA_HOME'] ?? process.env['JAVA_HOME'])
+    : (config.targetJdkHome ?? process.env['JAVA_HOME'])
   const buildToolOptions = {
     mavenExecutable: config.mavenExecutable,
     gradleExecutable: config.gradleExecutable,
-    targetJdkHome: config.targetJdkHome ?? process.env['JAVA_HOME'],
+    targetJdkHome: jdkHome,
   }
   const buildResult = await runBuild(projectPath, config.buildSystem as 'maven' | 'gradle', buildToolOptions)
   if (!buildResult.success) {
