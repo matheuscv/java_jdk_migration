@@ -1,5 +1,5 @@
 /**
- * Auditoria final de migração JDK — 25 critérios.
+ * Auditoria final de migração JDK — 25 critérios (A1-A8, C1-C12, D1-D5).
  *
  * Classifica cada critério em:
  *   ✅ ok       — evidência positiva confirmada
@@ -15,7 +15,7 @@
  * Grupos de critérios:
  *   A1–A8   — critérios originais (build, javax, Spring Boot, CI, runtime, artefatos)
  *   C1–C12  — critérios avançados (bytecode real, internos JDK, flags, processadores)
- *   D1–D3   — critérios de fechamento (APIs removidas JDK17-21, bytecode-manipulation libs, plugins Maven)
+ *   D1–D5   — critérios de fechamento (APIs removidas JDK9-21, bytecode-manipulation libs, plugins Maven, k8s/Helm)
  *
  * Cobertura de fontes: src/main/java + src/test/java (todos os critérios que varrem .java)
  */
@@ -246,10 +246,17 @@ function checkJavaxImports(projectPath: string): AuditCriterion {
     return { id: 'javax-imports', label: 'Imports javax.* (EE APIs) remanescentes', status: 'warning',
       detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
-  const javaxEePatterns = ['javax.persistence.', 'javax.servlet.', 'javax.validation.',
+  // Inclui as 4 famílias removidas no JDK 11 (JEP 320):
+  //   javax.xml.soap (SAAJ), javax.xml.ws (JAX-WS), javax.jws (anotações JAX-WS),
+  //   javax.activation (JAF / DataHandler) — comuns em integrações SOAP legadas JDK 8
+  const javaxEePatterns = [
+    'javax.persistence.', 'javax.servlet.', 'javax.validation.',
     'javax.ws.rs.', 'javax.ejb.', 'javax.inject.', 'javax.transaction.',
     'javax.faces.', 'javax.xml.bind.', 'javax.annotation.', 'javax.enterprise.',
-    'javax.interceptor.']
+    'javax.interceptor.',
+    // removidas no JDK 11 (JEP 320) — frequentes em apps SOAP/web-services legados
+    'javax.xml.soap.', 'javax.xml.ws.', 'javax.jws.', 'javax.activation.',
+  ]
   const found: { file: string; line: number }[] = []
   for (const f of allFiles) {
     const content = readSafe(f)
@@ -950,28 +957,37 @@ function checkReflectiveInternalAccess(projectPath: string): AuditCriterion {
     action: 'Revise os acessos reflexivos. Se necessários, adicione --add-opens ou substitua pela API pública.' }
 }
 
-// ─── D1 — APIs removidas no JDK 17–21 ────────────────────────────────────────
-// Thread.stop/destroy/countStackFrames (JDK 21), Applet API (JDK 17), RMI Activation (JDK 17),
-// java.endorsed.dirs / java.ext.dirs (JDK 9)
+// ─── D1 — APIs removidas no JDK 9–21 ─────────────────────────────────────────
+// Thread.stop/destroy/countStackFrames (JDK 21), Applet API (JDK 17),
+// RMI Activation (JDK 17), java.endorsed.dirs / java.ext.dirs (JDK 9),
+// System/Runtime.runFinalizersOnExit (JDK 11), java.lang.Compiler (JDK 9)
 
 function checkRemovedApis(projectPath: string): AuditCriterion {
   const allFiles = findAllJavaFiles(projectPath)
 
   // Padrões em código-fonte Java
   const SOURCE_PATTERNS: Array<{ re: RegExp; note: string }> = [
-    { re: /\bthread\.stop\s*\(\s*\)/i,          note: 'Thread.stop() — lança UnsupportedOperationException no JDK 21 (JEP 21)' },
-    { re: /\.stop\s*\(\s*new\s+\w*Error/,        note: 'Thread.stop(Throwable) — removido no JDK 21' },
-    { re: /\.destroy\s*\(\s*\)/,                 note: 'Thread.destroy() — removido no JDK 21' },
-    { re: /\.countStackFrames\s*\(\s*\)/,        note: 'Thread.countStackFrames() — removido no JDK 21' },
-    { re: /import\s+java\.applet\./,             note: 'java.applet.* — API Applet removida no JDK 17 (JEP 398)' },
-    { re: /import\s+java\.rmi\.activation\./,    note: 'java.rmi.activation.* — RMI Activation removido no JDK 17 (JEP 407)' },
-    { re: /import\s+javax\.security\.auth\.Policy/, note: 'javax.security.auth.Policy — removido com SecurityManager (JDK 17)' },
+    { re: /\bthread\.stop\s*\(\s*\)/i,                  note: 'Thread.stop() — lança UnsupportedOperationException no JDK 21 (JEP 214)' },
+    { re: /\.stop\s*\(\s*new\s+\w*Error/,               note: 'Thread.stop(Throwable) — removido no JDK 21' },
+    { re: /\.destroy\s*\(\s*\)/,                        note: 'Thread.destroy() — removido no JDK 21' },
+    { re: /\.countStackFrames\s*\(\s*\)/,               note: 'Thread.countStackFrames() — removido no JDK 21' },
+    { re: /import\s+java\.applet\./,                    note: 'java.applet.* — API Applet removida no JDK 17 (JEP 398)' },
+    { re: /import\s+java\.rmi\.activation\./,           note: 'java.rmi.activation.* — RMI Activation removido no JDK 17 (JEP 407)' },
+    { re: /import\s+javax\.security\.auth\.Policy\b/,   note: 'javax.security.auth.Policy — removido com SecurityManager (JDK 17)' },
+    // removidos no JDK 11
+    { re: /System\.runFinalizersOnExit\s*\(/,           note: 'System.runFinalizersOnExit() — removido no JDK 11 (era deprecated desde JDK 1.1)' },
+    { re: /Runtime\.runFinalizersOnExit\s*\(/,          note: 'Runtime.runFinalizersOnExit() — removido no JDK 11' },
+    { re: /getRuntime\s*\(\s*\)\.runFinalizersOnExit/,  note: 'Runtime.getRuntime().runFinalizersOnExit() — removido no JDK 11' },
+    // removido no JDK 9
+    { re: /import\s+java\.lang\.Compiler\b/,            note: 'java.lang.Compiler — removido no JDK 9 (JEP 289); classe era no-op desde JDK 1.3' },
+    { re: /java\.lang\.Compiler\s*\./,                  note: 'java.lang.Compiler — removido no JDK 9' },
   ]
 
   // Padrões em arquivos de configuração / startup
   const CONFIG_PATTERNS: Array<{ re: RegExp; note: string }> = [
     { re: /java\.endorsed\.dirs/,  note: 'java.endorsed.dirs — mecanismo removido no JDK 9; silenciosamente ignorado no JDK 21' },
     { re: /java\.ext\.dirs/,       note: 'java.ext.dirs — mecanismo de extensão removido no JDK 9; silenciosamente ignorado no JDK 21' },
+    { re: /runFinalizersOnExit/,   note: 'runFinalizersOnExit — removido no JDK 11; se presente em script de startup é ignorado ou causa erro' },
   ]
 
   const foundSrc: { file: string; line: number; note: string }[] = []
@@ -1212,6 +1228,76 @@ function checkMavenJdkProfiles(projectPath: string): AuditCriterion {
     action: 'Revise os profiles listados. Desative ou remova profiles de JDK antigo que sobreponham maven.compiler.source/target/release.' }
 }
 
+// ─── D5 — Kubernetes / Helm / manifests k8s com referência a JDK antigo ─────
+// Escaneia deployment.yaml, StatefulSet, CronJob, Helm templates e valores
+// procurando por imagens base com JDK diferente de 21.
+
+function checkKubernetesManifests(projectPath: string, targetJdk: string): AuditCriterion {
+  // Diretórios convencionais de infra k8s / Helm
+  const K8S_DIRS = ['k8s', 'kubernetes', 'manifests', 'deploy', 'helm', 'charts', 'infra', 'infrastructure', '.github/workflows']
+  const scannedDirs = K8S_DIRS.map(d => join(projectPath, d)).filter(existsSync)
+
+  if (scannedDirs.length === 0) {
+    return { id: 'k8s-manifests', label: 'Kubernetes/Helm — imagens JDK em manifests', status: 'ok',
+      detail: 'Nenhum diretório k8s/helm/manifests encontrado — sem manifests de infraestrutura para verificar.' }
+  }
+
+  // Imagens base comuns com JDK antigo — detecta tag numérica e sufixos como -jre, -jdk
+  // Não flageia imagens que já referem explicitamente "21" ou "temurin-21" etc.
+  const OLD_JDK_IMAGE_RE = /(?:eclipse-temurin|openjdk|amazoncorretto|liberica|microsoft\/openjdk|ibmjava|sapmachine):([\d]+)(?:-[^\s"']*)?/g
+  const ENV_JDK_RE = /(?:JAVA_VERSION|JDK_VERSION|JAVA_HOME)[=:\s]+['"]?(\d+)/g
+
+  const hits: Array<{ file: string; snippet: string; jdkVersion: string }> = []
+
+  for (const dir of scannedDirs) {
+    const yamlFiles = findFiles(dir, n => n.endsWith('.yaml') || n.endsWith('.yml'), 6)
+    for (const f of yamlFiles) {
+      const content = readSafe(f)
+      if (!content) continue
+      const rel = relPath(projectPath, f)
+
+      // Reset lastIndex para cada arquivo
+      OLD_JDK_IMAGE_RE.lastIndex = 0
+      ENV_JDK_RE.lastIndex = 0
+
+      let m: RegExpExecArray | null
+      // eslint-disable-next-line no-cond-assign
+      while ((m = OLD_JDK_IMAGE_RE.exec(content)) !== null) {
+        const version = m[1]
+        if (version !== targetJdk && version !== '21') {
+          hits.push({ file: rel, snippet: m[0], jdkVersion: version })
+        }
+      }
+      // eslint-disable-next-line no-cond-assign
+      while ((m = ENV_JDK_RE.exec(content)) !== null) {
+        const version = m[1]
+        if (version !== targetJdk && version !== '21') {
+          hits.push({ file: rel, snippet: m[0], jdkVersion: version })
+        }
+      }
+
+      if (hits.length >= 10) break
+    }
+    if (hits.length >= 10) break
+  }
+
+  const filesScanned = scannedDirs.flatMap(d =>
+    findFiles(d, n => n.endsWith('.yaml') || n.endsWith('.yml'), 6)
+  ).length
+
+  if (hits.length === 0) {
+    return { id: 'k8s-manifests', label: 'Kubernetes/Helm — imagens JDK em manifests', status: 'ok',
+      detail: `${filesScanned} arquivo(s) YAML de infra verificado(s) — nenhuma imagem ou variável com JDK diferente de ${targetJdk}.`,
+      files: scannedDirs.map(d => relPath(projectPath, d)) }
+  }
+
+  const uniqueFiles = [...new Set(hits.map(h => h.file))]
+  return { id: 'k8s-manifests', label: 'Kubernetes/Helm — imagens JDK em manifests', status: 'fail',
+    detail: `${hits.length} referência(s) a JDK diferente de ${targetJdk} em manifests k8s/Helm: ${hits.slice(0, 3).map(h => `'${h.snippet}' em ${h.file}`).join('; ')}`,
+    files: uniqueFiles.slice(0, 5),
+    action: `Atualize as imagens e variáveis de ambiente para JDK ${targetJdk} (ex: eclipse-temurin:${targetJdk}-jre).` }
+}
+
 // ─── entry point público ───────────────────────────────────────────────────────
 
 export async function runMigrationAudit(
@@ -1241,11 +1327,12 @@ export async function runMigrationAudit(
     Promise.resolve(checkSerializationRisk(projectPath)),
     Promise.resolve(checkJavaxScriptUsage(projectPath)),
     Promise.resolve(checkReflectiveInternalAccess(projectPath)),
-    // Critérios D1–D4 — fechamento: APIs removidas JDK17-21, bytecode-manip libs, plugins Maven, profiles
+    // Critérios D1–D5 — fechamento: APIs removidas JDK9-21, bytecode-manip libs, plugins Maven, profiles, k8s/Helm
     Promise.resolve(checkRemovedApis(projectPath)),
     Promise.resolve(checkBytecodeManipulationLibs(projectPath)),
     Promise.resolve(checkMavenPluginVersions(projectPath)),
     Promise.resolve(checkMavenJdkProfiles(projectPath)),
+    Promise.resolve(checkKubernetesManifests(projectPath, targetJdk)),
   ])
 
   const summary = {
