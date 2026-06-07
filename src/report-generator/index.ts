@@ -1305,14 +1305,14 @@ function buildStepProgress(ctx: BuildContext): string {
 }
 
 function buildMigrationAuditSection(audit: MigrationAuditResult): string {
-  const { criteria, summary, hasBlockers, generatedAt, targetJdk } = audit
-  const sectionClass = hasBlockers ? 'audit-section' : 'audit-ok'
+  const { criteria, summary, allOk, generatedAt, targetJdk } = audit
+  const sectionClass = allOk ? 'audit-ok' : 'audit-section'
 
   const iconMap: Record<string, string> = { ok: '✅', warning: '⚠️', fail: '❌' }
 
-  const banner = hasBlockers
-    ? `<div class="audit-blocker-banner">⚠️ ${summary.fail} critério(s) com problema identificado — revise antes de aprovar o gate final.</div>`
-    : `<div class="audit-clean-banner">✅ Nenhum bloqueador identificado — migração para JDK ${escHtml(targetJdk)} aprovada pela auditoria estática.</div>`
+  const banner = allOk
+    ? `<div class="audit-clean-banner">✅ O PROJETO NÃO APRESENTA NENHUM ARTEFATO QUE SEJA RELACIONADO A JDK &lt;&gt; 21 - AUDITORIA APROVADA.</div>`
+    : `<div class="audit-blocker-banner">⚠️ O PROJETO AINDA APRESENTA ISSUES QUE PODEM SER IDENTIFICADOS EM UMA AUDITORIA FORMAL.</div>`
 
   const pillsHtml = `
     <div class="audit-summary-bar">

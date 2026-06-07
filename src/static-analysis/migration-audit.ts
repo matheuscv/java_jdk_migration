@@ -1,10 +1,13 @@
 /**
- * Auditoria final de migração JDK.
+ * Auditoria final de migração JDK — 20 critérios.
  *
- * Varre estaticamente o projeto e classifica cada critério em:
+ * Classifica cada critério em:
  *   ✅ ok       — evidência positiva confirmada
  *   ⚠️  warning  — suspeito ou não verificável estaticamente
  *   ❌ fail     — problema encontrado com evidência clara
+ *
+ * allOk: true  → todos os 20 critérios ok  → banner verde AUDITORIA APROVADA
+ * allOk: false → qualquer warning ou fail  → banner vermelho ISSUES DETECTADOS
  *
  * Executado ao final do execute_phase(5), antes do usuário aprovar o gate.
  * Não lança exceção — retorna MigrationAuditResult em qualquer cenário.
@@ -12,6 +15,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, extname } from 'node:path'
+import { inflateRawSync } from 'node:zlib'
 import { scanContainersAndCi } from './container-ci-scanner.js'
 
 // ─── tipos públicos ────────────────────────────────────────────────────────────
@@ -23,9 +27,7 @@ export interface AuditCriterion {
   label: string
   status: AuditStatus
   detail: string
-  /** Arquivo(s) relevantes, se aplicável */
   files?: string[]
-  /** Ação recomendada para status warning/fail */
   action?: string
 }
 
@@ -33,16 +35,21 @@ export interface MigrationAuditResult {
   generatedAt: string
   targetJdk: string
   criteria: AuditCriterion[]
-  /** Contagens consolidadas */
   summary: { ok: number; warning: number; fail: number }
   /** true se há ao menos um critério ❌ fail */
   hasBlockers: boolean
+  /** true se TODOS os critérios são ✅ ok — AUDITORIA APROVADA */
+  allOk: boolean
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function readSafe(filePath: string): string | null {
   try { return readFileSync(filePath, 'utf-8') } catch { return null }
+}
+
+function readBufSafe(filePath: string): Buffer | null {
+  try { return readFileSync(filePath) } catch { return null }
 }
 
 function findFiles(dir: string, match: (name: string) => boolean, maxDepth = 4): string[] {
@@ -52,12 +59,12 @@ function findFiles(dir: string, match: (name: string) => boolean, maxDepth = 4):
     let entries: string[]
     try { entries = readdirSync(d) } catch { return }
     for (const e of entries) {
-      if (e.startsWith('.') && e !== '.github') continue
+      if (e.startsWith('.') && e !== '.github' && e !== '.mvn') continue
       const full = join(d, e)
       let st: ReturnType<typeof statSync> | null = null
       try { st = statSync(full) } catch { continue }
-      if (st.isDirectory()) { walk(full, depth + 1) }
-      else if (match(e)) { results.push(full) }
+      if (st.isDirectory()) walk(full, depth + 1)
+      else if (match(e)) results.push(full)
     }
   }
   walk(dir, 0)
@@ -72,16 +79,80 @@ function relPath(projectPath: string, abs: string): string {
   return relative(projectPath, abs).replace(/\\/g, '/')
 }
 
-// ─── critério A1: versão do compilador no build file ──────────────────────────
+/** Lê MANIFEST.MF de dentro de um JAR (ZIP) sem dependências externas. */
+function readManifestFromJar(jarPath: string): string | null {
+  try {
+    const buf = readBufSafe(jarPath)
+    if (!buf || buf.length < 22) return null
+
+    // Localiza End of Central Directory (EOCD): assinatura 0x06054b50
+    let eocdPos = -1
+    const searchStart = Math.max(0, buf.length - 65536 - 22)
+    for (let i = buf.length - 22; i >= searchStart; i--) {
+      if (buf.readUInt32LE(i) === 0x06054b50) { eocdPos = i; break }
+    }
+    if (eocdPos < 0) return null
+
+    const cdEntries = buf.readUInt16LE(eocdPos + 8)
+    const cdOffset  = buf.readUInt32LE(eocdPos + 16)
+
+    // Percorre o diretório central
+    let pos = cdOffset
+    for (let i = 0; i < cdEntries && pos + 46 <= buf.length; i++) {
+      if (buf.readUInt32LE(pos) !== 0x02014b50) break  // assinatura entrada central
+
+      const compMethod  = buf.readUInt16LE(pos + 10)
+      const compSize    = buf.readUInt32LE(pos + 20)
+      const fnLen       = buf.readUInt16LE(pos + 28)
+      const extraLen    = buf.readUInt16LE(pos + 30)
+      const commentLen  = buf.readUInt16LE(pos + 32)
+      const localOffset = buf.readUInt32LE(pos + 42)
+
+      const nameEnd = pos + 46 + fnLen
+      if (nameEnd > buf.length) break
+      const name = buf.subarray(pos + 46, nameEnd).toString('utf-8')
+
+      if (name === 'META-INF/MANIFEST.MF') {
+        if (localOffset + 30 > buf.length) return null
+        const localFnLen    = buf.readUInt16LE(localOffset + 26)
+        const localExtraLen = buf.readUInt16LE(localOffset + 28)
+        const dataStart = localOffset + 30 + localFnLen + localExtraLen
+        if (dataStart + compSize > buf.length) return null
+        const compData = buf.subarray(dataStart, dataStart + compSize)
+        if (compMethod === 0) return compData.toString('utf-8')           // stored
+        if (compMethod === 8) return inflateRawSync(compData).toString('utf-8')  // deflated
+        return null
+      }
+
+      pos += 46 + fnLen + extraLen + commentLen
+    }
+    return null
+  } catch { return null }
+}
+
+/** Lê a versão major do bytecode de um arquivo .class (primeiros 8 bytes). */
+function readClassMajorVersion(classPath: string): number | null {
+  try {
+    const buf = readBufSafe(classPath)
+    if (!buf || buf.length < 8) return null
+    // Magic: CA FE BA BE
+    if (buf[0] !== 0xCA || buf[1] !== 0xFE || buf[2] !== 0xBA || buf[3] !== 0xBE) return null
+    return buf.readUInt16BE(6)  // major version em big-endian
+  } catch { return null }
+}
+
+/** major version → JDK version string */
+function majorToJdk(major: number): string {
+  if (major < 45) return `<JDK 1 (major ${major})`
+  if (major <= 48) return `JDK ${major - 44}`  // 45=1, 48=4
+  return `JDK ${major - 44}`  // 49=5, 52=8, 55=11, 61=17, 65=21
+}
+
+// ─── A1 — versão do compilador ────────────────────────────────────────────────
 
 function checkCompilerVersion(projectPath: string, targetJdk: string): AuditCriterion {
-  const pomPath = join(projectPath, 'pom.xml')
-  const buildGradle = join(projectPath, 'build.gradle')
-  const buildGradleKts = join(projectPath, 'build.gradle.kts')
-
-  const pomContent = readSafe(pomPath)
+  const pomContent = readSafe(join(projectPath, 'pom.xml'))
   if (pomContent) {
-    // Procura por configurações de compilador problemáticas (versões diferentes de 21)
     const versionProps = [
       /maven\.compiler\.source\s*>\s*(\d+)/,
       /maven\.compiler\.target\s*>\s*(\d+)/,
@@ -90,16 +161,12 @@ function checkCompilerVersion(projectPath: string, targetJdk: string): AuditCrit
     ]
     const badVersions: string[] = []
     const files: string[] = ['pom.xml']
-
     for (const re of versionProps) {
       const m = pomContent.match(re)
-      if (m && m[1] !== targetJdk && m[1] !== '21') {
-        badVersions.push(m[0].trim())
-      }
+      if (m && m[1] !== targetJdk && m[1] !== '21') badVersions.push(m[0].trim())
     }
-
-    // Verifica multi-módulo: varre subdiretórios
-    const subPoms = findFiles(projectPath, n => n === 'pom.xml').filter(p => p !== pomPath)
+    const subPoms = findFiles(projectPath, n => n === 'pom.xml')
+      .filter(p => p !== join(projectPath, 'pom.xml'))
     for (const subPom of subPoms.slice(0, 10)) {
       const sub = readSafe(subPom)
       if (!sub) continue
@@ -111,127 +178,59 @@ function checkCompilerVersion(projectPath: string, targetJdk: string): AuditCrit
         }
       }
     }
-
     if (badVersions.length > 0) {
-      return {
-        id: 'compiler-version',
-        label: 'Versão do compilador (maven.compiler.*)',
-        status: 'fail',
-        detail: `Propriedade(s) de compilador apontam para JDK diferente de ${targetJdk}: ${badVersions.slice(0, 3).join('; ')}`,
-        files,
-        action: `Atualize maven.compiler.source/target/release para ${targetJdk} no pom.xml.`,
-      }
+      return { id: 'compiler-version', label: 'Versão do compilador (maven.compiler.*)', status: 'fail',
+        detail: `Propriedade(s) apontam para JDK diferente de ${targetJdk}: ${badVersions.slice(0, 3).join('; ')}`,
+        files, action: `Atualize maven.compiler.source/target/release para ${targetJdk}.` }
     }
-
-    // Verifica se alguma das propriedades existe e está correta
     const hasAny = versionProps.some(re => pomContent.match(re))
     if (hasAny) {
-      return {
-        id: 'compiler-version',
-        label: 'Versão do compilador (maven.compiler.*)',
-        status: 'ok',
-        detail: `Propriedades de compilador definem JDK ${targetJdk} no pom.xml.`,
-        files: ['pom.xml'],
-      }
+      return { id: 'compiler-version', label: 'Versão do compilador (maven.compiler.*)', status: 'ok',
+        detail: `Propriedades de compilador definem JDK ${targetJdk}.`, files: ['pom.xml'] }
     }
-
-    // Propriedade não encontrada — pode estar no plugin diretamente
     const pluginRelease = pomContent.match(/<release>(\d+)<\/release>/)
     if (pluginRelease) {
       const v = pluginRelease[1]
-      return {
-        id: 'compiler-version',
-        label: 'Versão do compilador (maven.compiler.*)',
-        status: v === targetJdk || v === '21' ? 'ok' : 'fail',
-        detail: v === targetJdk || v === '21'
-          ? `Plugin maven-compiler-plugin define <release>${v}</release>.`
-          : `Plugin maven-compiler-plugin define <release>${v}</release> — esperado ${targetJdk}.`,
-        files: ['pom.xml'],
-        action: v !== targetJdk && v !== '21' ? `Altere <release> para ${targetJdk}.` : undefined,
-      }
+      const ok = v === targetJdk || v === '21'
+      return { id: 'compiler-version', label: 'Versão do compilador (maven-compiler-plugin)',
+        status: ok ? 'ok' : 'fail',
+        detail: ok ? `Plugin maven-compiler-plugin define <release>${v}</release>.`
+          : `Plugin define <release>${v}</release> — esperado ${targetJdk}.`,
+        files: ['pom.xml'], action: ok ? undefined : `Altere <release> para ${targetJdk}.` }
     }
-
-    return {
-      id: 'compiler-version',
-      label: 'Versão do compilador (maven.compiler.*)',
-      status: 'warning',
-      detail: 'Propriedades maven.compiler.source/target/release não encontradas no pom.xml. Versão de compilação não confirmada estaticamente.',
-      files: ['pom.xml'],
-      action: 'Adicione <maven.compiler.release>21</maven.compiler.release> nas properties do pom.xml.',
-    }
+    return { id: 'compiler-version', label: 'Versão do compilador (maven.compiler.*)', status: 'warning',
+      detail: 'Propriedades maven.compiler.* não encontradas — versão de compilação não confirmada.',
+      files: ['pom.xml'], action: `Adicione <maven.compiler.release>${targetJdk}</maven.compiler.release> nas properties.` }
   }
-
-  // Gradle
-  const gradleContent = readSafe(buildGradle) ?? readSafe(buildGradleKts)
+  const gradleContent = readSafe(join(projectPath, 'build.gradle')) ?? readSafe(join(projectPath, 'build.gradle.kts'))
   if (gradleContent) {
-    const srcMatch = gradleContent.match(/sourceCompatibility\s*[=:]\s*['"]?(?:JavaVersion\.VERSION_)?(\d+)['"]?/)
-    const tgtMatch = gradleContent.match(/targetCompatibility\s*[=:]\s*['"]?(?:JavaVersion\.VERSION_)?(\d+)['"]?/)
-    const releaseMatch = gradleContent.match(/jvmToolchain\s*\(\s*(\d+)\s*\)/)
-
-    const detected = releaseMatch?.[1] ?? srcMatch?.[1] ?? tgtMatch?.[1]
+    const detected = (gradleContent.match(/jvmToolchain\s*\(\s*(\d+)\s*\)/)
+      ?? gradleContent.match(/sourceCompatibility\s*[=:]\s*['"]?(?:JavaVersion\.VERSION_)?(\d+)/))?.[1]
     if (detected) {
-      return {
-        id: 'compiler-version',
-        label: 'Versão do compilador (Gradle sourceCompatibility)',
-        status: detected === targetJdk || detected === '21' ? 'ok' : 'fail',
-        detail: detected === targetJdk || detected === '21'
-          ? `Gradle define compatibilidade com Java ${detected}.`
-          : `Gradle define compatibilidade com Java ${detected} — esperado ${targetJdk}.`,
-        files: [existsSync(buildGradleKts) ? 'build.gradle.kts' : 'build.gradle'],
-        action: detected !== targetJdk && detected !== '21'
-          ? `Atualize sourceCompatibility/jvmToolchain para ${targetJdk}.` : undefined,
-      }
-    }
-
-    return {
-      id: 'compiler-version',
-      label: 'Versão do compilador (Gradle)',
-      status: 'warning',
-      detail: 'sourceCompatibility / jvmToolchain não encontrado no build.gradle.',
-      action: `Adicione java { toolchain { languageVersion = JavaLanguageVersion.of(${targetJdk}) } }`,
+      const ok = detected === targetJdk || detected === '21'
+      return { id: 'compiler-version', label: 'Versão do compilador (Gradle)', status: ok ? 'ok' : 'fail',
+        detail: ok ? `Gradle define Java ${detected}.` : `Gradle define Java ${detected} — esperado ${targetJdk}.`,
+        action: ok ? undefined : `Atualize sourceCompatibility/jvmToolchain para ${targetJdk}.` }
     }
   }
-
-  return {
-    id: 'compiler-version',
-    label: 'Versão do compilador',
-    status: 'warning',
-    detail: 'pom.xml nem build.gradle encontrado na raiz do projeto.',
-  }
+  return { id: 'compiler-version', label: 'Versão do compilador', status: 'warning',
+    detail: 'Build file não encontrado ou versão não detectada.' }
 }
 
-// ─── critério A2: imports javax.* remanescentes ────────────────────────────────
+// ─── A2 — imports javax.* (EE APIs) ──────────────────────────────────────────
 
 function checkJavaxImports(projectPath: string): AuditCriterion {
   const srcDir = join(projectPath, 'src', 'main', 'java')
   if (!existsSync(srcDir)) {
-    return {
-      id: 'javax-imports',
-      label: 'Imports javax.* remanescentes',
-      status: 'warning',
-      detail: 'Diretório src/main/java não encontrado — varredura não realizada.',
-    }
+    return { id: 'javax-imports', label: 'Imports javax.* (EE APIs) remanescentes', status: 'warning',
+      detail: 'Diretório src/main/java não encontrado.' }
   }
-
-  const javaFiles = findJavaFiles(srcDir)
-  // javax.* que devem ter migrado para jakarta.* (EE APIs)
-  const javaxEePatterns = [
-    'javax.persistence.',
-    'javax.servlet.',
-    'javax.validation.',
-    'javax.ws.rs.',
-    'javax.ejb.',
-    'javax.inject.',
-    'javax.transaction.',
-    'javax.faces.',
-    'javax.xml.bind.',
-    'javax.annotation.',
-    'javax.enterprise.',
-    'javax.interceptor.',
-  ]
-
-  const found: Array<{ file: string; line: number; text: string }> = []
-  for (const f of javaFiles) {
+  const javaxEePatterns = ['javax.persistence.', 'javax.servlet.', 'javax.validation.',
+    'javax.ws.rs.', 'javax.ejb.', 'javax.inject.', 'javax.transaction.',
+    'javax.faces.', 'javax.xml.bind.', 'javax.annotation.', 'javax.enterprise.',
+    'javax.interceptor.']
+  const found: { file: string; line: number }[] = []
+  for (const f of findJavaFiles(srcDir)) {
     const content = readSafe(f)
     if (!content) continue
     const lines = content.split('\n')
@@ -239,356 +238,696 @@ function checkJavaxImports(projectPath: string): AuditCriterion {
       const line = lines[i].trim()
       if (!line.startsWith('import javax.')) continue
       if (javaxEePatterns.some(p => line.includes(p))) {
-        found.push({ file: relPath(projectPath, f), line: i + 1, text: line })
-        if (found.length >= 10) break  // limita a 10 ocorrências
+        found.push({ file: relPath(projectPath, f), line: i + 1 })
+        if (found.length >= 10) break
       }
     }
     if (found.length >= 10) break
   }
-
   if (found.length === 0) {
-    return {
-      id: 'javax-imports',
-      label: 'Imports javax.* (EE APIs) remanescentes',
-      status: 'ok',
-      detail: `Nenhum import javax.* de API Jakarta EE encontrado em ${javaFiles.length} arquivo(s) .java.`,
-    }
+    return { id: 'javax-imports', label: 'Imports javax.* (EE APIs) remanescentes', status: 'ok',
+      detail: 'Nenhum import javax.* de API Jakarta EE encontrado.' }
   }
-
-  return {
-    id: 'javax-imports',
-    label: 'Imports javax.* (EE APIs) remanescentes',
-    status: 'fail',
-    detail: `${found.length >= 10 ? '10+' : found.length} import(s) javax.* encontrado(s) que deveriam ser jakarta.*. Exemplos: ${found.slice(0, 3).map(f => `${f.file}:${f.line}`).join(', ')}`,
+  return { id: 'javax-imports', label: 'Imports javax.* (EE APIs) remanescentes', status: 'fail',
+    detail: `${found.length >= 10 ? '10+' : found.length} import(s) encontrado(s): ${found.slice(0, 3).map(f => `${f.file}:${f.line}`).join(', ')}`,
     files: [...new Set(found.map(f => f.file))].slice(0, 5),
-    action: 'Execute o recipe org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta para migrar automaticamente.',
-  }
+    action: 'Execute o recipe org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta.' }
 }
 
-// ─── critério A3: Spring Boot version ─────────────────────────────────────────
+// ─── A3 — Spring Boot version ──────────────────────────────────────────────────
 
 function checkSpringBootVersion(projectPath: string): AuditCriterion {
   const pomContent = readSafe(join(projectPath, 'pom.xml'))
   if (!pomContent) {
-    return {
-      id: 'spring-boot-version',
-      label: 'Versão do Spring Boot',
-      status: 'warning',
-      detail: 'pom.xml não encontrado — versão do Spring Boot não verificada.',
-    }
+    return { id: 'spring-boot-version', label: 'Versão do Spring Boot', status: 'warning',
+      detail: 'pom.xml não encontrado.' }
   }
-
-  // Versão via parent
-  const parentMatch = pomContent.match(
-    /<parent>[\s\S]*?<artifactId>\s*spring-boot-starter-parent\s*<\/artifactId>[\s\S]*?<version>\s*([\d.]+(?:\.RELEASE|\.M\d+|\.RC\d+)?)\s*<\/version>/,
-  )
-  // Versão via BOM / dependencyManagement
-  const bomMatch = pomContent.match(
-    /<artifactId>\s*spring-boot-dependencies\s*<\/artifactId>[\s\S]*?<version>\s*([\d.]+(?:\.RELEASE|\.M\d+|\.RC\d+)?)\s*<\/version>/,
-  )
-  // Versão via property
-  const propMatch = pomContent.match(/<spring-boot(?:\.version|\.release)?>\s*([\d.]+(?:\.RELEASE)?)\s*<\/spring-boot/)
-
-  const version = parentMatch?.[1] ?? bomMatch?.[1] ?? propMatch?.[1]
-
+  const version = (pomContent.match(/<parent>[\s\S]*?<artifactId>\s*spring-boot-starter-parent\s*<\/artifactId>[\s\S]*?<version>\s*([\d.]+[^<]*)\s*<\/version>/)
+    ?? pomContent.match(/<artifactId>\s*spring-boot-dependencies\s*<\/artifactId>[\s\S]*?<version>\s*([\d.]+[^<]*)\s*<\/version>/)
+    ?? pomContent.match(/<spring-boot[^>]*>\s*([\d.]+[^<]*)\s*<\/spring-boot/))?.[1]
   if (!version) {
-    return {
-      id: 'spring-boot-version',
-      label: 'Versão do Spring Boot',
-      status: 'warning',
-      detail: 'Spring Boot não detectado no pom.xml (pode não ser um projeto Spring Boot).',
-    }
+    return { id: 'spring-boot-version', label: 'Versão do Spring Boot', status: 'warning',
+      detail: 'Spring Boot não detectado no pom.xml.' }
   }
-
   const major = parseInt(version.split('.')[0], 10)
   const minor = parseInt(version.split('.')[1] ?? '0', 10)
-
   if (major >= 3) {
-    return {
-      id: 'spring-boot-version',
-      label: 'Versão do Spring Boot',
-      status: 'ok',
-      detail: `Spring Boot ${version} (≥ 3.x) — totalmente compatível com JDK 21 e Jakarta EE 10.`,
-      files: ['pom.xml'],
-    }
+    return { id: 'spring-boot-version', label: 'Versão do Spring Boot', status: 'ok',
+      detail: `Spring Boot ${version} (≥ 3.x) — totalmente compatível com JDK 21 e Jakarta EE 10.`, files: ['pom.xml'] }
   }
-
   if (major === 2 && minor >= 7) {
-    return {
-      id: 'spring-boot-version',
-      label: 'Versão do Spring Boot',
-      status: 'warning',
-      detail: `Spring Boot ${version} (2.7.x) — executa em JDK 21 mas não usa Jakarta EE. Migração para SB 3.x está pendente.`,
-      files: ['pom.xml'],
-      action: 'Considere migrar para Spring Boot 3.x para compatibilidade plena com Jakarta EE 10 e suporte de longo prazo.',
-    }
+    return { id: 'spring-boot-version', label: 'Versão do Spring Boot', status: 'warning',
+      detail: `Spring Boot ${version} (2.7.x) — executa em JDK 21 mas não usa Jakarta EE. Migração para SB 3.x pendente.`,
+      files: ['pom.xml'], action: 'Considere migrar para Spring Boot 3.x para compatibilidade plena.' }
   }
-
-  return {
-    id: 'spring-boot-version',
-    label: 'Versão do Spring Boot',
-    status: 'fail',
-    detail: `Spring Boot ${version} — versão abaixo de 2.7.x tem suporte encerrado e pode não executar corretamente em JDK 21.`,
-    files: ['pom.xml'],
-    action: `Atualize para Spring Boot 2.7.x (mínimo) ou preferivelmente 3.x.`,
-  }
+  return { id: 'spring-boot-version', label: 'Versão do Spring Boot', status: 'fail',
+    detail: `Spring Boot ${version} — abaixo de 2.7.x, suporte encerrado, pode não executar em JDK 21.`,
+    files: ['pom.xml'], action: 'Atualize para Spring Boot 2.7.x (mínimo) ou 3.x.' }
 }
 
-// ─── critério A4: Dependências internas / não-validadas ───────────────────────
+// ─── A4 — dependências internas ───────────────────────────────────────────────
 
 function checkInternalDependencies(projectPath: string): AuditCriterion {
   const pomContent = readSafe(join(projectPath, 'pom.xml'))
   if (!pomContent) {
-    return {
-      id: 'internal-deps',
-      label: 'Dependências internas / não-validadas',
-      status: 'warning',
-      detail: 'pom.xml não encontrado.',
-    }
+    return { id: 'internal-deps', label: 'Dependências internas / não-validadas', status: 'warning',
+      detail: 'pom.xml não encontrado.' }
   }
-
-  // Detecta deps sem versão explícita herdada de BOM (difícil verificar) e
-  // identifica patterns de JARs corporativos comuns (groupId com ≤ 2 segmentos
-  // ou artifactIds que não são publicamente conhecidos).
+  const KNOWN_PUBLIC = ['org.springframework', 'org.hibernate', 'org.apache', 'com.fasterxml',
+    'io.micrometer', 'io.netty', 'io.projectreactor', 'jakarta.', 'javax.', 'com.google',
+    'org.slf4j', 'ch.qos.logback', 'org.junit', 'junit', 'org.mockito', 'org.assertj',
+    'com.h2database', 'org.liquibase', 'org.flywaydb', 'mysql', 'org.postgresql',
+    'com.oracle', 'com.zaxxer', 'io.swagger', 'org.springdoc', 'org.mapstruct',
+    'org.projectlombok', 'com.querydsl', 'org.quartz-scheduler', 'org.ehcache',
+    'net.sf.ehcache', 'com.github.ben-manes', 'org.testcontainers', 'org.awaitility',
+    'org.jacoco', 'io.cucumber', 'org.seleniumhq', 'com.amazonaws', 'software.amazon',
+    'io.awspring', 'org.redisson', 'redis.clients', 'org.apache.kafka', 'io.confluent',
+    'org.springframework.kafka']
   const depRegex = /<dependency>[\s\S]*?<groupId>([\w.\-]+)<\/groupId>[\s\S]*?<artifactId>([\w.\-]+)<\/artifactId>(?:[\s\S]*?<version>([\w.\-]+)<\/version>)?[\s\S]*?<\/dependency>/g
-
-  // GroupIds públicos conhecidos — qualquer coisa fora desta lista é candidata a
-  // "dependência interna / não-validada"
-  const KNOWN_PUBLIC_PREFIXES = [
-    'org.springframework', 'org.hibernate', 'org.apache', 'com.fasterxml',
-    'io.micrometer', 'io.netty', 'io.projectreactor', 'jakarta.',
-    'javax.', 'com.google', 'org.slf4j', 'ch.qos.logback', 'org.junit',
-    'junit', 'org.mockito', 'org.assertj', 'com.h2database', 'org.liquibase',
-    'org.flywaydb', 'mysql', 'org.postgresql', 'com.oracle', 'com.zaxxer',
-    'io.swagger', 'org.springdoc', 'org.mapstruct', 'org.projectlombok',
-    'com.querydsl', 'org.quartz-scheduler', 'org.ehcache', 'net.sf.ehcache',
-    'com.github.ben-manes', 'org.testcontainers', 'org.awaitility',
-    'org.jacoco', 'io.cucumber', 'org.seleniumhq', 'com.amazonaws',
-    'software.amazon', 'io.awspring', 'org.redisson', 'redis.clients',
-    'org.apache.kafka', 'io.confluent', 'org.springframework.kafka',
-  ]
-
-  const internalDeps: Array<{ groupId: string; artifactId: string; version?: string }> = []
-  let match: RegExpExecArray | null
-
+  const internal: Array<{ groupId: string; artifactId: string; version?: string }> = []
+  let m: RegExpExecArray | null
   // eslint-disable-next-line no-cond-assign
-  while ((match = depRegex.exec(pomContent)) !== null) {
-    const [, groupId, artifactId, version] = match
-    const isPublic = KNOWN_PUBLIC_PREFIXES.some(prefix => groupId.startsWith(prefix))
-    if (!isPublic) {
-      internalDeps.push({ groupId, artifactId, version })
-    }
+  while ((m = depRegex.exec(pomContent)) !== null) {
+    const [, groupId, artifactId, version] = m
+    if (!KNOWN_PUBLIC.some(p => groupId.startsWith(p))) internal.push({ groupId, artifactId, version })
   }
-
-  if (internalDeps.length === 0) {
-    return {
-      id: 'internal-deps',
-      label: 'Dependências internas / não-validadas',
-      status: 'ok',
-      detail: 'Todas as dependências identificadas pertencem a groupIds públicos conhecidos.',
-    }
+  if (internal.length === 0) {
+    return { id: 'internal-deps', label: 'Dependências internas / não-validadas', status: 'ok',
+      detail: 'Todas as dependências pertencem a groupIds públicos conhecidos.' }
   }
-
-  const list = internalDeps.slice(0, 5)
-    .map(d => `${d.groupId}:${d.artifactId}${d.version ? `:${d.version}` : ''}`)
-    .join(', ')
-
-  return {
-    id: 'internal-deps',
-    label: 'Dependências internas / não-validadas para JDK 21',
-    status: 'warning',
-    detail: `${internalDeps.length} dependência(s) de groupId não-público detectada(s): ${list}${internalDeps.length > 5 ? ' …' : ''}. JVM 21 executa bytecode JDK 8, mas compatibilidade funcional não foi verificada.`,
-    files: ['pom.xml'],
-    action: 'Valide com os times responsáveis se estas bibliotecas foram testadas em JDK 21.',
-  }
+  const list = internal.slice(0, 5).map(d => `${d.groupId}:${d.artifactId}${d.version ? `:${d.version}` : ''}`).join(', ')
+  return { id: 'internal-deps', label: 'Dependências internas / não-validadas para JDK 21', status: 'warning',
+    detail: `${internal.length} dependência(s) de groupId não-público: ${list}${internal.length > 5 ? ' …' : ''}. JVM 21 executa bytecode JDK 8, mas compatibilidade funcional não verificada.`,
+    files: ['pom.xml'], action: 'Valide com os times responsáveis se estas libs foram testadas em JDK 21.' }
 }
 
-// ─── critério A5: Dockerfile / CI com JDK incompatível ────────────────────────
+// ─── A5 — Dockerfile / CI ────────────────────────────────────────────────────
 
 async function checkContainerCi(projectPath: string, targetJdk: string): Promise<AuditCriterion> {
   try {
     const result = await scanContainersAndCi(projectPath, targetJdk)
     const blockers = result.findings.filter(f => f.severity === 'critical' || f.severity === 'high')
-
     if (blockers.length === 0 && result.filesScanned.length > 0) {
-      return {
-        id: 'container-ci',
-        label: 'Dockerfile / pipelines CI',
-        status: 'ok',
+      return { id: 'container-ci', label: 'Dockerfile / pipelines CI', status: 'ok',
         detail: `${result.filesScanned.length} arquivo(s) verificado(s) — nenhuma referência a JDK incompatível.`,
-        files: result.filesScanned.map(f => relPath(projectPath, f)),
-      }
+        files: result.filesScanned.map(f => relPath(projectPath, f)) }
     }
-
     if (result.filesScanned.length === 0) {
-      return {
-        id: 'container-ci',
-        label: 'Dockerfile / pipelines CI',
-        status: 'warning',
-        detail: 'Nenhum Dockerfile ou pipeline CI encontrado para verificação.',
-        action: 'Verifique manualmente se há arquivos de infraestrutura fora dos diretórios padrão.',
-      }
+      return { id: 'container-ci', label: 'Dockerfile / pipelines CI', status: 'warning',
+        detail: 'Nenhum Dockerfile ou pipeline CI encontrado.',
+        action: 'Verifique manualmente arquivos de infraestrutura fora dos diretórios padrão.' }
     }
-
     const criticalFiles = [...new Set(blockers.map(f => f.file))].slice(0, 5)
-    return {
-      id: 'container-ci',
-      label: 'Dockerfile / pipelines CI',
-      status: 'fail',
-      detail: `${blockers.length} referência(s) a JDK incompatível em arquivos de infra: ${criticalFiles.join(', ')}`,
-      files: criticalFiles,
-      action: 'Atualize as imagens base e configurações de JDK nos arquivos listados para JDK 21.',
-    }
+    return { id: 'container-ci', label: 'Dockerfile / pipelines CI', status: 'fail',
+      detail: `${blockers.length} referência(s) a JDK incompatível: ${criticalFiles.join(', ')}`,
+      files: criticalFiles, action: 'Atualize as imagens base e configurações de JDK para JDK 21.' }
   } catch {
-    return {
-      id: 'container-ci',
-      label: 'Dockerfile / pipelines CI',
-      status: 'warning',
-      detail: 'Varredura de containers/CI não foi possível.',
-    }
+    return { id: 'container-ci', label: 'Dockerfile / pipelines CI', status: 'warning',
+      detail: 'Varredura de containers/CI não foi possível.' }
   }
 }
 
-// ─── critério A6: evidência de smoke test / startup ───────────────────────────
+// ─── A6 — evidência de runtime ────────────────────────────────────────────────
 
 function checkRuntimeEvidence(projectPath: string): AuditCriterion {
-  // Procura evidências de que a aplicação foi iniciada com JDK 21:
-  // 1. Arquivos de log com "Started * in * seconds" (Spring Boot startup)
-  // 2. surefire-reports com testes de integração
-  // 3. Test results recentes
-  const logPatterns = [
-    join(projectPath, 'logs'),
-    join(projectPath, 'log'),
-    join(projectPath, 'target', 'logs'),
-  ]
-
-  for (const logDir of logPatterns) {
+  for (const logDir of [join(projectPath, 'logs'), join(projectPath, 'log'), join(projectPath, 'target', 'logs')]) {
     if (!existsSync(logDir)) continue
-    const logFiles = findFiles(logDir, n => n.endsWith('.log') || n.endsWith('.out'), 2)
-    for (const logFile of logFiles.slice(0, 3)) {
+    for (const logFile of findFiles(logDir, n => n.endsWith('.log') || n.endsWith('.out'), 2).slice(0, 3)) {
       const content = readSafe(logFile)
-      if (!content) continue
-      if (/Started \w+ in [\d.]+ seconds/i.test(content)) {
-        return {
-          id: 'runtime-evidence',
-          label: 'Evidência de startup / smoke test',
-          status: 'ok',
-          detail: `Log de startup do Spring Boot encontrado em ${relPath(projectPath, logFile)}.`,
-          files: [relPath(projectPath, logFile)],
-        }
+      if (content && /Started \w+ in [\d.]+ seconds/i.test(content)) {
+        return { id: 'runtime-evidence', label: 'Evidência de startup / smoke test', status: 'ok',
+          detail: `Log de startup encontrado em ${relPath(projectPath, logFile)}.`,
+          files: [relPath(projectPath, logFile)] }
       }
     }
   }
-
-  // Verifica surefire para testes de integração (IT)
   const surefireDir = join(projectPath, 'target', 'surefire-reports')
   if (existsSync(surefireDir)) {
-    const itReports = readdirSync(surefireDir)
-      .filter(f => /IT\.xml$|IntegrationTest\.xml$/i.test(f))
+    const itReports = readdirSync(surefireDir).filter(f => /IT\.xml$|IntegrationTest\.xml$/i.test(f))
     if (itReports.length > 0) {
-      return {
-        id: 'runtime-evidence',
-        label: 'Evidência de startup / smoke test',
-        status: 'ok',
-        detail: `${itReports.length} relatório(s) de teste de integração encontrado(s) em target/surefire-reports.`,
-      }
+      return { id: 'runtime-evidence', label: 'Evidência de startup / smoke test', status: 'ok',
+        detail: `${itReports.length} relatório(s) de teste de integração em target/surefire-reports.` }
     }
   }
-
-  return {
-    id: 'runtime-evidence',
-    label: 'Evidência de startup / smoke test',
-    status: 'warning',
-    detail: 'Nenhuma evidência de execução da aplicação com JDK 21 encontrada (log de startup ou teste de integração).',
-    action: 'Inicie a aplicação localmente com JDK 21 e confirme que o startup completa sem erros. Execute testes de integração/smoke se disponíveis.',
-  }
+  return { id: 'runtime-evidence', label: 'Evidência de startup / smoke test', status: 'warning',
+    detail: 'Nenhuma evidência de execução da aplicação com JDK 21 encontrada.',
+    action: 'Inicie a aplicação com JDK 21 e confirme que o startup completa sem erros.' }
 }
 
-// ─── critério A7: propriedades obsoletas no pom.xml ───────────────────────────
+// ─── A7 — propriedades obsoletas ─────────────────────────────────────────────
 
 function checkObsoleteProperties(projectPath: string): AuditCriterion {
   const pomContent = readSafe(join(projectPath, 'pom.xml'))
   if (!pomContent) {
-    return {
-      id: 'obsolete-props',
-      label: 'Propriedades obsoletas no pom.xml',
-      status: 'warning',
-      detail: 'pom.xml não encontrado.',
-    }
+    return { id: 'obsolete-props', label: 'Propriedades obsoletas no pom.xml', status: 'warning',
+      detail: 'pom.xml não encontrado.' }
   }
-
-  const OBSOLETE_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
-    { pattern: /<spring\.cloud\.version>\s*(?:Hoxton|Greenwich|Finchley|Edgware|Dalston|Camden)/i,  description: 'spring.cloud.version aponta para versão EOL (pré-2020)' },
-    { pattern: /<spring\.cloud\.version>\s*\d+\.\d+\.\d+\.RELEASE/,                                description: 'spring.cloud.version usa sufixo .RELEASE (substituído por GA)' },
-    { pattern: /<spring\.jdbc\.version>/,                                                            description: 'spring.jdbc.version — property não mais necessária em SB 2.x+' },
-    { pattern: /<java\.version>\s*(?:6|7|8|9|10|11|14|15|16|17)\s*</,                               description: 'java.version define JDK diferente de 21' },
-    { pattern: /<source>\s*(?:1\.[678]|[6-9]|1[0-7])\s*<\/source>/,                                description: '<source> define nível de compatibilidade antigo' },
-    { pattern: /<target>\s*(?:1\.[678]|[6-9]|1[0-7])\s*<\/target>/,                                description: '<target> define nível de compatibilidade antigo' },
+  const OBSOLETE: Array<{ pattern: RegExp; description: string }> = [
+    { pattern: /<spring\.cloud\.version>\s*(?:Hoxton|Greenwich|Finchley|Edgware|Dalston|Camden)/i,
+      description: 'spring.cloud.version aponta para release EOL (pré-2020)' },
+    { pattern: /<spring\.cloud\.version>\s*\d+\.\d+\.\d+\.RELEASE/,
+      description: 'spring.cloud.version usa sufixo .RELEASE (substituído por GA)' },
+    { pattern: /<spring\.jdbc\.version>/,
+      description: 'spring.jdbc.version — property não mais necessária em SB 2.x+' },
+    { pattern: /<java\.version>\s*(?:6|7|8|9|10|11|14|15|16|17)\s*</,
+      description: 'java.version define JDK diferente de 21' },
+    { pattern: /<source>\s*(?:1\.[678]|[6-9]|1[0-7])\s*<\/source>/,
+      description: '<source> define nível de compatibilidade antigo' },
+    { pattern: /<target>\s*(?:1\.[678]|[6-9]|1[0-7])\s*<\/target>/,
+      description: '<target> define nível de compatibilidade antigo' },
   ]
-
-  const found: string[] = []
-  for (const { pattern, description } of OBSOLETE_PATTERNS) {
-    if (pattern.test(pomContent)) {
-      found.push(description)
-    }
-  }
-
+  const found = OBSOLETE.filter(o => o.pattern.test(pomContent)).map(o => o.description)
   if (found.length === 0) {
-    return {
-      id: 'obsolete-props',
-      label: 'Propriedades obsoletas no pom.xml',
-      status: 'ok',
-      detail: 'Nenhuma propriedade obsoleta ou incompatível detectada no pom.xml.',
-      files: ['pom.xml'],
-    }
+    return { id: 'obsolete-props', label: 'Propriedades obsoletas no pom.xml', status: 'ok',
+      detail: 'Nenhuma propriedade obsoleta detectada.', files: ['pom.xml'] }
   }
-
-  return {
-    id: 'obsolete-props',
-    label: 'Propriedades obsoletas no pom.xml',
-    status: 'warning',
-    detail: `${found.length} propriedade(s) suspeita(s) encontrada(s): ${found.join('; ')}`,
-    files: ['pom.xml'],
-    action: 'Revise e remova ou atualize as propriedades listadas.',
-  }
+  return { id: 'obsolete-props', label: 'Propriedades obsoletas no pom.xml', status: 'warning',
+    detail: `${found.length} propriedade(s) suspeita(s): ${found.join('; ')}`,
+    files: ['pom.xml'], action: 'Revise e remova ou atualize as propriedades listadas.' }
 }
 
-// ─── critério A8: bytecode target nos JARs de output ─────────────────────────
+// ─── A8 — bytecode do JAR de output (MANIFEST.MF) ────────────────────────────
 
 function checkOutputBytecode(projectPath: string, targetJdk: string): AuditCriterion {
-  // Verifica o MANIFEST.MF de JARs gerados para inferir o bytecode target.
-  // Se não houver JAR gerado ainda, retorna warning.
   const targetDir = join(projectPath, 'target')
   if (!existsSync(targetDir)) {
-    return {
-      id: 'output-bytecode',
-      label: 'Bytecode de output (JAR gerado)',
-      status: 'warning',
-      detail: 'Diretório target/ não encontrado — JAR não foi gerado ainda.',
-      action: 'Execute mvn package e verifique que o JAR é gerado com bytecode JDK 21.',
-    }
+    return { id: 'output-bytecode', label: 'JAR de output — Build-Jdk no MANIFEST.MF', status: 'warning',
+      detail: 'Diretório target/ não encontrado — JAR não foi gerado.',
+      action: 'Execute mvn package e verifique o JAR.' }
   }
-
-  const jars = readdirSync(targetDir).filter(f => f.endsWith('.jar') && !f.endsWith('-sources.jar') && !f.endsWith('-javadoc.jar'))
+  const jars = readdirSync(targetDir)
+    .filter(f => f.endsWith('.jar') && !f.endsWith('-sources.jar') && !f.endsWith('-javadoc.jar'))
   if (jars.length === 0) {
-    return {
-      id: 'output-bytecode',
-      label: 'Bytecode de output (JAR gerado)',
-      status: 'warning',
-      detail: 'Nenhum JAR encontrado em target/ — build pode não ter sido executado.',
-      action: 'Execute mvn package para gerar o JAR de output.',
+    return { id: 'output-bytecode', label: 'JAR de output — Build-Jdk no MANIFEST.MF', status: 'warning',
+      detail: 'Nenhum JAR em target/ — build pode não ter sido executado.',
+      action: 'Execute mvn package.' }
+  }
+  // Tenta ler MANIFEST.MF de dentro do primeiro JAR
+  const jarPath = join(targetDir, jars[0])
+  const manifest = readManifestFromJar(jarPath)
+  if (manifest) {
+    const buildJdk = manifest.match(/Build-Jdk(?:-Spec)?:\s*([\d.]+)/i)?.[1]
+    const createdBy = manifest.match(/Created-By:\s*(.+)/i)?.[1]?.trim()
+    if (buildJdk) {
+      const majorDetected = parseInt(buildJdk.split('.')[0], 10)
+      const targetMajor = parseInt(targetJdk, 10)
+      const ok = majorDetected === targetMajor || buildJdk === targetJdk
+      return { id: 'output-bytecode', label: 'JAR de output — Build-Jdk no MANIFEST.MF',
+        status: ok ? 'ok' : 'fail',
+        detail: ok
+          ? `MANIFEST.MF confirma Build-Jdk: ${buildJdk} em ${jars[0]}.`
+          : `MANIFEST.MF indica Build-Jdk: ${buildJdk} — esperado JDK ${targetJdk}. O JAR pode não ter sido recompilado.`,
+        files: [`target/${jars[0]}`],
+        action: ok ? undefined : `Recompile com JDK ${targetJdk}: mvn clean package.` }
+    }
+    if (createdBy) {
+      return { id: 'output-bytecode', label: 'JAR de output — Build-Jdk no MANIFEST.MF', status: 'warning',
+        detail: `MANIFEST.MF presente em ${jars[0]} mas sem atributo Build-Jdk. Created-By: ${createdBy}.`,
+        files: [`target/${jars[0]}`] }
+    }
+  }
+  return { id: 'output-bytecode', label: 'JAR de output — Build-Jdk no MANIFEST.MF', status: 'warning',
+    detail: `JAR encontrado (${jars[0]}) mas MANIFEST.MF não pôde ser lido — bytecode não confirmado.`,
+    files: [`target/${jars[0]}`], action: 'Verifique manualmente: jar tf target/' + jars[0] + ' META-INF/MANIFEST.MF' }
+}
+
+// ─── C1 — versão real do bytecode nas .class files ───────────────────────────
+
+function checkActualBytecodeVersion(projectPath: string, targetJdk: string): AuditCriterion {
+  const classesDir = join(projectPath, 'target', 'classes')
+  if (!existsSync(classesDir)) {
+    // Tenta multi-módulo
+    const subDirs = existsSync(join(projectPath, 'target'))
+      ? [] : findFiles(projectPath, n => n === 'classes', 3).filter(p => p.includes('target'))
+    if (subDirs.length === 0) {
+      return { id: 'actual-bytecode', label: 'Versão real do bytecode (.class files)', status: 'warning',
+        detail: 'target/classes não encontrado — classes não compiladas.',
+        action: 'Execute mvn compile para gerar as classes.' }
     }
   }
 
-  // Verifica Created-By ou Build-Jdk no MANIFEST via extração simples
-  // (não abre o ZIP — apenas informa que o JAR existe)
-  return {
-    id: 'output-bytecode',
-    label: 'Bytecode de output (JAR gerado)',
-    status: 'ok',
-    detail: `JAR(s) encontrado(s) em target/: ${jars.slice(0, 3).join(', ')}. Bytecode gerado pelo build (build passou com JDK ${targetJdk}).`,
-    files: jars.slice(0, 3).map(j => `target/${j}`),
+  const targetMajor = parseInt(targetJdk, 10) + 44  // JDK 21 → major 65
+  const classFiles = findFiles(classesDir, n => n.endsWith('.class'), 6)
+
+  if (classFiles.length === 0) {
+    return { id: 'actual-bytecode', label: 'Versão real do bytecode (.class files)', status: 'warning',
+      detail: 'Nenhum arquivo .class encontrado em target/classes.',
+      action: 'Execute mvn compile.' }
   }
+
+  const checked: Array<{ file: string; major: number }> = []
+  const wrong: Array<{ file: string; major: number }> = []
+
+  // Verifica amostra (primeiros 50 + últimos 10 para multi-módulo)
+  const sample = classFiles.length > 60
+    ? [...classFiles.slice(0, 50), ...classFiles.slice(-10)]
+    : classFiles
+
+  for (const cf of sample) {
+    const major = readClassMajorVersion(cf)
+    if (major === null) continue
+    checked.push({ file: relPath(projectPath, cf), major })
+    if (major !== targetMajor) wrong.push({ file: relPath(projectPath, cf), major })
+  }
+
+  if (checked.length === 0) {
+    return { id: 'actual-bytecode', label: 'Versão real do bytecode (.class files)', status: 'warning',
+      detail: 'Não foi possível ler a versão do bytecode dos arquivos .class.' }
+  }
+
+  if (wrong.length === 0) {
+    return { id: 'actual-bytecode', label: 'Versão real do bytecode (.class files)', status: 'ok',
+      detail: `${checked.length} arquivo(s) .class verificado(s) — todos com bytecode JDK ${targetJdk} (major ${targetMajor}).` }
+  }
+
+  const examples = wrong.slice(0, 3).map(w => `${w.file} (${majorToJdk(w.major)})`)
+  return { id: 'actual-bytecode', label: 'Versão real do bytecode (.class files)', status: 'fail',
+    detail: `${wrong.length} arquivo(s) com bytecode de versão diferente de JDK ${targetJdk}: ${examples.join(', ')}`,
+    files: wrong.slice(0, 3).map(w => w.file),
+    action: `Execute mvn clean compile com JDK ${targetJdk} para recompilar todos os módulos.` }
+}
+
+// ─── C2 — imports sun.* / com.sun.* internos ─────────────────────────────────
+
+function checkSunInternalImports(projectPath: string): AuditCriterion {
+  const srcDir = join(projectPath, 'src', 'main', 'java')
+  if (!existsSync(srcDir)) {
+    return { id: 'sun-internal-imports', label: 'Imports de API interna sun.* / com.sun.*', status: 'warning',
+      detail: 'src/main/java não encontrado.' }
+  }
+  // Exclusões legítimas: com.sun.mail (Jakarta Mail), com.sun.xml.bind (JAXB RI)
+  const ALLOWED_PREFIXES = ['com.sun.mail.', 'com.sun.xml.bind.', 'com.sun.xml.messaging.']
+  const found: { file: string; line: number; text: string }[] = []
+  for (const f of findJavaFiles(srcDir)) {
+    const content = readSafe(f)
+    if (!content) continue
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!line.startsWith('import sun.') && !line.startsWith('import com.sun.')) continue
+      if (ALLOWED_PREFIXES.some(p => line.includes(p))) continue
+      found.push({ file: relPath(projectPath, f), line: i + 1, text: line })
+      if (found.length >= 10) break
+    }
+    if (found.length >= 10) break
+  }
+  if (found.length === 0) {
+    return { id: 'sun-internal-imports', label: 'Imports de API interna sun.* / com.sun.*', status: 'ok',
+      detail: 'Nenhum import de API interna JDK detectado.' }
+  }
+  return { id: 'sun-internal-imports', label: 'Imports de API interna sun.* / com.sun.*', status: 'fail',
+    detail: `${found.length >= 10 ? '10+' : found.length} import(s) de API interna encontrado(s): ${found.slice(0, 3).map(f => `${f.file}:${f.line}`).join(', ')}. O módulo system do JDK 9+ bloqueia esses acessos em runtime.`,
+    files: [...new Set(found.map(f => f.file))].slice(0, 5),
+    action: 'Substitua por APIs públicas equivalentes do JDK 21 ou adicione a dependência pública correspondente.' }
+}
+
+// ─── C3 — uso de SecurityManager ─────────────────────────────────────────────
+
+function checkSecurityManagerUsage(projectPath: string): AuditCriterion {
+  const srcDir = join(projectPath, 'src', 'main', 'java')
+  if (!existsSync(srcDir)) {
+    return { id: 'security-manager', label: 'Uso de SecurityManager (removido JDK 17+)', status: 'warning',
+      detail: 'src/main/java não encontrado.' }
+  }
+  const patterns = [
+    /System\.setSecurityManager\s*\(/,
+    /extends\s+SecurityManager\b/,
+    /new\s+SecurityManager\s*\(/,
+    /SecurityManager\s+\w+\s*=/,
+  ]
+  const found: { file: string; line: number }[] = []
+  for (const f of findJavaFiles(srcDir)) {
+    const content = readSafe(f)
+    if (!content) continue
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (patterns.some(p => p.test(lines[i]))) {
+        found.push({ file: relPath(projectPath, f), line: i + 1 })
+        if (found.length >= 5) break
+      }
+    }
+    if (found.length >= 5) break
+  }
+  if (found.length === 0) {
+    return { id: 'security-manager', label: 'Uso de SecurityManager (removido JDK 17+)', status: 'ok',
+      detail: 'Nenhum uso de SecurityManager detectado nos fontes.' }
+  }
+  return { id: 'security-manager', label: 'Uso de SecurityManager (removido JDK 17+)', status: 'fail',
+    detail: `${found.length} ocorrência(s) de SecurityManager: ${found.slice(0, 3).map(f => `${f.file}:${f.line}`).join(', ')}. Lança UnsupportedOperationException em JDK 17+.`,
+    files: [...new Set(found.map(f => f.file))].slice(0, 5),
+    action: 'Remova ou substitua o uso de SecurityManager. Consulte JEP 411 para alternativas.' }
+}
+
+// ─── C4 — flags JVM removidas ─────────────────────────────────────────────────
+
+function checkRemovedJvmFlags(projectPath: string): AuditCriterion {
+  const REMOVED_FLAGS = [
+    { flag: '-XX:+UseConcMarkSweepGC',  note: 'CMS GC removido no JDK 14' },
+    { flag: '-XX:+UseParNewGC',          note: 'removido no JDK 10' },
+    { flag: '-XX:MaxPermSize',           note: 'PermGen removido no JDK 8' },
+    { flag: '-XX:PermSize',              note: 'PermGen removido no JDK 8' },
+    { flag: '-XX:+PrintGCDetails',       note: 'removido no JDK 15 — use -Xlog:gc' },
+    { flag: '-XX:+PrintGCDateStamps',    note: 'removido no JDK 9 — use -Xlog:gc' },
+    { flag: '-XX:+PrintHeapAtGC',        note: 'removido no JDK 9' },
+    { flag: '-XX:+AggressiveOpts',       note: 'removido no JDK 11' },
+    { flag: '-Djava.security.manager=allow', note: 'SecurityManager removido no JDK 17' },
+  ]
+
+  // Arquivos onde flags JVM costumam aparecer
+  const targets: string[] = [
+    join(projectPath, '.mvn', 'jvm.config'),
+    join(projectPath, 'pom.xml'),
+    ...findFiles(projectPath, n => n.endsWith('.sh') || n.endsWith('.bat') || n.endsWith('.cmd'), 3),
+    ...findFiles(projectPath, n => /^Dockerfile/.test(n), 3),
+    ...findFiles(projectPath, n => n === 'docker-compose.yml' || n === 'docker-compose.yaml', 3),
+  ]
+
+  const hits: Array<{ file: string; flag: string; note: string }> = []
+  for (const t of targets) {
+    const content = readSafe(t)
+    if (!content) continue
+    const rel = relPath(projectPath, t)
+    for (const { flag, note } of REMOVED_FLAGS) {
+      if (content.includes(flag)) hits.push({ file: rel, flag, note })
+    }
+  }
+
+  if (hits.length === 0) {
+    return { id: 'removed-jvm-flags', label: 'Flags JVM removidas em scripts/configs', status: 'ok',
+      detail: 'Nenhuma flag JVM removida detectada em Dockerfiles, scripts ou pom.xml.' }
+  }
+  return { id: 'removed-jvm-flags', label: 'Flags JVM removidas em scripts/configs', status: 'fail',
+    detail: `${hits.length} flag(s) JVM inválida(s) para JDK 21: ${hits.slice(0, 3).map(h => `'${h.flag}' em ${h.file} (${h.note})`).join('; ')}`,
+    files: [...new Set(hits.map(h => h.file))].slice(0, 5),
+    action: 'Remova ou substitua as flags listadas. Use -Xlog:gc* em lugar dos flags de GC antigos.' }
+}
+
+// ─── C5 — uso de Nashorn ─────────────────────────────────────────────────────
+
+function checkNashornUsage(projectPath: string): AuditCriterion {
+  const srcDir = join(projectPath, 'src', 'main', 'java')
+  if (!existsSync(srcDir)) {
+    return { id: 'nashorn', label: 'Uso de Nashorn / engine JavaScript (removido JDK 15)', status: 'warning',
+      detail: 'src/main/java não encontrado.' }
+  }
+  const patterns = [
+    /getEngineByName\s*\(\s*["']nashorn["']\s*\)/,
+    /getEngineByName\s*\(\s*["']js["']\s*\)/,
+    /getEngineByName\s*\(\s*["']javascript["']\s*\)/i,
+    /import\s+jdk\.nashorn\./,
+    /import\s+sun\.org\.mozilla\.javascript\./,
+  ]
+  const found: { file: string; line: number }[] = []
+  for (const f of findJavaFiles(srcDir)) {
+    const content = readSafe(f)
+    if (!content) continue
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (patterns.some(p => p.test(lines[i]))) {
+        found.push({ file: relPath(projectPath, f), line: i + 1 })
+        if (found.length >= 5) break
+      }
+    }
+    if (found.length >= 5) break
+  }
+  if (found.length === 0) {
+    return { id: 'nashorn', label: 'Uso de Nashorn / engine JavaScript (removido JDK 15)', status: 'ok',
+      detail: 'Nenhum uso de Nashorn ou ScriptEngine JS detectado.' }
+  }
+  return { id: 'nashorn', label: 'Uso de Nashorn / engine JavaScript (removido JDK 15)', status: 'fail',
+    detail: `${found.length} ocorrência(s) de ScriptEngine JS/Nashorn: ${found.slice(0, 3).map(f => `${f.file}:${f.line}`).join(', ')}. Retorna null silenciosamente em JDK 21.`,
+    files: [...new Set(found.map(f => f.file))].slice(0, 5),
+    action: 'Adicione a dependência org.openjdk.nashorn:nashorn-core ou substitua por GraalVM JS.' }
+}
+
+// ─── C6 — presença de --add-opens / --add-exports ────────────────────────────
+
+function checkAddOpensPresence(projectPath: string): AuditCriterion {
+  const targets: string[] = [
+    join(projectPath, '.mvn', 'jvm.config'),
+    join(projectPath, 'pom.xml'),
+    ...findFiles(projectPath, n => n.endsWith('.sh') || n.endsWith('.bat'), 3),
+    ...findFiles(projectPath, n => /^Dockerfile/.test(n), 3),
+  ]
+  const hits: Array<{ file: string; snippet: string }> = []
+  for (const t of targets) {
+    const content = readSafe(t)
+    if (!content) continue
+    const lines = content.split('\n')
+    for (const line of lines) {
+      if (/--add-opens|--add-exports|--add-reads/.test(line)) {
+        hits.push({ file: relPath(projectPath, t), snippet: line.trim().slice(0, 80) })
+        break  // um hit por arquivo basta
+      }
+    }
+  }
+  if (hits.length === 0) {
+    return { id: 'add-opens', label: 'Flags --add-opens / --add-exports', status: 'ok',
+      detail: 'Nenhuma flag --add-opens ou --add-exports encontrada — acesso a módulos internos não necessário.' }
+  }
+  return { id: 'add-opens', label: 'Flags --add-opens / --add-exports', status: 'warning',
+    detail: `${hits.length} arquivo(s) com --add-opens/--add-exports: ${hits.slice(0, 3).map(h => h.file).join(', ')}. Indica dependência de acesso a módulos internos do JDK.`,
+    files: hits.slice(0, 5).map(h => h.file),
+    action: 'Avalie se o acesso ao módulo interno é realmente necessário e se há alternativa pública no JDK 21.' }
+}
+
+// ─── C7 — versões de annotation processors ───────────────────────────────────
+
+function checkAnnotationProcessorVersions(projectPath: string): AuditCriterion {
+  const pomContent = readSafe(join(projectPath, 'pom.xml'))
+  if (!pomContent) {
+    return { id: 'annotation-processors', label: 'Versões de annotation processors', status: 'warning',
+      detail: 'pom.xml não encontrado.' }
+  }
+  // Matriz de compatibilidade mínima com JDK 21
+  const MATRIX: Array<{ artifactId: string; name: string; minVersion: string; compare: (v: string) => boolean }> = [
+    { artifactId: 'lombok', name: 'Lombok', minVersion: '1.18.26',
+      compare: v => {
+        const parts = v.split('.').map(Number)
+        if (parts[0] > 1) return true
+        if (parts[0] < 1) return false
+        if ((parts[1] ?? 0) > 18) return true
+        if ((parts[1] ?? 0) < 18) return false
+        return (parts[2] ?? 0) >= 26
+      } },
+    { artifactId: 'mapstruct', name: 'MapStruct', minVersion: '1.5.3.Final',
+      compare: v => {
+        const parts = v.replace(/[^0-9.]/g, '.').split('.').map(Number)
+        if ((parts[0] ?? 0) > 1) return true
+        if ((parts[1] ?? 0) > 5) return true
+        if ((parts[1] ?? 0) === 5 && (parts[2] ?? 0) >= 3) return true
+        return false
+      } },
+    { artifactId: 'mapstruct-processor', name: 'MapStruct Processor', minVersion: '1.5.3.Final',
+      compare: v => {
+        const parts = v.replace(/[^0-9.]/g, '.').split('.').map(Number)
+        if ((parts[0] ?? 0) > 1) return true
+        if ((parts[1] ?? 0) > 5) return true
+        if ((parts[1] ?? 0) === 5 && (parts[2] ?? 0) >= 3) return true
+        return false
+      } },
+  ]
+  const issues: string[] = []
+  const ok: string[] = []
+  for (const proc of MATRIX) {
+    const vMatch = pomContent.match(
+      new RegExp(`<artifactId>\\s*${proc.artifactId}\\s*</artifactId>[\\s\\S]*?<version>\\s*([\\d.]+[^<]*)\\s*</version>`)
+    )
+    if (!vMatch) continue
+    const version = vMatch[1].trim()
+    if (proc.compare(version)) {
+      ok.push(`${proc.name} ${version}`)
+    } else {
+      issues.push(`${proc.name} ${version} < ${proc.minVersion}`)
+    }
+  }
+  if (issues.length === 0 && ok.length === 0) {
+    return { id: 'annotation-processors', label: 'Versões de annotation processors (Lombok/MapStruct)', status: 'ok',
+      detail: 'Lombok e MapStruct não detectados ou sem versão explícita — nada a verificar.' }
+  }
+  if (issues.length === 0) {
+    return { id: 'annotation-processors', label: 'Versões de annotation processors (Lombok/MapStruct)', status: 'ok',
+      detail: `Todos os annotation processors compatíveis com JDK 21: ${ok.join(', ')}.`, files: ['pom.xml'] }
+  }
+  return { id: 'annotation-processors', label: 'Versões de annotation processors (Lombok/MapStruct)', status: 'fail',
+    detail: `Versão(ões) incompatível(is) com JDK 21: ${issues.join('; ')}.`,
+    files: ['pom.xml'],
+    action: `Atualize: Lombok → 1.18.26+, MapStruct → 1.5.3.Final+.` }
+}
+
+// ─── C8 — finalize() overrides ───────────────────────────────────────────────
+
+function checkFinalizeOverrides(projectPath: string): AuditCriterion {
+  const srcDir = join(projectPath, 'src', 'main', 'java')
+  if (!existsSync(srcDir)) {
+    return { id: 'finalize-override', label: 'Overrides de finalize() (deprecado para remoção)', status: 'warning',
+      detail: 'src/main/java não encontrado.' }
+  }
+  const pattern = /(?:protected|public)\s+void\s+finalize\s*\(\s*\)/
+  const found: { file: string; line: number }[] = []
+  for (const f of findJavaFiles(srcDir)) {
+    const content = readSafe(f)
+    if (!content) continue
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (pattern.test(lines[i])) {
+        found.push({ file: relPath(projectPath, f), line: i + 1 })
+        break
+      }
+    }
+    if (found.length >= 10) break
+  }
+  if (found.length === 0) {
+    return { id: 'finalize-override', label: 'Overrides de finalize() (deprecado para remoção)', status: 'ok',
+      detail: 'Nenhum override de finalize() detectado.' }
+  }
+  return { id: 'finalize-override', label: 'Overrides de finalize() (deprecado para remoção)', status: 'warning',
+    detail: `${found.length} override(s) de finalize() detectado(s): ${found.slice(0, 3).map(f => `${f.file}:${f.line}`).join(', ')}. Deprecado desde JDK 9, comportamento de GC alterado no JDK 21.`,
+    files: found.slice(0, 5).map(f => f.file),
+    action: 'Substitua por java.lang.ref.Cleaner (JDK 9+) ou try-with-resources.' }
+}
+
+// ─── C9 — .mvn/jvm.config ────────────────────────────────────────────────────
+
+function checkMvnJvmConfig(projectPath: string): AuditCriterion {
+  const configPath = join(projectPath, '.mvn', 'jvm.config')
+  if (!existsSync(configPath)) {
+    return { id: 'mvn-jvm-config', label: '.mvn/jvm.config — flags JVM do Maven', status: 'ok',
+      detail: 'Arquivo .mvn/jvm.config não existe — sem flags JVM customizadas para Maven.' }
+  }
+  const content = readSafe(configPath) ?? ''
+  const REMOVED = ['-XX:+UseConcMarkSweepGC', '-XX:+UseParNewGC', '-XX:MaxPermSize',
+    '-XX:PermSize', '-XX:+PrintGCDetails', '-XX:+AggressiveOpts']
+  const bad = REMOVED.filter(f => content.includes(f))
+
+  if (content.trim().length === 0) {
+    return { id: 'mvn-jvm-config', label: '.mvn/jvm.config — flags JVM do Maven', status: 'ok',
+      detail: '.mvn/jvm.config existe mas está vazio.', files: ['.mvn/jvm.config'] }
+  }
+  if (bad.length > 0) {
+    return { id: 'mvn-jvm-config', label: '.mvn/jvm.config — flags JVM do Maven', status: 'fail',
+      detail: `Flags removidas no JDK 21 encontradas em .mvn/jvm.config: ${bad.join(', ')}`,
+      files: ['.mvn/jvm.config'],
+      action: 'Remova as flags listadas. Consulte JEP 380/396 para substituições.' }
+  }
+  if (/--add-opens|--add-exports/.test(content)) {
+    return { id: 'mvn-jvm-config', label: '.mvn/jvm.config — flags JVM do Maven', status: 'warning',
+      detail: '.mvn/jvm.config contém --add-opens/--add-exports — indica dependência de módulos internos do JDK.',
+      files: ['.mvn/jvm.config'],
+      action: 'Avalie se estas flags ainda são necessárias em JDK 21.' }
+  }
+  return { id: 'mvn-jvm-config', label: '.mvn/jvm.config — flags JVM do Maven', status: 'ok',
+    detail: `.mvn/jvm.config presente sem flags incompatíveis com JDK 21.`, files: ['.mvn/jvm.config'] }
+}
+
+// ─── C10 — risco de serialização ─────────────────────────────────────────────
+
+function checkSerializationRisk(projectPath: string): AuditCriterion {
+  const srcDir = join(projectPath, 'src', 'main', 'java')
+  if (!existsSync(srcDir)) {
+    return { id: 'serialization-risk', label: 'Serializable sem serialVersionUID explícito', status: 'warning',
+      detail: 'src/main/java não encontrado.' }
+  }
+  const implementsSerializable = /implements\s+(?:[\w,\s]*\s+)?Serializable\b/
+  const hasSerialVersionUID = /static\s+final\s+long\s+serialVersionUID\s*=/
+
+  const risky: string[] = []
+  const javaFiles = findJavaFiles(srcDir)
+  for (const f of javaFiles) {
+    const content = readSafe(f)
+    if (!content) continue
+    if (implementsSerializable.test(content) && !hasSerialVersionUID.test(content)) {
+      risky.push(relPath(projectPath, f))
+      if (risky.length >= 10) break
+    }
+  }
+  if (risky.length === 0) {
+    return { id: 'serialization-risk', label: 'Serializable sem serialVersionUID explícito', status: 'ok',
+      detail: 'Todas as classes Serializable têm serialVersionUID declarado explicitamente.' }
+  }
+  return { id: 'serialization-risk', label: 'Serializable sem serialVersionUID explícito', status: 'warning',
+    detail: `${risky.length} classe(s) Serializable sem serialVersionUID: ${risky.slice(0, 3).join(', ')}${risky.length > 3 ? ' …' : ''}. Recompilar com JDK diferente pode gerar UID diferente, quebrando desserialização de dados persistidos.`,
+    files: risky.slice(0, 5),
+    action: 'Adicione `private static final long serialVersionUID = 1L;` em cada classe Serializable.' }
+}
+
+// ─── C11 — uso de javax.script.* ─────────────────────────────────────────────
+
+function checkJavaxScriptUsage(projectPath: string): AuditCriterion {
+  const srcDir = join(projectPath, 'src', 'main', 'java')
+  if (!existsSync(srcDir)) {
+    return { id: 'javax-script', label: 'Uso de javax.script.* (ScriptEngine)', status: 'warning',
+      detail: 'src/main/java não encontrado.' }
+  }
+  const patterns = [
+    /import\s+javax\.script\./,
+    /ScriptEngineManager\s*\(/,
+    /ScriptEngine\b/,
+  ]
+  const found: { file: string; line: number }[] = []
+  for (const f of findJavaFiles(srcDir)) {
+    const content = readSafe(f)
+    if (!content) continue
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (patterns.some(p => p.test(lines[i]))) {
+        found.push({ file: relPath(projectPath, f), line: i + 1 })
+        if (found.length >= 5) break
+      }
+    }
+    if (found.length >= 5) break
+  }
+  if (found.length === 0) {
+    return { id: 'javax-script', label: 'Uso de javax.script.* (ScriptEngine)', status: 'ok',
+      detail: 'Nenhum uso de javax.script.ScriptEngine detectado.' }
+  }
+  return { id: 'javax-script', label: 'Uso de javax.script.* (ScriptEngine)', status: 'warning',
+    detail: `${found.length} uso(s) de ScriptEngine: ${found.slice(0, 3).map(f => `${f.file}:${f.line}`).join(', ')}. Nashorn e Rhino foram removidos — apenas GraalVM JS e engines externas funcionam em JDK 21.`,
+    files: [...new Set(found.map(f => f.file))].slice(0, 5),
+    action: 'Verifique qual engine é usada em runtime. Se for Nashorn/Rhino, adicione nashorn-core ou GraalVM JS.' }
+}
+
+// ─── C12 — uso de finalize no JDK APIs (Object.finalize via reflexão) ────────
+// Bônus: verifica também Object.finalize() chamado via reflexão
+
+function checkReflectiveInternalAccess(projectPath: string): AuditCriterion {
+  const srcDir = join(projectPath, 'src', 'main', 'java')
+  if (!existsSync(srcDir)) {
+    return { id: 'reflective-internal', label: 'Acesso reflexivo a APIs internas do JDK', status: 'warning',
+      detail: 'src/main/java não encontrado.' }
+  }
+  const patterns = [
+    /Class\.forName\s*\(\s*["']sun\./,
+    /Class\.forName\s*\(\s*["']com\.sun\./,
+    /getDeclaredField\s*\(\s*["'][a-z]/,   // acesso a campos privados
+    /setAccessible\s*\(\s*true\s*\)/,
+  ]
+  const found: { file: string; line: number; text: string }[] = []
+  for (const f of findJavaFiles(srcDir)) {
+    const content = readSafe(f)
+    if (!content) continue
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      // setAccessible(true) é comum — só conta se há context de acesso a internos
+      if (patterns[3].test(lines[i])) {
+        const context = lines.slice(Math.max(0, i - 5), i + 1).join(' ')
+        if (!/(sun|com\.sun|internal)/.test(context)) continue
+      }
+      if (patterns.some(p => p.test(lines[i]))) {
+        found.push({ file: relPath(projectPath, f), line: i + 1, text: lines[i].trim().slice(0, 80) })
+        if (found.length >= 5) break
+      }
+    }
+    if (found.length >= 5) break
+  }
+  if (found.length === 0) {
+    return { id: 'reflective-internal', label: 'Acesso reflexivo a APIs internas do JDK', status: 'ok',
+      detail: 'Nenhum acesso reflexivo suspeito a APIs internas detectado.' }
+  }
+  return { id: 'reflective-internal', label: 'Acesso reflexivo a APIs internas do JDK', status: 'warning',
+    detail: `${found.length} padrão(ões) de acesso reflexivo a internos: ${found.slice(0, 2).map(f => `${f.file}:${f.line}`).join(', ')}. O módulo system do JDK 9+ bloqueia esses acessos sem --add-opens.`,
+    files: [...new Set(found.map(f => f.file))].slice(0, 5),
+    action: 'Revise os acessos reflexivos. Se necessários, adicione --add-opens ou substitua pela API pública.' }
 }
 
 // ─── entry point público ───────────────────────────────────────────────────────
@@ -598,6 +937,7 @@ export async function runMigrationAudit(
   targetJdk: string = '21',
 ): Promise<MigrationAuditResult> {
   const criteria: AuditCriterion[] = await Promise.all([
+    // Critérios A1–A8 (originais)
     Promise.resolve(checkCompilerVersion(projectPath, targetJdk)),
     Promise.resolve(checkJavaxImports(projectPath)),
     Promise.resolve(checkSpringBootVersion(projectPath)),
@@ -606,6 +946,19 @@ export async function runMigrationAudit(
     Promise.resolve(checkRuntimeEvidence(projectPath)),
     Promise.resolve(checkObsoleteProperties(projectPath)),
     Promise.resolve(checkOutputBytecode(projectPath, targetJdk)),
+    // Critérios C1–C12 (novos)
+    Promise.resolve(checkActualBytecodeVersion(projectPath, targetJdk)),
+    Promise.resolve(checkSunInternalImports(projectPath)),
+    Promise.resolve(checkSecurityManagerUsage(projectPath)),
+    Promise.resolve(checkRemovedJvmFlags(projectPath)),
+    Promise.resolve(checkNashornUsage(projectPath)),
+    Promise.resolve(checkAddOpensPresence(projectPath)),
+    Promise.resolve(checkAnnotationProcessorVersions(projectPath)),
+    Promise.resolve(checkFinalizeOverrides(projectPath)),
+    Promise.resolve(checkMvnJvmConfig(projectPath)),
+    Promise.resolve(checkSerializationRisk(projectPath)),
+    Promise.resolve(checkJavaxScriptUsage(projectPath)),
+    Promise.resolve(checkReflectiveInternalAccess(projectPath)),
   ])
 
   const summary = {
@@ -620,5 +973,6 @@ export async function runMigrationAudit(
     criteria,
     summary,
     hasBlockers: summary.fail > 0,
+    allOk: summary.ok === criteria.length,  // true só se TODOS forem ✅
   }
 }
