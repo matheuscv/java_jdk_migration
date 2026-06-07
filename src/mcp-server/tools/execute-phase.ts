@@ -16,6 +16,7 @@ import {
 import { runBuild, runTests } from '../../orchestrator/build-validator.js'
 import { executePhaseTransform } from '../../transform-engine/index.js'
 import { generateAuditReportSilent } from '../../report-generator/index.js'
+import { runMigrationAudit } from '../../static-analysis/migration-audit.js'
 import type { PhaseNumber } from '../../types.js'
 
 export function registerExecutePhase(server: McpServer): void {
@@ -252,8 +253,16 @@ async function _executePhaseUnlocked(
   })
   writeConfig(projectPath, config)
 
-  // ── 13a. Relatório automático de auditoria ────────────────────────────────
-  const autoReportPath = await generateAuditReportSilent(projectPath)
+  // ── 13a. Auditoria final de migração (apenas fase 5) ─────────────────────
+  let migrationAudit = null
+  if (phase === 5) {
+    try {
+      migrationAudit = await runMigrationAudit(projectPath, config.targetJdk ?? '21')
+    } catch { /* não bloqueia a fase */ }
+  }
+
+  // ── 13b. Relatório automático de auditoria ────────────────────────────────
+  const autoReportPath = await generateAuditReportSilent(projectPath, migrationAudit ?? undefined)
 
   // ── 14. PR (opcional — não falha se gh ausente) ───────────────────────────
   const prUrl = await createPullRequest(
@@ -279,6 +288,9 @@ async function _executePhaseUnlocked(
     testsPassed: testResult.testsPassed,
     diffSummary: transformResult.diffSummary,
     auditReport: autoReportPath ?? null,
-    nextStep: `Execute approve_gate(projectPath, ${phase}, "<seu nome>") para liberar a Fase ${phase + 1}.`,
+    ...(migrationAudit ? { migrationAudit } : {}),
+    nextStep: phase === 5
+      ? `Revise o campo migrationAudit acima. Quando satisfeito, execute approve_gate(projectPath, 5, "<seu nome>") para concluir a migração.`
+      : `Execute approve_gate(projectPath, ${phase}, "<seu nome>") para liberar a Fase ${phase + 1}.`,
   }
 }

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, mkdirSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path'
 import { MigrationError } from '../lib/errors.js'
 import { runProcess } from '../lib/process-runner.js'
+import type { MigrationAuditResult } from '../static-analysis/migration-audit.js'
 
 export interface AuditReportResult {
   reportPath: string
@@ -15,9 +16,12 @@ export interface AuditReportResult {
  * Versão silenciosa — não lança exceção. Usada para geração automática ao fim de cada fase.
  * Retorna o caminho do relatório gerado ou null em caso de falha.
  */
-export async function generateAuditReportSilent(projectPath: string): Promise<string | null> {
+export async function generateAuditReportSilent(
+  projectPath: string,
+  migrationAudit?: MigrationAuditResult,
+): Promise<string | null> {
   try {
-    const result = await generateAuditReport(projectPath)
+    const result = await generateAuditReport(projectPath, migrationAudit)
     return result.reportPath
   } catch {
     return null
@@ -30,9 +34,12 @@ export async function generateAuditReportSilent(projectPath: string): Promise<st
  * audit-report-final.html — artefato fixo que marca a conclusão total da migração.
  * Não lança exceção.
  */
-export async function generateFinalReport(projectPath: string): Promise<{ timestamped: string | null; final: string | null }> {
+export async function generateFinalReport(
+  projectPath: string,
+  migrationAudit?: MigrationAuditResult,
+): Promise<{ timestamped: string | null; final: string | null }> {
   try {
-    const result = await generateAuditReport(projectPath)
+    const result = await generateAuditReport(projectPath, migrationAudit)
     const finalPath = join(result.reportPath.replace(/audit-report-.+\.html$/, ''), 'audit-report-final.html')
     // Copia o HTML já gerado para o nome fixo
     const html = readFileSync(result.reportPath, 'utf-8')
@@ -43,7 +50,10 @@ export async function generateFinalReport(projectPath: string): Promise<{ timest
   }
 }
 
-export async function generateAuditReport(projectPath: string): Promise<AuditReportResult> {
+export async function generateAuditReport(
+  projectPath: string,
+  migrationAudit?: MigrationAuditResult,
+): Promise<AuditReportResult> {
   const migrationDir = join(projectPath, '.jdk-migration')
   const planPath = join(migrationDir, 'migration-plan.json')
   const discoveryPath = join(migrationDir, 'discovery-report.json')
@@ -97,7 +107,7 @@ export async function generateAuditReport(projectPath: string): Promise<AuditRep
   // Mescla: steps manuais têm prioridade; git-derived preenchem o que sobrou
   const steps = mergeSteps(manualSteps, gitDerivedSteps)
 
-  const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps })
+  const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps, migrationAudit })
   writeFileSync(reportPath, html, 'utf-8')
 
   const phase5St = config?.phases?.[5]?.status ?? config?.phases?.['5']?.status ?? 'pending'
@@ -401,10 +411,11 @@ interface BuildContext {
   now: Date
   projectPath: string
   steps: any[]
+  migrationAudit?: MigrationAuditResult
 }
 
 function buildHtml(ctx: BuildContext): string {
-  const { plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps } = ctx
+  const { plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps, migrationAudit } = ctx
   const sourceJdk = config?.sourceJdk ?? discovery?.sourceJdk ?? '?'
   const stacks: string[] = config?.stack ?? discovery?.detectedStacks ?? []
   const buildSystem: string = config?.buildSystem ?? discovery?.buildSystem ?? '?'
@@ -529,6 +540,26 @@ function buildHtml(ctx: BuildContext): string {
     .cci-file-type { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 6px;border-radius:3px;background:#f1f5f9;color:#475569; }
     .cci-code { font-family:monospace;font-size:11px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:3px;padding:2px 6px;color:#334155;word-break:break-all; }
     .human-flag { font-size:11px;color:#b45309;font-weight:600; }
+    /* ── Migration Audit ── */
+    section.audit-section { border-left: 4px solid #7c3aed; }
+    section.audit-section h2 { color: #6d28d9; border-color: #ddd6fe; }
+    section.audit-ok    { border-left: 4px solid #16a34a; }
+    section.audit-ok h2 { color: #15803d; border-color: #bbf7d0; }
+    .audit-criterion { display:flex; align-items:flex-start; gap:12px; padding:10px 0; border-bottom:1px solid #f1f5f9; }
+    .audit-criterion:last-child { border-bottom:none; }
+    .audit-icon { font-size:18px; flex-shrink:0; width:24px; text-align:center; margin-top:1px; }
+    .audit-body { flex:1; }
+    .audit-label { font-size:13px; font-weight:600; color:#1e293b; margin-bottom:2px; }
+    .audit-detail { font-size:12px; color:#475569; line-height:1.5; }
+    .audit-action { font-size:12px; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:4px; padding:4px 8px; margin-top:6px; }
+    .audit-files { font-family:monospace; font-size:11px; color:#64748b; margin-top:4px; }
+    .audit-summary-bar { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+    .audit-pill { display:inline-flex; align-items:center; gap:5px; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:600; }
+    .audit-pill-ok      { background:#f0fdf4; color:#15803d; border:1px solid #86efac; }
+    .audit-pill-warning { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
+    .audit-pill-fail    { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; }
+    .audit-blocker-banner { background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:13px; color:#991b1b; font-weight:600; }
+    .audit-clean-banner   { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:13px; color:#15803d; font-weight:600; }
   </style>
 </head>
 <body>
@@ -553,6 +584,7 @@ function buildHtml(ctx: BuildContext): string {
   ${buildStepProgress(ctx)}
   ${buildManualItems(allManualItems)}
   ${buildExecutionPlan(allRiskItems, allManualItems)}
+  ${migrationAudit ? buildMigrationAuditSection(migrationAudit) : ''}
   ${buildAuditTrail(ctx)}
 
   <footer>
@@ -1269,6 +1301,53 @@ function buildStepProgress(ctx: BuildContext): string {
       </thead>
       <tbody>${rows}</tbody>
     </table>
+  </section>`
+}
+
+function buildMigrationAuditSection(audit: MigrationAuditResult): string {
+  const { criteria, summary, hasBlockers, generatedAt, targetJdk } = audit
+  const sectionClass = hasBlockers ? 'audit-section' : 'audit-ok'
+
+  const iconMap: Record<string, string> = { ok: '✅', warning: '⚠️', fail: '❌' }
+
+  const banner = hasBlockers
+    ? `<div class="audit-blocker-banner">⚠️ ${summary.fail} critério(s) com problema identificado — revise antes de aprovar o gate final.</div>`
+    : `<div class="audit-clean-banner">✅ Nenhum bloqueador identificado — migração para JDK ${escHtml(targetJdk)} aprovada pela auditoria estática.</div>`
+
+  const pillsHtml = `
+    <div class="audit-summary-bar">
+      <span class="audit-pill audit-pill-ok">✅ ${summary.ok} OK</span>
+      <span class="audit-pill audit-pill-warning">⚠️ ${summary.warning} Atenção</span>
+      <span class="audit-pill audit-pill-fail">❌ ${summary.fail} Falha</span>
+      <span style="font-size:11px;color:#94a3b8;margin-left:auto;align-self:center;">Gerado em ${escHtml(new Date(generatedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }))}</span>
+    </div>`
+
+  const criteriaHtml = criteria.map(c => {
+    const icon = iconMap[c.status] ?? '—'
+    const filesHtml = c.files && c.files.length > 0
+      ? `<div class="audit-files">${c.files.map(f => `<code>${escHtml(f)}</code>`).join(' &nbsp;')}</div>`
+      : ''
+    const actionHtml = c.action
+      ? `<div class="audit-action">💡 ${escHtml(c.action)}</div>`
+      : ''
+    return `
+    <div class="audit-criterion">
+      <div class="audit-icon">${icon}</div>
+      <div class="audit-body">
+        <div class="audit-label">${escHtml(c.label)}</div>
+        <div class="audit-detail">${escHtml(c.detail)}</div>
+        ${filesHtml}
+        ${actionHtml}
+      </div>
+    </div>`
+  }).join('')
+
+  return `
+  <section class="${sectionClass}">
+    <h2>🔍 Auditoria de Migração JDK ${escHtml(targetJdk)}</h2>
+    ${pillsHtml}
+    ${banner}
+    ${criteriaHtml}
   </section>`
 }
 
