@@ -1,16 +1,23 @@
 /**
- * Auditoria final de migração JDK — 20 critérios.
+ * Auditoria final de migração JDK — 25 critérios.
  *
  * Classifica cada critério em:
  *   ✅ ok       — evidência positiva confirmada
  *   ⚠️  warning  — suspeito ou não verificável estaticamente
  *   ❌ fail     — problema encontrado com evidência clara
  *
- * allOk: true  → todos os 20 critérios ok  → banner verde AUDITORIA APROVADA
+ * allOk: true  → todos os 25 critérios ok  → banner verde AUDITORIA APROVADA
  * allOk: false → qualquer warning ou fail  → banner vermelho ISSUES DETECTADOS
  *
  * Executado ao final do execute_phase(5), antes do usuário aprovar o gate.
  * Não lança exceção — retorna MigrationAuditResult em qualquer cenário.
+ *
+ * Grupos de critérios:
+ *   A1–A8   — critérios originais (build, javax, Spring Boot, CI, runtime, artefatos)
+ *   C1–C12  — critérios avançados (bytecode real, internos JDK, flags, processadores)
+ *   D1–D3   — critérios de fechamento (APIs removidas JDK17-21, bytecode-manipulation libs, plugins Maven)
+ *
+ * Cobertura de fontes: src/main/java + src/test/java (todos os critérios que varrem .java)
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
@@ -71,8 +78,22 @@ function findFiles(dir: string, match: (name: string) => boolean, maxDepth = 4):
   return results
 }
 
+/** Retorna .java de um único diretório (recursivo). */
 function findJavaFiles(dir: string): string[] {
   return findFiles(dir, n => n.endsWith('.java'))
+}
+
+/**
+ * Retorna .java varrendo src/main/java + src/test/java do projeto.
+ * Usado nos critérios que precisam de cobertura total (main + testes).
+ */
+function findAllJavaFiles(projectPath: string): string[] {
+  const mainDir = join(projectPath, 'src', 'main', 'java')
+  const testDir = join(projectPath, 'src', 'test', 'java')
+  return [
+    ...(existsSync(mainDir) ? findJavaFiles(mainDir) : []),
+    ...(existsSync(testDir) ? findJavaFiles(testDir) : []),
+  ]
 }
 
 function relPath(projectPath: string, abs: string): string {
@@ -220,17 +241,17 @@ function checkCompilerVersion(projectPath: string, targetJdk: string): AuditCrit
 // ─── A2 — imports javax.* (EE APIs) ──────────────────────────────────────────
 
 function checkJavaxImports(projectPath: string): AuditCriterion {
-  const srcDir = join(projectPath, 'src', 'main', 'java')
-  if (!existsSync(srcDir)) {
+  const allFiles = findAllJavaFiles(projectPath)
+  if (allFiles.length === 0) {
     return { id: 'javax-imports', label: 'Imports javax.* (EE APIs) remanescentes', status: 'warning',
-      detail: 'Diretório src/main/java não encontrado.' }
+      detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
   const javaxEePatterns = ['javax.persistence.', 'javax.servlet.', 'javax.validation.',
     'javax.ws.rs.', 'javax.ejb.', 'javax.inject.', 'javax.transaction.',
     'javax.faces.', 'javax.xml.bind.', 'javax.annotation.', 'javax.enterprise.',
     'javax.interceptor.']
   const found: { file: string; line: number }[] = []
-  for (const f of findJavaFiles(srcDir)) {
+  for (const f of allFiles) {
     const content = readSafe(f)
     if (!content) continue
     const lines = content.split('\n')
@@ -510,15 +531,15 @@ function checkActualBytecodeVersion(projectPath: string, targetJdk: string): Aud
 // ─── C2 — imports sun.* / com.sun.* internos ─────────────────────────────────
 
 function checkSunInternalImports(projectPath: string): AuditCriterion {
-  const srcDir = join(projectPath, 'src', 'main', 'java')
-  if (!existsSync(srcDir)) {
+  const allFiles = findAllJavaFiles(projectPath)
+  if (allFiles.length === 0) {
     return { id: 'sun-internal-imports', label: 'Imports de API interna sun.* / com.sun.*', status: 'warning',
-      detail: 'src/main/java não encontrado.' }
+      detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
   // Exclusões legítimas: com.sun.mail (Jakarta Mail), com.sun.xml.bind (JAXB RI)
   const ALLOWED_PREFIXES = ['com.sun.mail.', 'com.sun.xml.bind.', 'com.sun.xml.messaging.']
   const found: { file: string; line: number; text: string }[] = []
-  for (const f of findJavaFiles(srcDir)) {
+  for (const f of allFiles) {
     const content = readSafe(f)
     if (!content) continue
     const lines = content.split('\n')
@@ -544,10 +565,10 @@ function checkSunInternalImports(projectPath: string): AuditCriterion {
 // ─── C3 — uso de SecurityManager ─────────────────────────────────────────────
 
 function checkSecurityManagerUsage(projectPath: string): AuditCriterion {
-  const srcDir = join(projectPath, 'src', 'main', 'java')
-  if (!existsSync(srcDir)) {
+  const allFiles = findAllJavaFiles(projectPath)
+  if (allFiles.length === 0) {
     return { id: 'security-manager', label: 'Uso de SecurityManager (removido JDK 17+)', status: 'warning',
-      detail: 'src/main/java não encontrado.' }
+      detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
   const patterns = [
     /System\.setSecurityManager\s*\(/,
@@ -556,7 +577,7 @@ function checkSecurityManagerUsage(projectPath: string): AuditCriterion {
     /SecurityManager\s+\w+\s*=/,
   ]
   const found: { file: string; line: number }[] = []
-  for (const f of findJavaFiles(srcDir)) {
+  for (const f of allFiles) {
     const content = readSafe(f)
     if (!content) continue
     const lines = content.split('\n')
@@ -625,10 +646,10 @@ function checkRemovedJvmFlags(projectPath: string): AuditCriterion {
 // ─── C5 — uso de Nashorn ─────────────────────────────────────────────────────
 
 function checkNashornUsage(projectPath: string): AuditCriterion {
-  const srcDir = join(projectPath, 'src', 'main', 'java')
-  if (!existsSync(srcDir)) {
+  const allFiles = findAllJavaFiles(projectPath)
+  if (allFiles.length === 0) {
     return { id: 'nashorn', label: 'Uso de Nashorn / engine JavaScript (removido JDK 15)', status: 'warning',
-      detail: 'src/main/java não encontrado.' }
+      detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
   const patterns = [
     /getEngineByName\s*\(\s*["']nashorn["']\s*\)/,
@@ -638,7 +659,7 @@ function checkNashornUsage(projectPath: string): AuditCriterion {
     /import\s+sun\.org\.mozilla\.javascript\./,
   ]
   const found: { file: string; line: number }[] = []
-  for (const f of findJavaFiles(srcDir)) {
+  for (const f of allFiles) {
     const content = readSafe(f)
     if (!content) continue
     const lines = content.split('\n')
@@ -758,14 +779,14 @@ function checkAnnotationProcessorVersions(projectPath: string): AuditCriterion {
 // ─── C8 — finalize() overrides ───────────────────────────────────────────────
 
 function checkFinalizeOverrides(projectPath: string): AuditCriterion {
-  const srcDir = join(projectPath, 'src', 'main', 'java')
-  if (!existsSync(srcDir)) {
+  const allFiles = findAllJavaFiles(projectPath)
+  if (allFiles.length === 0) {
     return { id: 'finalize-override', label: 'Overrides de finalize() (deprecado para remoção)', status: 'warning',
-      detail: 'src/main/java não encontrado.' }
+      detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
   const pattern = /(?:protected|public)\s+void\s+finalize\s*\(\s*\)/
   const found: { file: string; line: number }[] = []
-  for (const f of findJavaFiles(srcDir)) {
+  for (const f of allFiles) {
     const content = readSafe(f)
     if (!content) continue
     const lines = content.split('\n')
@@ -823,17 +844,16 @@ function checkMvnJvmConfig(projectPath: string): AuditCriterion {
 // ─── C10 — risco de serialização ─────────────────────────────────────────────
 
 function checkSerializationRisk(projectPath: string): AuditCriterion {
-  const srcDir = join(projectPath, 'src', 'main', 'java')
-  if (!existsSync(srcDir)) {
+  const allFiles = findAllJavaFiles(projectPath)
+  if (allFiles.length === 0) {
     return { id: 'serialization-risk', label: 'Serializable sem serialVersionUID explícito', status: 'warning',
-      detail: 'src/main/java não encontrado.' }
+      detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
   const implementsSerializable = /implements\s+(?:[\w,\s]*\s+)?Serializable\b/
   const hasSerialVersionUID = /static\s+final\s+long\s+serialVersionUID\s*=/
 
   const risky: string[] = []
-  const javaFiles = findJavaFiles(srcDir)
-  for (const f of javaFiles) {
+  for (const f of allFiles) {
     const content = readSafe(f)
     if (!content) continue
     if (implementsSerializable.test(content) && !hasSerialVersionUID.test(content)) {
@@ -854,10 +874,10 @@ function checkSerializationRisk(projectPath: string): AuditCriterion {
 // ─── C11 — uso de javax.script.* ─────────────────────────────────────────────
 
 function checkJavaxScriptUsage(projectPath: string): AuditCriterion {
-  const srcDir = join(projectPath, 'src', 'main', 'java')
-  if (!existsSync(srcDir)) {
+  const allFiles = findAllJavaFiles(projectPath)
+  if (allFiles.length === 0) {
     return { id: 'javax-script', label: 'Uso de javax.script.* (ScriptEngine)', status: 'warning',
-      detail: 'src/main/java não encontrado.' }
+      detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
   const patterns = [
     /import\s+javax\.script\./,
@@ -865,7 +885,7 @@ function checkJavaxScriptUsage(projectPath: string): AuditCriterion {
     /ScriptEngine\b/,
   ]
   const found: { file: string; line: number }[] = []
-  for (const f of findJavaFiles(srcDir)) {
+  for (const f of allFiles) {
     const content = readSafe(f)
     if (!content) continue
     const lines = content.split('\n')
@@ -891,10 +911,10 @@ function checkJavaxScriptUsage(projectPath: string): AuditCriterion {
 // Bônus: verifica também Object.finalize() chamado via reflexão
 
 function checkReflectiveInternalAccess(projectPath: string): AuditCriterion {
-  const srcDir = join(projectPath, 'src', 'main', 'java')
-  if (!existsSync(srcDir)) {
+  const allFiles = findAllJavaFiles(projectPath)
+  if (allFiles.length === 0) {
     return { id: 'reflective-internal', label: 'Acesso reflexivo a APIs internas do JDK', status: 'warning',
-      detail: 'src/main/java não encontrado.' }
+      detail: 'Nenhum arquivo .java encontrado em src/main/java ou src/test/java.' }
   }
   const patterns = [
     /Class\.forName\s*\(\s*["']sun\./,
@@ -903,7 +923,7 @@ function checkReflectiveInternalAccess(projectPath: string): AuditCriterion {
     /setAccessible\s*\(\s*true\s*\)/,
   ]
   const found: { file: string; line: number; text: string }[] = []
-  for (const f of findJavaFiles(srcDir)) {
+  for (const f of allFiles) {
     const content = readSafe(f)
     if (!content) continue
     const lines = content.split('\n')
@@ -930,6 +950,268 @@ function checkReflectiveInternalAccess(projectPath: string): AuditCriterion {
     action: 'Revise os acessos reflexivos. Se necessários, adicione --add-opens ou substitua pela API pública.' }
 }
 
+// ─── D1 — APIs removidas no JDK 17–21 ────────────────────────────────────────
+// Thread.stop/destroy/countStackFrames (JDK 21), Applet API (JDK 17), RMI Activation (JDK 17),
+// java.endorsed.dirs / java.ext.dirs (JDK 9)
+
+function checkRemovedApis(projectPath: string): AuditCriterion {
+  const allFiles = findAllJavaFiles(projectPath)
+
+  // Padrões em código-fonte Java
+  const SOURCE_PATTERNS: Array<{ re: RegExp; note: string }> = [
+    { re: /\bthread\.stop\s*\(\s*\)/i,          note: 'Thread.stop() — lança UnsupportedOperationException no JDK 21 (JEP 21)' },
+    { re: /\.stop\s*\(\s*new\s+\w*Error/,        note: 'Thread.stop(Throwable) — removido no JDK 21' },
+    { re: /\.destroy\s*\(\s*\)/,                 note: 'Thread.destroy() — removido no JDK 21' },
+    { re: /\.countStackFrames\s*\(\s*\)/,        note: 'Thread.countStackFrames() — removido no JDK 21' },
+    { re: /import\s+java\.applet\./,             note: 'java.applet.* — API Applet removida no JDK 17 (JEP 398)' },
+    { re: /import\s+java\.rmi\.activation\./,    note: 'java.rmi.activation.* — RMI Activation removido no JDK 17 (JEP 407)' },
+    { re: /import\s+javax\.security\.auth\.Policy/, note: 'javax.security.auth.Policy — removido com SecurityManager (JDK 17)' },
+  ]
+
+  // Padrões em arquivos de configuração / startup
+  const CONFIG_PATTERNS: Array<{ re: RegExp; note: string }> = [
+    { re: /java\.endorsed\.dirs/,  note: 'java.endorsed.dirs — mecanismo removido no JDK 9; silenciosamente ignorado no JDK 21' },
+    { re: /java\.ext\.dirs/,       note: 'java.ext.dirs — mecanismo de extensão removido no JDK 9; silenciosamente ignorado no JDK 21' },
+  ]
+
+  const foundSrc: { file: string; line: number; note: string }[] = []
+  for (const f of allFiles) {
+    const content = readSafe(f)
+    if (!content) continue
+    const lines = content.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      for (const { re, note } of SOURCE_PATTERNS) {
+        if (re.test(lines[i])) {
+          foundSrc.push({ file: relPath(projectPath, f), line: i + 1, note })
+          break
+        }
+      }
+      if (foundSrc.length >= 10) break
+    }
+    if (foundSrc.length >= 10) break
+  }
+
+  // Varredura em scripts e configs
+  const configTargets = [
+    join(projectPath, '.mvn', 'jvm.config'),
+    ...findFiles(projectPath, n => n.endsWith('.sh') || n.endsWith('.bat') || n.endsWith('.cmd') || n.endsWith('.env'), 3),
+    ...findFiles(projectPath, n => /^Dockerfile/.test(n), 3),
+    ...findFiles(projectPath, n => n === 'docker-compose.yml' || n === 'docker-compose.yaml', 3),
+    ...findFiles(projectPath, n => n === 'application.properties' || n === 'application.yml' || n === 'application.yaml', 3),
+  ]
+  const foundConfig: { file: string; note: string }[] = []
+  for (const t of configTargets) {
+    const content = readSafe(t)
+    if (!content) continue
+    for (const { re, note } of CONFIG_PATTERNS) {
+      if (re.test(content)) foundConfig.push({ file: relPath(projectPath, t), note })
+    }
+  }
+
+  if (foundSrc.length === 0 && foundConfig.length === 0) {
+    return { id: 'removed-apis', label: 'APIs removidas no JDK 17–21 (Thread.stop, Applet, RMI Activation)', status: 'ok',
+      detail: 'Nenhum uso de APIs removidas no JDK 17–21 detectado em fontes ou configs.' }
+  }
+
+  const allHits = [
+    ...foundSrc.map(h => `${h.file}:${h.line} — ${h.note}`),
+    ...foundConfig.map(h => `${h.file} — ${h.note}`),
+  ]
+  return { id: 'removed-apis', label: 'APIs removidas no JDK 17–21 (Thread.stop, Applet, RMI Activation)', status: 'fail',
+    detail: `${allHits.length} uso(s) de API removida: ${allHits.slice(0, 3).join('; ')}`,
+    files: [...new Set([...foundSrc.map(h => h.file), ...foundConfig.map(h => h.file)])].slice(0, 5),
+    action: 'Substitua Thread.stop() por interrupt()+isInterrupted(), remova Applet/RMI Activation e elimine java.endorsed.dirs das configs.' }
+}
+
+// ─── D2 — versões de bibliotecas de manipulação de bytecode ──────────────────
+// ASM, cglib, Byte Buddy — versões antigas não conseguem ler/gerar bytecode JDK 21 (major 65)
+
+function checkBytecodeManipulationLibs(projectPath: string): AuditCriterion {
+  const pomContent = readSafe(join(projectPath, 'pom.xml'))
+  if (!pomContent) {
+    return { id: 'bytecode-manip-libs', label: 'Libs de manipulação de bytecode (ASM/cglib/Byte Buddy)', status: 'warning',
+      detail: 'pom.xml não encontrado.' }
+  }
+
+  // Versões mínimas validadas para JDK 21 (major 65)
+  interface LibSpec { artifactId: string; name: string; minMajor: number; minMinor: number; minPatch: number; minDisplay: string }
+  const LIBS: LibSpec[] = [
+    { artifactId: 'asm',           name: 'ASM',        minMajor: 9, minMinor: 0, minPatch: 0, minDisplay: '9.0' },
+    { artifactId: 'asm-commons',   name: 'ASM Commons', minMajor: 9, minMinor: 0, minPatch: 0, minDisplay: '9.0' },
+    { artifactId: 'asm-tree',      name: 'ASM Tree',   minMajor: 9, minMinor: 0, minPatch: 0, minDisplay: '9.0' },
+    { artifactId: 'cglib',         name: 'cglib',      minMajor: 3, minMinor: 3, minPatch: 0, minDisplay: '3.3.0' },
+    { artifactId: 'cglib-nodep',   name: 'cglib-nodep', minMajor: 3, minMinor: 3, minPatch: 0, minDisplay: '3.3.0' },
+    { artifactId: 'byte-buddy',    name: 'Byte Buddy', minMajor: 1, minMinor: 14, minPatch: 0, minDisplay: '1.14.0' },
+    { artifactId: 'byte-buddy-agent', name: 'Byte Buddy Agent', minMajor: 1, minMinor: 14, minPatch: 0, minDisplay: '1.14.0' },
+    { artifactId: 'javassist',     name: 'Javassist',  minMajor: 3, minMinor: 29, minPatch: 0, minDisplay: '3.29.0' },
+  ]
+
+  function versionOk(vStr: string, lib: LibSpec): boolean {
+    const parts = vStr.replace(/[^0-9.]/g, '.').split('.').map(Number)
+    const [maj = 0, min = 0, pat = 0] = parts
+    if (maj > lib.minMajor) return true
+    if (maj < lib.minMajor) return false
+    if (min > lib.minMinor) return true
+    if (min < lib.minMinor) return false
+    return pat >= lib.minPatch
+  }
+
+  const issues: string[] = []
+  const ok: string[] = []
+  for (const lib of LIBS) {
+    const match = pomContent.match(
+      new RegExp(`<artifactId>\\s*${lib.artifactId}\\s*</artifactId>[\\s\\S]{0,200}?<version>\\s*([\\d.]+[^<]*)\\s*</version>`)
+    )
+    if (!match) continue
+    const version = match[1].trim()
+    if (versionOk(version, lib)) {
+      ok.push(`${lib.name} ${version}`)
+    } else {
+      issues.push(`${lib.name} ${version} < ${lib.minDisplay}`)
+    }
+  }
+
+  if (issues.length === 0 && ok.length === 0) {
+    return { id: 'bytecode-manip-libs', label: 'Libs de manipulação de bytecode (ASM/cglib/Byte Buddy)', status: 'ok',
+      detail: 'ASM, cglib, Byte Buddy e Javassist não declarados diretamente no pom.xml — versões são transitivas de frameworks como Spring/Hibernate/Mockito. Se os testes passam com JDK 21, as versões transitivas estão adequadas.' }
+  }
+  if (issues.length === 0) {
+    return { id: 'bytecode-manip-libs', label: 'Libs de manipulação de bytecode (ASM/cglib/Byte Buddy)', status: 'ok',
+      detail: `Todas as libs de bytecode declaradas são compatíveis com JDK 21: ${ok.join(', ')}.`, files: ['pom.xml'] }
+  }
+  return { id: 'bytecode-manip-libs', label: 'Libs de manipulação de bytecode (ASM/cglib/Byte Buddy)', status: 'fail',
+    detail: `Versão(ões) incompatível(is) com bytecode JDK 21 (major 65): ${issues.join('; ')}. Ao criar proxies/mocks em runtime, a JVM pode lançar IllegalArgumentException ou ClassFormatError.`,
+    files: ['pom.xml'],
+    action: `Atualize: ASM → 9.x, cglib → 3.3.0+, Byte Buddy → 1.14+, Javassist → 3.29+. Em projetos Spring Boot 3.x estas dependências já vêm atualizadas via BOM.` }
+}
+
+// ─── D3 — versões de plugins Maven críticos ────────────────────────────────────
+// maven-compiler-plugin e maven-surefire-plugin — versões antigas falham com JDK 21
+
+function checkMavenPluginVersions(projectPath: string): AuditCriterion {
+  const pomContent = readSafe(join(projectPath, 'pom.xml'))
+  if (!pomContent) {
+    return { id: 'maven-plugin-versions', label: 'Versões de plugins Maven (compiler/surefire)', status: 'warning',
+      detail: 'pom.xml não encontrado.' }
+  }
+
+  // maven-compiler-plugin < 3.6.0 não suporta --release; < 3.11 tem issues com JDK 21
+  // maven-surefire-plugin < 2.22.0 não suporta JUnit 5 / JDK 9+ módulos corretamente
+  // maven-failsafe-plugin — mesmo threshold que surefire
+  interface PluginSpec { artifactId: string; name: string; minDisplay: string; compare: (v: string) => boolean }
+  const PLUGINS: PluginSpec[] = [
+    { artifactId: 'maven-compiler-plugin', name: 'maven-compiler-plugin', minDisplay: '3.11.0',
+      compare: v => {
+        const p = v.split('.').map(Number)
+        if ((p[0] ?? 0) > 3) return true
+        if ((p[0] ?? 0) < 3) return false
+        return (p[1] ?? 0) >= 11
+      } },
+    { artifactId: 'maven-surefire-plugin', name: 'maven-surefire-plugin', minDisplay: '2.22.0',
+      compare: v => {
+        const p = v.split('.').map(Number)
+        if ((p[0] ?? 0) > 2) return true
+        if ((p[0] ?? 0) < 2) return false
+        if ((p[1] ?? 0) > 22) return true
+        if ((p[1] ?? 0) < 22) return false
+        return (p[2] ?? 0) >= 0
+      } },
+    { artifactId: 'maven-failsafe-plugin', name: 'maven-failsafe-plugin', minDisplay: '2.22.0',
+      compare: v => {
+        const p = v.split('.').map(Number)
+        if ((p[0] ?? 0) > 2) return true
+        if ((p[0] ?? 0) < 2) return false
+        return (p[1] ?? 0) >= 22
+      } },
+  ]
+
+  // Maven Wrapper
+  const wrapperPath = join(projectPath, '.mvn', 'wrapper', 'maven-wrapper.properties')
+  const wrapperContent = readSafe(wrapperPath)
+  const wrapperVersion = wrapperContent?.match(/distributionUrl[\s\S]*?apache-maven-([\d.]+)-/)?.[1]
+
+  const issues: string[] = []
+  const ok: string[] = []
+
+  for (const plugin of PLUGINS) {
+    // Busca dentro de <build><plugins> — aceita com ou sem groupId declarado
+    const match = pomContent.match(
+      new RegExp(`<artifactId>\\s*${plugin.artifactId}\\s*</artifactId>[\\s\\S]{0,300}?<version>\\s*([\\d.]+[^<]*)\\s*</version>`)
+    )
+    if (!match) continue  // não declarado explicitamente → usa versão default do Maven (aceitável com BOM)
+    const version = match[1].trim()
+    if (plugin.compare(version)) {
+      ok.push(`${plugin.name} ${version}`)
+    } else {
+      issues.push(`${plugin.name} ${version} (mínimo: ${plugin.minDisplay})`)
+    }
+  }
+
+  // Verifica Maven Wrapper < 3.2
+  let wrapperIssue: string | null = null
+  if (wrapperVersion) {
+    const p = wrapperVersion.split('.').map(Number)
+    const tooOld = (p[0] ?? 0) < 3 || ((p[0] ?? 0) === 3 && (p[1] ?? 0) < 2)
+    if (tooOld) wrapperIssue = `Maven Wrapper ${wrapperVersion} (recomendado 3.2+)`
+    else ok.push(`Maven Wrapper ${wrapperVersion}`)
+  }
+
+  if (issues.length === 0 && !wrapperIssue && ok.length === 0) {
+    return { id: 'maven-plugin-versions', label: 'Versões de plugins Maven (compiler/surefire/wrapper)', status: 'ok',
+      detail: 'maven-compiler-plugin e maven-surefire-plugin não declarados explicitamente — versão gerenciada pelo parent BOM do Spring Boot 3.x ou Maven default.' }
+  }
+  if (issues.length === 0 && !wrapperIssue) {
+    return { id: 'maven-plugin-versions', label: 'Versões de plugins Maven (compiler/surefire/wrapper)', status: 'ok',
+      detail: `Plugins Maven declarados são compatíveis com JDK 21: ${ok.join(', ')}.`, files: ['pom.xml'] }
+  }
+
+  const allIssues = [...issues, ...(wrapperIssue ? [wrapperIssue] : [])]
+  return { id: 'maven-plugin-versions', label: 'Versões de plugins Maven (compiler/surefire/wrapper)', status: 'fail',
+    detail: `Plugin(s) incompatível(is) com JDK 21: ${allIssues.join('; ')}.`,
+    files: ['pom.xml', ...(wrapperIssue ? ['.mvn/wrapper/maven-wrapper.properties'] : [])],
+    action: 'Atualize: maven-compiler-plugin → 3.11.0+, maven-surefire-plugin → 2.22.0+, Maven Wrapper → 3.2+.' }
+}
+
+// ─── D4 — Maven profiles com ativação automática por versão de JDK ──────────
+
+function checkMavenJdkProfiles(projectPath: string): AuditCriterion {
+  const pomFiles = findFiles(projectPath, n => n === 'pom.xml', 4)
+  if (pomFiles.length === 0) {
+    return { id: 'maven-jdk-profiles', label: 'Maven profiles com override de JDK', status: 'warning',
+      detail: 'Nenhum pom.xml encontrado.' }
+  }
+
+  // Detecta profiles que ativam por JDK (<jdk>1.8</jdk>) e sobrescrevem propriedades de compilador
+  const PROFILE_JDK_RE = /<profile>[\s\S]*?<activation>[\s\S]*?<jdk>([\s\S]*?)<\/jdk>[\s\S]*?<\/activation>([\s\S]*?)<\/profile>/g
+  const COMPILER_PROP_RE = /maven\.compiler\.(source|target|release)|java\.version\s*>/
+
+  const suspects: Array<{ file: string; jdk: string }> = []
+  for (const pomFile of pomFiles) {
+    const content = readSafe(pomFile)
+    if (!content) continue
+    const rel = relPath(projectPath, pomFile)
+    let m: RegExpExecArray | null
+    // eslint-disable-next-line no-cond-assign
+    while ((m = PROFILE_JDK_RE.exec(content)) !== null) {
+      const jdkActivation = m[1].trim()
+      const profileBody = m[2]
+      if (COMPILER_PROP_RE.test(profileBody)) {
+        suspects.push({ file: rel, jdk: jdkActivation })
+      }
+    }
+  }
+
+  if (suspects.length === 0) {
+    return { id: 'maven-jdk-profiles', label: 'Maven profiles com override de JDK', status: 'ok',
+      detail: 'Nenhum profile com ativação automática por versão de JDK e override de compilador detectado.' }
+  }
+
+  return { id: 'maven-jdk-profiles', label: 'Maven profiles com override de JDK', status: 'warning',
+    detail: `${suspects.length} profile(s) com ativação automática por JDK e override de propriedades de compilador: ${suspects.map(s => `${s.file} (ativa quando JDK=${s.jdk})`).join('; ')}. Se estes profiles ativarem em CI/CD, podem sobrescrever a versão de compilador definida para JDK 21.`,
+    files: suspects.map(s => s.file).slice(0, 5),
+    action: 'Revise os profiles listados. Desative ou remova profiles de JDK antigo que sobreponham maven.compiler.source/target/release.' }
+}
+
 // ─── entry point público ───────────────────────────────────────────────────────
 
 export async function runMigrationAudit(
@@ -937,7 +1219,7 @@ export async function runMigrationAudit(
   targetJdk: string = '21',
 ): Promise<MigrationAuditResult> {
   const criteria: AuditCriterion[] = await Promise.all([
-    // Critérios A1–A8 (originais)
+    // Critérios A1–A8 — build, namespace, Spring Boot, CI/CD, runtime, artefatos
     Promise.resolve(checkCompilerVersion(projectPath, targetJdk)),
     Promise.resolve(checkJavaxImports(projectPath)),
     Promise.resolve(checkSpringBootVersion(projectPath)),
@@ -946,7 +1228,7 @@ export async function runMigrationAudit(
     Promise.resolve(checkRuntimeEvidence(projectPath)),
     Promise.resolve(checkObsoleteProperties(projectPath)),
     Promise.resolve(checkOutputBytecode(projectPath, targetJdk)),
-    // Critérios C1–C12 (novos)
+    // Critérios C1–C12 — bytecode real, APIs internas, flags, processadores (main+test)
     Promise.resolve(checkActualBytecodeVersion(projectPath, targetJdk)),
     Promise.resolve(checkSunInternalImports(projectPath)),
     Promise.resolve(checkSecurityManagerUsage(projectPath)),
@@ -959,6 +1241,11 @@ export async function runMigrationAudit(
     Promise.resolve(checkSerializationRisk(projectPath)),
     Promise.resolve(checkJavaxScriptUsage(projectPath)),
     Promise.resolve(checkReflectiveInternalAccess(projectPath)),
+    // Critérios D1–D4 — fechamento: APIs removidas JDK17-21, bytecode-manip libs, plugins Maven, profiles
+    Promise.resolve(checkRemovedApis(projectPath)),
+    Promise.resolve(checkBytecodeManipulationLibs(projectPath)),
+    Promise.resolve(checkMavenPluginVersions(projectPath)),
+    Promise.resolve(checkMavenJdkProfiles(projectPath)),
   ])
 
   const summary = {
