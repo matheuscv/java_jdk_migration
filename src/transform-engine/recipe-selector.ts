@@ -1,7 +1,7 @@
 import type { PhaseNumber } from '../types.js'
 import type { JdkMigrationConfig } from '../lib/config.js'
 
-export type RunnerType = 'openrewrite' | 'sbm' | 'eclipse-transformer' | 'build-updater' | 'infrastructure-transformer' | 'source-cleaner'
+export type RunnerType = 'openrewrite' | 'sbm' | 'eclipse-transformer' | 'build-updater' | 'infrastructure-transformer' | 'source-cleaner' | 'jakarta-deps'
 
 export interface RecipeSet {
   runner: RunnerType
@@ -99,6 +99,14 @@ export function selectRecipes(phase: PhaseNumber, config: JdkMigrationConfig): R
           extraDependencies: ['com.oracle.weblogic.rewrite:rewrite-weblogic:LATEST'],
         })
       }
+
+      // E2.3: injeta deps Jakarta para APIs removidas (JAX-WS, SAAJ, JWS, JAF)
+      // Sempre incluído na Fase 3 — o runner faz a detecção internamente
+      sets.push({
+        runner: 'jakarta-deps',
+        recipes: ['inject-jakarta-removed-apis-deps'],
+        extraDependencies: [],
+      })
 
       return sets
     }

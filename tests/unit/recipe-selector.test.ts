@@ -114,6 +114,12 @@ describe('selectRecipes — fase 3 (Jakarta + frameworks)', () => {
     const jakartaSet = sets.find(s => s.recipes.some(r => r.includes('Jakarta')))
     expect(jakartaSet).toBeDefined()
   })
+
+  it('includes jakarta-deps runner in phase 3 for removed-api dep injection', () => {
+    const sets = selectRecipes(3, makeConfig({ stack: ['spring-boot'] }))
+    const jakartaDepsSet = sets.find(s => s.runner === 'jakarta-deps')
+    expect(jakartaDepsSet).toBeDefined()
+  })
 })
 
 describe('selectRecipes — fases 4 e 5', () => {

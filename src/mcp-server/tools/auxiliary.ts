@@ -385,6 +385,152 @@ export function registerAuxiliaryTools(server: McpServer): void {
         } catch { /* não bloqueia */ }
       }
 
+      // ── Gate 3: perguntas após Fase 3 (Jakarta + Frameworks) ─────────────────
+      // A2: dependências Jakarta injetadas — confirmar runtime smoke test
+      // C1: versão Spring Boot validada (se stack spring-boot)
+      if (phase === 3) {
+        try {
+          const decisions: typeof pendingHumanDecisions = []
+          const phase3Details = (config.phases[3] as any)?.runnerDetails?.['jakarta-deps'] as any
+          const injected: any[] = phase3Details?.injected ?? []
+          const alreadyPresent: any[] = phase3Details?.alreadyPresent ?? []
+
+          if (injected.length > 0 || alreadyPresent.length > 0) {
+            const injectedList = injected.map((d: any) => d.coords).join(', ')
+            const alreadyList = alreadyPresent.map((d: any) => d.coords).join(', ')
+            const detail = [
+              injected.length > 0 ? `Injetadas: ${injectedList}.` : '',
+              alreadyPresent.length > 0 ? `Já presentes: ${alreadyList}.` : '',
+            ].filter(Boolean).join(' ')
+            decisions.push({
+              id: 'A2-jakarta-removed-apis',
+              phase: 3,
+              category: 'dependencies',
+              title: 'Dependências Jakarta para APIs removidas do JDK — confirmar smoke test',
+              question: `${detail} ` +
+                `Confirme que a aplicação sobe sem NoClassDefFoundError ou ClassNotFoundException ` +
+                `relacionados a javax.xml.ws, javax.xml.soap, javax.jws ou javax.activation. ` +
+                `Execute um smoke test de endpoints que usam essas APIs antes de aprovar este gate.`,
+              files: ['pom.xml'],
+              blocking: false,
+            })
+          }
+
+          // C1: Spring Boot version check
+          if (config.stack.includes('spring-boot')) {
+            const pomPath = join(projectPath, 'pom.xml')
+            const pomContent = existsSync(pomPath) ? readFileSync(pomPath, 'utf-8') : null
+            const sb3Present = pomContent && /spring-boot[^<]*[23]\.[0-9]/.test(pomContent)
+            if (sb3Present && /<spring-boot[^>]*>[^<]*[23]\.[0-9]/.test(pomContent ?? '')) {
+              // Found Spring Boot 3+ parent/dep — good sign but verify
+            }
+            decisions.push({
+              id: 'C1-spring-boot-version',
+              phase: 3,
+              category: 'frameworks',
+              title: 'Spring Boot: confirmar versão 3.x e compatibilidade de segurança',
+              question: `O SBM foi executado para migrar Spring Boot 2→3. ` +
+                `Confirme no pom.xml que a versão do spring-boot-starter-parent está em 3.x. ` +
+                `Se o projeto usa Spring Security, revise a configuração: SecurityFilterChain é obrigatório em SB3 ` +
+                `(WebSecurityConfigurerAdapter foi removido). Verifique também o auto-configure de DataSource e actuator.`,
+              files: ['pom.xml'],
+              blocking: false,
+            })
+          }
+
+          if (decisions.length > 0) pendingHumanDecisions = decisions
+        } catch { /* não bloqueia */ }
+      }
+
+      // ── Gate 4: perguntas antes da revisão semântica (Fase 4) ────────────────
+      // C3: SecurityManager (bloqueante — não pode ficar sem resolução)
+      // C8: finalize() override (warning)
+      // C5/C11: Nashorn/ScriptEngine (info — dep já injetada)
+      // sun.* problemáticos: sun.misc.Unsafe, sun.misc.Signal, com.sun.image.codec (bloqueantes)
+      if (phase === 4) {
+        try {
+          const decisions: typeof pendingHumanDecisions = []
+          // Source-cleaner findings são do phase 2
+          const phase2SourceCleaner = (config.phases[2] as any)?.runnerDetails?.['source-cleaner'] as any
+          const humanDecisions: any[] = phase2SourceCleaner?.humanDecisionsNeeded ?? []
+
+          // Filtra apenas os IDs relevantes para o gate 4 (os não-bloqueantes do gate 2 também chegam aqui)
+          const gate4Ids = new Set([
+            'security-manager',
+            'finalize-override',
+            'nashorn-scriptengine',
+            'sun-unsafe',
+            'sun-signal',
+            'com-sun-image-codec',
+            'sun-base64',
+          ])
+
+          for (const hd of humanDecisions) {
+            if (!gate4Ids.has(hd.id)) continue
+            const files = [...new Set((hd.occurrences ?? []).map((o: any) => o.file))] as string[]
+            const locations = (hd.occurrences ?? []).slice(0, 5)
+              .map((o: any) => `${o.file}:${o.line}`).join(', ')
+            decisions.push({
+              id: hd.id,
+              phase: 4,
+              category: hd.id.startsWith('sun') || hd.id.startsWith('com-sun') ? 'jvm-internals' : 'removed-apis',
+              title: hd.title,
+              question: `${hd.description}\n\nOcorrências (${hd.occurrences?.length ?? 0}): ${locations}`,
+              files,
+              blocking: hd.blocking ?? false,
+            })
+          }
+
+          // Se não houve source-cleaner (fase 2 manual), verifica estaticamente SecurityManager
+          if (decisions.length === 0) {
+            const srcDirsGate4 = ['src/main/java', 'src/test/java']
+            const smFiles: string[] = []
+            for (const sd of srcDirsGate4) {
+              const sdPath = join(projectPath, sd)
+              if (!existsSync(sdPath)) continue
+              const walkG4 = (d: string) => {
+                let entries: string[]
+                try { entries = readdirSync(d) } catch { return }
+                for (const e of entries) {
+                  if (e === 'target' || e === '.git') continue
+                  const full = join(d, e)
+                  let st: ReturnType<typeof statSync> | null = null
+                  try { st = statSync(full) } catch { continue }
+                  if (st.isDirectory()) walkG4(full)
+                  else if (e.endsWith('.java')) {
+                    try {
+                      const c = readFileSync(full, 'utf-8')
+                      if (/extends\s+SecurityManager\b|System\.setSecurityManager\s*\(|new\s+SecurityManager\s*\(/.test(c)) {
+                        smFiles.push(relative(projectPath, full).replace(/\\/g, '/'))
+                      }
+                    } catch { /* ignore */ }
+                  }
+                }
+              }
+              walkG4(sdPath)
+            }
+            if (smFiles.length > 0) {
+              decisions.push({
+                id: 'security-manager',
+                phase: 4,
+                category: 'removed-apis',
+                title: 'SecurityManager — removido no JDK 17 (detectado na análise estática)',
+                question: `SecurityManager foi removido no JDK 17 (JEP 411) e qualquer uso lança UnsupportedOperationException no JDK 21. ` +
+                  `Arquivos: ${smFiles.slice(0, 5).join(', ')}. ` +
+                  `Avalie a necessidade real da restrição de segurança. Alternativas:\n` +
+                  `  1. Módulos JPMS para controle de acesso a pacotes.\n` +
+                  `  2. Políticas de container (seccomp, AppArmor, OPA/Gatekeeper em K8s).\n` +
+                  `  3. Remover se a restrição não era mais efetiva (SecurityManager era bypassável).`,
+                files: smFiles.slice(0, 5),
+                blocking: true,
+              })
+            }
+          }
+
+          if (decisions.length > 0) pendingHumanDecisions = decisions
+        } catch { /* não bloqueia */ }
+      }
+
       // ── Gate 5: perguntas antes do sign-off final ─────────────────────────────
       // A6: evidência de runtime — confirmar que a aplicação iniciou com JDK 21
       // K8s: confirmar que manifests atualizados foram validados

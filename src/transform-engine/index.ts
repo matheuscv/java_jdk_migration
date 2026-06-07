@@ -6,6 +6,7 @@ import { runRecipes } from './openrewrite-runner.js'
 import { runSpringBootMigrator } from './sbm-runner.js'
 import { runInfrastructureTransform } from './infrastructure-transformer.js'
 import { runSourceCleaner } from './source-cleaner.js'
+import { runJakartaDepsInjector } from './jakarta-deps-injector.js'
 
 export interface TransformResult {
   recipesApplied: string[]
@@ -55,6 +56,10 @@ export async function executePhaseTransform(
       const cleanResult = await runSourceCleaner(projectPath, dryRun)
       runnerDetails['source-cleaner'] = cleanResult.detail
       result = cleanResult
+    } else if (set.runner === 'jakarta-deps') {
+      const jakartaResult = await runJakartaDepsInjector(projectPath, dryRun)
+      runnerDetails['jakarta-deps'] = jakartaResult.detail
+      result = jakartaResult
     } else if (set.runner === 'openrewrite') {
       const or = await runRecipes(
         projectPath,

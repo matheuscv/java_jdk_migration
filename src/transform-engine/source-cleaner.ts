@@ -156,6 +156,77 @@ const HUMAN_DECISION_PATTERNS: HumanDecisionPattern[] = [
       'Avalie se a restrição de segurança é realmente necessária e use módulos JPMS ou políticas de container como alternativa.',
     blocking: true,
   },
+  {
+    re: /(?:protected|public)\s+void\s+finalize\s*\(\s*\)/,
+    id: 'finalize-override',
+    title: 'finalize() override — descontinuado (JEP 421), finalização desativada no JDK 21',
+    description:
+      'Overrides de finalize() foram descontinuados no JDK 18 (JEP 421) e a finalização ' +
+      'está desativada por padrão no JDK 21. O GC não chama mais finalize() de forma confiável. ' +
+      'Substitua por java.lang.ref.Cleaner (JDK 9+) ou implemente AutoCloseable + try-with-resources:\n' +
+      '  private final Cleaner.Cleanable cleanable;\n' +
+      '  MyClass() { cleanable = Cleaner.create().register(this, () -> { /* cleanup */ }); }\n' +
+      '  // Remova o finalize() override.',
+    blocking: false,
+  },
+  {
+    re: /new\s+ScriptEngineManager\s*\(\s*\)|getEngineByName\s*\(\s*["'](?:nashorn|javascript|js)["']\s*\)/i,
+    id: 'nashorn-scriptengine',
+    title: 'Nashorn ScriptEngine — removido do JDK 15 (JEP 372)',
+    description:
+      'O engine Nashorn foi removido do JDK 15 (JEP 372). ' +
+      'A dependência org.openjdk.nashorn:nashorn-core:15.4 foi injetada automaticamente no pom.xml ' +
+      'para preservar o comportamento existente sem alteração de código. ' +
+      'Alternativa recomendada a longo prazo: GraalVM Polyglot API ou migração para Java puro.',
+    blocking: false,
+  },
+  {
+    re: /import\s+sun\.misc\.BASE64(?:En|De)coder/,
+    id: 'sun-base64',
+    title: 'sun.misc.BASE64Encoder/Decoder — API interna removida no JDK 9',
+    description:
+      'sun.misc.BASE64Encoder e sun.misc.BASE64Decoder foram removidos no JDK 9. ' +
+      'OpenRewrite (UpgradeToJava21) cobre esta substituição automaticamente. ' +
+      'Se ainda presente após a Fase 2, substitua manualmente por java.util.Base64:\n' +
+      '  Base64.getEncoder().encodeToString(bytes)  // codificar\n' +
+      '  Base64.getDecoder().decode(str)             // decodificar',
+    blocking: false,
+  },
+  {
+    re: /import\s+sun\.misc\.Unsafe\b|(?:^|[^.])sun\.misc\.Unsafe\s/m,
+    id: 'sun-unsafe',
+    title: 'sun.misc.Unsafe — fortemente restrito no JDK 21',
+    description:
+      'sun.misc.Unsafe está encapsulado no módulo java.base a partir do JDK 9 e será ' +
+      'bloqueado em versões futuras (JEP 471). ' +
+      'Substitua operações atômicas por VarHandle (java.lang.invoke.VarHandle, JDK 9+) ou ' +
+      'java.util.concurrent.atomic.*. Para memória off-heap, avalie ByteBuffer.allocateDirect() ' +
+      'ou Foreign Memory API (java.lang.foreign, JDK 21 estável).',
+    blocking: true,
+  },
+  {
+    re: /import\s+sun\.misc\.Signal\b|new\s+sun\.misc\.Signal\s*\(/,
+    id: 'sun-signal',
+    title: 'sun.misc.Signal — API interna sem equivalente público',
+    description:
+      'sun.misc.Signal não possui equivalente público no JDK. Opções:\n' +
+      '  1. Remover tratamento de sinal se não crítico para a aplicação.\n' +
+      '  2. Em ambiente de container (Kubernetes), delegar ao SIGTERM do orquestrador via ' +
+      '     ShutdownHook: Runtime.getRuntime().addShutdownHook(new Thread(() -> { ... })).\n' +
+      '  3. Biblioteca externa de signal-handling se absolutely necessário.',
+    blocking: true,
+  },
+  {
+    re: /import\s+com\.sun\.image\.codec\.jpeg\b|com\.sun\.image\.codec\.jpeg\.\w+/,
+    id: 'com-sun-image-codec',
+    title: 'com.sun.image.codec.jpeg — removido no JDK 9',
+    description:
+      'com.sun.image.codec.jpeg foi removido no JDK 9. ' +
+      'Substitua por javax.imageio.ImageIO (disponível desde JDK 1.4):\n' +
+      '  ImageIO.write(bufferedImage, "JPEG", outputStream)  // escrever\n' +
+      '  ImageIO.read(inputStream)                           // ler',
+    blocking: true,
+  },
 ]
 
 export interface SourceCleanerDetail {
@@ -168,6 +239,38 @@ export interface SourceCleanerDetail {
     blocking: boolean
     occurrences: Array<{ file: string; line: number }>
   }>
+  /** true se a dependência nashorn-core foi injetada no pom.xml nesta execução */
+  nashornDepInjected: boolean
+}
+
+// ─── Nashorn dependency injection ────────────────────────────────────────────
+
+const NASHORN_DEP_BLOCK = `
+        <!-- [jdk-migration] nashorn-core: substituto do Nashorn removido no JDK 15 (JEP 372) -->
+        <dependency>
+            <groupId>org.openjdk.nashorn</groupId>
+            <artifactId>nashorn-core</artifactId>
+            <version>15.4</version>
+        </dependency>`
+
+/**
+ * Injeta nashorn-core no pom.xml se ainda não estiver presente.
+ * Retorna true se a dependência foi adicionada, false caso já existisse ou não haja pom.xml.
+ */
+function injectNashornDependency(projectPath: string, dryRun: boolean): boolean {
+  const pomPath = join(projectPath, 'pom.xml')
+  const content = readSafe(pomPath)
+  if (!content) return false
+  if (/nashorn-core/.test(content)) return false  // já presente
+
+  // Insere antes de </dependencies>
+  const marker = '</dependencies>'
+  const idx = content.lastIndexOf(marker)
+  if (idx === -1) return false
+
+  const updated = content.slice(0, idx) + NASHORN_DEP_BLOCK + '\n    ' + content.slice(idx)
+  if (!dryRun) writeFileSync(pomPath, updated, 'utf-8')
+  return true
 }
 
 // ─── entry point público ──────────────────────────────────────────────────────
@@ -180,6 +283,7 @@ export async function runSourceCleaner(
     filesModifiedList: [],
     removedCalls: [],
     humanDecisionsNeeded: [],
+    nashornDepInjected: false,
   }
 
   const diffs: string[] = []
@@ -262,6 +366,17 @@ export async function runSourceCleaner(
       if (!dryRun) writeFileSync(f, updated, 'utf-8')
       detail.filesModifiedList.push(rel)
       totalModified++
+    }
+  }
+
+  // ── Injeta nashorn-core se padrão Nashorn/ScriptEngine detectado ─────────
+  const nashornEntry = humanMap.get('nashorn-scriptengine')
+  if (nashornEntry && nashornEntry.occurrences.length > 0) {
+    const injected = injectNashornDependency(projectPath, dryRun)
+    detail.nashornDepInjected = injected
+    if (injected) {
+      recipesAppliedSet.add('inject-nashorn-core-dependency')
+      diffs.push('[pom.xml] injetada dependência org.openjdk.nashorn:nashorn-core:15.4')
     }
   }
 
