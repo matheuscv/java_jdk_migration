@@ -90,6 +90,61 @@ export async function rollbackPhase(
   // A branch de fase permanece como registro da tentativa falha
 }
 
+export interface SyncMigrationBranchResult {
+  synced: boolean
+  migrationBranch: string | null
+  tipBranch: string | null
+  error?: string
+}
+
+/**
+ * Faz fast-forward da branch migrate/... (branch base do projeto) para o tip
+ * da última fase concluída. Não faz push — apenas sincroniza o repositório local.
+ *
+ * Algoritmo:
+ *  1. Descobre a branch migrate/* a partir do baseBranch da fase 1
+ *  2. Faz `git checkout <migrationBranch>`
+ *  3. Faz `git merge --ff-only <tipBranch>`
+ *  4. Volta para a branch original (qualquer que seja)
+ *
+ * Não lança exceção — retorna { synced: false, error } em caso de falha para
+ * não bloquear a aprovação do gate final.
+ */
+export async function syncMigrationBranch(
+  projectPath: string,
+  migrationBranch: string,
+  tipBranch: string,
+): Promise<SyncMigrationBranchResult> {
+  let originalBranch: string | null = null
+  try {
+    originalBranch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath)
+
+    if (originalBranch === migrationBranch) {
+      // Já estamos na branch alvo — merge direto, sem checkout
+      await git(['merge', '--ff-only', tipBranch], projectPath)
+    } else {
+      await git(['checkout', migrationBranch], projectPath)
+      try {
+        await git(['merge', '--ff-only', tipBranch], projectPath)
+      } finally {
+        // Sempre volta para a branch original, mesmo em caso de falha
+        try { await git(['checkout', originalBranch], projectPath) } catch { /* ignora */ }
+      }
+    }
+
+    return { synced: true, migrationBranch, tipBranch }
+  } catch (err: any) {
+    return {
+      synced: false,
+      migrationBranch,
+      tipBranch,
+      error: err?.details?.args
+        ? `git ${err.details.args.join(' ')} falhou: ${err.message}`
+        : String(err?.message ?? err),
+    }
+  }
+}
+
 export async function createPullRequest(
   projectPath: string,
   phase: PhaseNumber,

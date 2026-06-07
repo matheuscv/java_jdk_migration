@@ -4,7 +4,7 @@ import { readConfig, writeConfig, configExists, readPinStore, writePinStore, del
 import type { MigrationStep } from '../../lib/config.js'
 import { MigrationError } from '../../lib/errors.js'
 import { generateGateToken, getTokenIssuedAt } from '../../orchestrator/gate-validator.js'
-import { rollbackPhase } from '../../orchestrator/git-checkpoint.js'
+import { rollbackPhase, syncMigrationBranch } from '../../orchestrator/git-checkpoint.js'
 import { updatePhaseStatus } from '../../orchestrator/state-machine.js'
 import { generateAuditReport, generateAuditReportSilent, generateFinalReport } from '../../report-generator/index.js'
 import type { PhaseNumber } from '../../types.js'
@@ -250,15 +250,49 @@ export function registerAuxiliaryTools(server: McpServer): void {
       let autoReportPath: string | null = null
       let finalReportPath: string | null = null
 
+      let syncResult: import('../../orchestrator/git-checkpoint.js').SyncMigrationBranchResult | null = null
+
       if (phaseNumber === 5) {
         const finalResult = await generateFinalReport(projectPath)
         autoReportPath = finalResult.timestamped
         finalReportPath = finalResult.final
+
+        // ── Sincronizar branch migrate/* com o tip da fase 5 ─────────────────
+        // A branch migrate/* é o baseBranch da fase 1 (ponto de partida do projeto).
+        // O tip é a branch da fase 5, que já contém toda a cadeia de fases via
+        // fast-forward linear. Nenhum push é feito — apenas sincronização local.
+        const phases = config.phases
+        const migrationBranch = (
+          phases[1]?.baseBranch ??
+          phases[0]?.baseBranch ??
+          null
+        )
+        const tipBranch = phases[5]?.gitBranch ?? null
+
+        if (migrationBranch && tipBranch) {
+          syncResult = await syncMigrationBranch(projectPath, migrationBranch, tipBranch)
+        } else {
+          syncResult = {
+            synced: false,
+            migrationBranch,
+            tipBranch,
+            error: !migrationBranch
+              ? 'Branch migrate/* não encontrada no config (phases[1].baseBranch ausente).'
+              : 'Branch da fase 5 não encontrada no config (phases[5].gitBranch ausente).',
+          }
+        }
       } else {
         autoReportPath = await generateAuditReportSilent(projectPath)
       }
 
       const isFinalPhase = phaseNumber === 5
+
+      const syncMessage = syncResult?.synced
+        ? `Branch local '${syncResult.migrationBranch}' sincronizada via fast-forward com '${syncResult.tipBranch}'. Quando quiser, execute manualmente: git push origin ${syncResult.migrationBranch}`
+        : syncResult
+          ? `Sincronização automática não foi possível: ${syncResult.error} — execute manualmente: git checkout ${syncResult.migrationBranch} && git merge ${syncResult.tipBranch}`
+          : undefined
+
       return {
         content: [
           {
@@ -273,8 +307,19 @@ export function registerAuxiliaryTools(server: McpServer): void {
                 gateToken: token,
                 auditReport: autoReportPath ?? null,
                 ...(isFinalPhase ? { finalReport: finalReportPath ?? null } : {}),
+                ...(isFinalPhase && syncResult ? {
+                  migrationBranchSync: {
+                    synced: syncResult.synced,
+                    migrationBranch: syncResult.migrationBranch,
+                    tipBranch: syncResult.tipBranch,
+                    ...(syncResult.error ? { error: syncResult.error } : {}),
+                  },
+                } : {}),
                 message: isFinalPhase
-                  ? `Migracao concluida! Gate da Fase 5 aprovado por ${approverName.trim()}. Relatorio final salvo em audit-report-final.html.`
+                  ? [
+                      `Migracao concluida! Gate da Fase 5 aprovado por ${approverName.trim()}. Relatorio final salvo em audit-report-final.html.`,
+                      ...(syncMessage ? [syncMessage] : []),
+                    ].join(' ')
                   : `Gate da Fase ${phaseNumber} aprovado. Use o gateToken para liberar a Fase ${phaseNumber + 1} via execute_phase.`,
               },
               null,
