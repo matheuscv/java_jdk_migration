@@ -15,6 +15,8 @@ export interface PhaseState {
   baseBranch: string | null  // branch to return to on rollback
   baseCommit: string | null  // HEAD before phase branch was created
   prUrl: string | null
+  /** Detalhes persistidos dos runners customizados (infrastructure-transformer, source-cleaner) */
+  runnerDetails?: Record<string, unknown>
 }
 
 export interface MigrationStep {

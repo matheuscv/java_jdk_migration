@@ -250,6 +250,8 @@ async function _executePhaseUnlocked(
   // ── 13. Fase → awaiting_gate ──────────────────────────────────────────────
   config = updatePhaseStatus(config, phase, 'awaiting_gate', {
     gitCommit: phaseCommit,
+    // Persiste detalhes dos runners customizados para uso nas gate questions
+    ...(transformResult.runnerDetails ? { runnerDetails: transformResult.runnerDetails } : {}),
   })
   writeConfig(projectPath, config)
 

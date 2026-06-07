@@ -20,29 +20,44 @@ describe('selectRecipes — fase 0', () => {
 })
 
 describe('selectRecipes — fase 1 (build infrastructure)', () => {
-  it('returns build-updater runner', () => {
+  it('returns build-updater runner as first set', () => {
     const sets = selectRecipes(1, makeConfig())
-    expect(sets).toHaveLength(1)
-    expect(sets[0].runner).toBe('build-updater')
+    const buildSet = sets.find(s => s.runner === 'build-updater')
+    expect(buildSet).toBeDefined()
+    expect(buildSet?.runner).toBe('build-updater')
+  })
+
+  it('includes infrastructure-transformer runner', () => {
+    const sets = selectRecipes(1, makeConfig())
+    const infraSet = sets.find(s => s.runner === 'infrastructure-transformer')
+    expect(infraSet).toBeDefined()
   })
 
   it('includes update-compiler-target-21 recipe', () => {
     const sets = selectRecipes(1, makeConfig())
-    expect(sets[0].recipes).toContain('update-compiler-target-21')
+    const buildSet = sets.find(s => s.runner === 'build-updater')
+    expect(buildSet?.recipes).toContain('update-compiler-target-21')
   })
 
   it('returns build-updater regardless of stack', () => {
     const sets = selectRecipes(1, makeConfig({ stack: ['ejb'] }))
-    expect(sets[0].runner).toBe('build-updater')
+    const buildSet = sets.find(s => s.runner === 'build-updater')
+    expect(buildSet).toBeDefined()
   })
 })
 
 describe('selectRecipes — fase 2 (language migration)', () => {
   it('returns UpgradeToJava21 for JDK 8 source', () => {
     const sets = selectRecipes(2, makeConfig({ sourceJdk: '8' }))
-    expect(sets).toHaveLength(1)
-    expect(sets[0].runner).toBe('openrewrite')
-    expect(sets[0].recipes).toContain('org.openrewrite.java.migrate.UpgradeToJava21')
+    const orSet = sets.find(s => s.runner === 'openrewrite')
+    expect(orSet).toBeDefined()
+    expect(orSet?.recipes).toContain('org.openrewrite.java.migrate.UpgradeToJava21')
+  })
+
+  it('includes source-cleaner runner in phase 2', () => {
+    const sets = selectRecipes(2, makeConfig({ sourceJdk: '8' }))
+    const cleanSet = sets.find(s => s.runner === 'source-cleaner')
+    expect(cleanSet).toBeDefined()
   })
 
   it('returns staged recipes for JDK 6 source (Java8toJava11 first)', () => {

@@ -4,6 +4,8 @@ import { selectRecipes } from './recipe-selector.js'
 import { updateBuildVersion } from './build-updater.js'
 import { runRecipes } from './openrewrite-runner.js'
 import { runSpringBootMigrator } from './sbm-runner.js'
+import { runInfrastructureTransform } from './infrastructure-transformer.js'
+import { runSourceCleaner } from './source-cleaner.js'
 
 export interface TransformResult {
   recipesApplied: string[]
@@ -11,6 +13,8 @@ export interface TransformResult {
   filesAdded: number
   diffSummary: string
   warnings: string[]
+  /** Detalhes extras de runners específicos (infra-transformer, source-cleaner) */
+  runnerDetails?: Record<string, unknown>
 }
 
 export async function executePhaseTransform(
@@ -36,12 +40,21 @@ export async function executePhaseTransform(
   let totalModified = 0
   const allDiffs: string[] = []
   const allWarnings: string[] = []
+  const runnerDetails: Record<string, unknown> = {}
 
   for (const set of recipeSets) {
     let result: TransformResult & { fullDiff?: string }
 
     if (set.runner === 'build-updater') {
       result = await updateBuildVersion(projectPath, config.targetJdk, dryRun)
+    } else if (set.runner === 'infrastructure-transformer') {
+      const infraResult = await runInfrastructureTransform(projectPath, config.targetJdk, dryRun)
+      runnerDetails['infrastructure-transformer'] = infraResult.detail
+      result = infraResult
+    } else if (set.runner === 'source-cleaner') {
+      const cleanResult = await runSourceCleaner(projectPath, dryRun)
+      runnerDetails['source-cleaner'] = cleanResult.detail
+      result = cleanResult
     } else if (set.runner === 'openrewrite') {
       const or = await runRecipes(
         projectPath,
@@ -81,5 +94,6 @@ export async function executePhaseTransform(
     filesAdded: 0,
     diffSummary: allDiffs.join('\n'),
     warnings: allWarnings,
+    ...(Object.keys(runnerDetails).length > 0 ? { runnerDetails } : {}),
   }
 }

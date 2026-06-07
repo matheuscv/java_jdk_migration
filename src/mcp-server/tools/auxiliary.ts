@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { readConfig, writeConfig, configExists, readPinStore, writePinStore, deletePinEntry } from '../../lib/config.js'
 import type { MigrationStep } from '../../lib/config.js'
 import { MigrationError } from '../../lib/errors.js'
@@ -176,7 +176,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
                     ? `${item.description} — ${item.suggestedApproach}`
                     : item.description,
                   files: item.files ?? [],
-                  blocking: phasePlan.number <= 1,  // fase 0/1 são bloqueantes
+                  blocking: phasePlan.number <= 1,
                 })
               }
             }
@@ -186,7 +186,6 @@ export function registerAuxiliaryTools(server: McpServer): void {
           const containerFindings: any[] = discovery?.containerCi?.findings ?? []
           for (const f of containerFindings) {
             if (!f.requiresHumanDecision) continue
-            // Evita duplicata com o que já veio do plano
             const alreadyAdded = decisions.some(d => d.files.includes(f.file))
             if (alreadyAdded) continue
             decisions.push({
@@ -200,10 +199,231 @@ export function registerAuxiliaryTools(server: McpServer): void {
             })
           }
 
-          if (decisions.length > 0) {
-            pendingHumanDecisions = decisions
-          }
+          if (decisions.length > 0) pendingHumanDecisions = decisions
         } catch { /* plano ainda não gerado — não bloqueia */ }
+      }
+
+      // ── Gate 1: perguntas após Fase 1 (Infrastructure) ──────────────────────
+      // A4: dependências internas não validadas
+      // C6: --add-opens presentes que precisam de revisão humana
+      // D4: Maven profiles neutralizados que precisam de confirmação
+      // Infra: arquivos com Helm templates não editáveis automaticamente
+      if (phase === 1) {
+        try {
+          const decisions: typeof pendingHumanDecisions = []
+          const phase1Details = (config.phases[1] as any)?.runnerDetails?.['infrastructure-transformer'] as any
+
+          // A4 — dependências internas: varre pom.xml em busca de groupIds não-públicos
+          const pomContent = existsSync(join(projectPath, 'pom.xml'))
+            ? readFileSync(join(projectPath, 'pom.xml'), 'utf-8') : null
+          if (pomContent) {
+            const KNOWN_PUBLIC = ['org.springframework', 'org.hibernate', 'org.apache', 'com.fasterxml',
+              'io.micrometer', 'io.netty', 'io.projectreactor', 'jakarta.', 'javax.', 'com.google',
+              'org.slf4j', 'ch.qos.logback', 'org.junit', 'junit', 'org.mockito', 'org.assertj',
+              'com.h2database', 'org.liquibase', 'org.flywaydb', 'mysql', 'org.postgresql',
+              'com.oracle', 'com.zaxxer', 'io.swagger', 'org.springdoc', 'org.mapstruct',
+              'org.projectlombok', 'org.quartz-scheduler', 'org.ehcache', 'net.sf.ehcache',
+              'com.github.ben-manes', 'org.testcontainers', 'org.jacoco', 'io.cucumber',
+              'com.amazonaws', 'software.amazon', 'io.awspring', 'org.redisson', 'redis.clients',
+              'org.apache.kafka', 'io.confluent', 'org.springframework.kafka']
+            const depRe = /<groupId>([\w.\-]+)<\/groupId>/g
+            const internalGroupIds = new Set<string>()
+            let dm: RegExpExecArray | null
+            // eslint-disable-next-line no-cond-assign
+            while ((dm = depRe.exec(pomContent)) !== null) {
+              const g = dm[1]
+              if (!KNOWN_PUBLIC.some(p => g.startsWith(p))) internalGroupIds.add(g)
+            }
+            if (internalGroupIds.size > 0) {
+              const list = [...internalGroupIds].slice(0, 8).join(', ')
+              decisions.push({
+                id: 'A4-internal-deps',
+                phase: 1,
+                category: 'dependencies',
+                title: 'Dependências internas / groupIds não validados para JDK 21',
+                question: `Foram encontradas dependências de groupId(s) não-público(s): ${list}. ` +
+                  `Confirme com o time responsável por cada lib que elas foram testadas e funcionam corretamente com JDK 21. ` +
+                  `Dependências não validadas podem causar ClassFormatError ou NoSuchMethodError em runtime.`,
+                files: ['pom.xml'],
+                blocking: false,
+              })
+            }
+          }
+
+          // C6 — --add-opens presentes: exige revisão se ainda são necessários
+          const addOpensSources = [
+            join(projectPath, '.mvn', 'jvm.config'),
+            join(projectPath, 'pom.xml'),
+          ]
+          const addOpensFiles: string[] = []
+          for (const src of addOpensSources) {
+            const content = existsSync(src) ? readFileSync(src, 'utf-8') : null
+            if (content && /--add-opens|--add-exports/.test(content)) {
+              addOpensFiles.push(join(projectPath, '.mvn', 'jvm.config') === src ? '.mvn/jvm.config' : 'pom.xml')
+            }
+          }
+          if (addOpensFiles.length > 0) {
+            decisions.push({
+              id: 'C6-add-opens',
+              phase: 1,
+              category: 'jvm-flags',
+              title: 'Flags --add-opens / --add-exports presentes',
+              question: `Os arquivos ${addOpensFiles.join(', ')} contêm flags --add-opens ou --add-exports. ` +
+                `Essas flags indicam dependência de acesso a módulos internos do JDK. ` +
+                `Revise cada flag: se for necessária para frameworks (ex: Spring, Hibernate), mantenha. ` +
+                `Se era workaround para código próprio que já foi migrado, remova.`,
+              files: addOpensFiles,
+              blocking: false,
+            })
+          }
+
+          // D4 — profiles Maven neutralizados
+          if (phase1Details?.mavenProfilesNeutralized > 0) {
+            decisions.push({
+              id: 'D4-maven-profiles',
+              phase: 1,
+              category: 'build',
+              title: `${phase1Details.mavenProfilesNeutralized} Maven profile(s) com ativação por JDK desativado(s)`,
+              question: `A Fase 1 desativou a ativação automática por versão de JDK em ${phase1Details.mavenProfilesNeutralized} profile(s) do pom.xml. ` +
+                `Revise os profiles afetados: se o conteúdo deles (dependências, plugins, propriedades) ainda é necessário para a build JDK 21, mantenha o profile sem a ativação automática. ` +
+                `Se o profile era exclusivo para JDK antigo, pode ser removido completamente.`,
+              files: ['pom.xml'],
+              blocking: false,
+            })
+          }
+
+          // Infra: arquivos com templates Helm não editados automaticamente
+          const helmItems: string[] = phase1Details?.humanConfirmationNeeded
+            ?.filter((h: any) => h.id?.includes('helm') || h.id?.includes('dockerfile'))
+            ?.map((h: any) => h.file) ?? []
+          if (helmItems.length > 0) {
+            decisions.push({
+              id: 'D5-helm-templates',
+              phase: 1,
+              category: 'infrastructure',
+              title: 'Helm templates / Dockerfiles com imagem JDK não atualizados automaticamente',
+              question: `Os seguintes arquivos contêm templates parametrizados que não puderam ser atualizados automaticamente: ${helmItems.join(', ')}. ` +
+                `Atualize manualmente a variável de imagem JDK para eclipse-temurin:21-jre (ou equivalente) antes de avançar para a Fase 2.`,
+              files: helmItems,
+              blocking: true,
+            })
+          }
+
+          if (decisions.length > 0) pendingHumanDecisions = decisions
+        } catch { /* não bloqueia */ }
+      }
+
+      // ── Gate 2: perguntas após Fase 2 (Language Modernization) ───────────────
+      // D1: Thread.stop/destroy/countStackFrames — bloqueante, requer refatoração manual
+      // C12: acesso reflexivo a internos — warning, requer revisão
+      if (phase === 2) {
+        try {
+          const decisions: typeof pendingHumanDecisions = []
+          const phase2Details = (config.phases[2] as any)?.runnerDetails?.['source-cleaner'] as any
+          const humanDecisions: any[] = phase2Details?.humanDecisionsNeeded ?? []
+
+          for (const hd of humanDecisions) {
+            const files = [...new Set((hd.occurrences ?? []).map((o: any) => o.file))] as string[]
+            const locations = (hd.occurrences ?? []).slice(0, 5)
+              .map((o: any) => `${o.file}:${o.line}`).join(', ')
+            decisions.push({
+              id: hd.id,
+              phase: 2,
+              category: 'removed-apis',
+              title: hd.title,
+              question: `${hd.description}\n\nOcorrências (${hd.occurrences?.length ?? 0}): ${locations}`,
+              files,
+              blocking: hd.blocking ?? true,
+            })
+          }
+
+          // C12 — acesso reflexivo a internos: verificação estática rápida
+          const srcDirsToScan = ['src/main/java', 'src/test/java']
+          const reflectiveFiles: string[] = []
+          for (const sd of srcDirsToScan) {
+            const sdPath = join(projectPath, sd)
+            if (!existsSync(sdPath)) continue
+            const javaFiles: string[] = []
+            const walkForReflective = (d: string) => {
+              let entries: string[]
+              try { entries = readdirSync(d) } catch { return }
+              for (const e of entries) {
+                if (e === 'target' || e === '.git') continue
+                const full = join(d, e)
+                let st: ReturnType<typeof statSync> | null = null
+                try { st = statSync(full) } catch { continue }
+                if (st.isDirectory()) walkForReflective(full)
+                else if (e.endsWith('.java')) javaFiles.push(full)
+              }
+            }
+            walkForReflective(sdPath)
+            for (const f of javaFiles.slice(0, 200)) {
+              let content: string | null = null
+              try { content = readFileSync(f, 'utf-8') } catch { continue }
+              if (!content) continue
+              if (/Class\.forName\s*\(\s*["'](?:sun|com\.sun)\./.test(content) ||
+                  (/setAccessible\s*\(\s*true\s*\)/.test(content) && /(sun|com\.sun|internal)/.test(content))) {
+                reflectiveFiles.push(relative(projectPath, f).replace(/\\/g, '/'))
+              }
+            }
+          }
+          if (reflectiveFiles.length > 0) {
+            decisions.push({
+              id: 'C12-reflective-internal',
+              phase: 2,
+              category: 'jvm-internals',
+              title: 'Acesso reflexivo a APIs internas do JDK detectado',
+              question: `Foram detectados padrões de acesso reflexivo a classes internas do JDK (sun.*, com.sun.*) em ${reflectiveFiles.length} arquivo(s). ` +
+                `O módulo system do JDK 9+ bloqueia esses acessos por padrão — em JDK 21 lançam InaccessibleObjectException. ` +
+                `Revise cada ocorrência: se for necessária, adicione --add-opens específico; se for possível, substitua pela API pública equivalente.`,
+              files: reflectiveFiles.slice(0, 5),
+              blocking: false,
+            })
+          }
+
+          if (decisions.length > 0) pendingHumanDecisions = decisions
+        } catch { /* não bloqueia */ }
+      }
+
+      // ── Gate 5: perguntas antes do sign-off final ─────────────────────────────
+      // A6: evidência de runtime — confirmar que a aplicação iniciou com JDK 21
+      // K8s: confirmar que manifests atualizados foram validados
+      if (phase === 5) {
+        try {
+          const decisions: typeof pendingHumanDecisions = []
+
+          // A6 — runtime evidence: sempre obrigatório no gate final
+          decisions.push({
+            id: 'A6-runtime-evidence',
+            phase: 5,
+            category: 'runtime',
+            title: 'Evidência de startup com JDK 21 — confirmação obrigatória',
+            question: `Antes de aprovar o gate final, confirme que a aplicação foi iniciada com JDK 21 e o startup completou sem erros. ` +
+              `Cole a linha de log de startup (ex: "Started XxxApplication in 4.3 seconds (JVM running for 5.1)") ` +
+              `ou descreva o resultado do smoke test realizado em ambiente com JDK 21.`,
+            files: [],
+            blocking: true,
+          })
+
+          // D5 — K8s/Helm: verificar se há diretórios k8s que foram atualizados
+          const K8S_DIRS_CHECK = ['k8s', 'kubernetes', 'manifests', 'helm', 'charts', 'deploy', 'infra']
+          const k8sDirsFound = K8S_DIRS_CHECK.filter(d => existsSync(join(projectPath, d)))
+          if (k8sDirsFound.length > 0) {
+            decisions.push({
+              id: 'D5-k8s-validation',
+              phase: 5,
+              category: 'infrastructure',
+              title: 'Validação de manifests Kubernetes/Helm em ambiente com JDK 21',
+              question: `O projeto possui diretórios de infraestrutura Kubernetes/Helm (${k8sDirsFound.join(', ')}). ` +
+                `Confirme que os manifests atualizados foram aplicados e validados em ambiente de homologação com JDK 21. ` +
+                `Verifique especialmente: imagens base dos pods, variáveis de ambiente JAVA_VERSION/JAVA_OPTS, e health checks.`,
+              files: k8sDirsFound,
+              blocking: false,
+            })
+          }
+
+          if (decisions.length > 0) pendingHumanDecisions = decisions
+        } catch { /* não bloqueia */ }
       }
 
       const blockingCount = pendingHumanDecisions?.filter(d => d.blocking).length ?? 0

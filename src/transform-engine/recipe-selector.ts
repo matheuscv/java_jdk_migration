@@ -1,7 +1,7 @@
 import type { PhaseNumber } from '../types.js'
 import type { JdkMigrationConfig } from '../lib/config.js'
 
-export type RunnerType = 'openrewrite' | 'sbm' | 'eclipse-transformer' | 'build-updater'
+export type RunnerType = 'openrewrite' | 'sbm' | 'eclipse-transformer' | 'build-updater' | 'infrastructure-transformer' | 'source-cleaner'
 
 export interface RecipeSet {
   runner: RunnerType
@@ -22,16 +22,24 @@ export function selectRecipes(phase: PhaseNumber, config: JdkMigrationConfig): R
       return []
 
     case 1: {
-      // Fase 1: atualizar build system para compilar com JDK 21
-      return [{
-        runner: 'build-updater',
-        recipes: ['update-compiler-target-21'],
-        extraDependencies: [],
-      }]
+      // Fase 1: atualizar build system + infraestrutura para JDK 21
+      return [
+        {
+          runner: 'build-updater',
+          recipes: ['update-compiler-target-21'],
+          extraDependencies: [],
+        },
+        {
+          // E1.1 Dockerfile/CI, E1.2 JVM flags, E1.3 K8s/Helm, E1.4 Maven profiles
+          runner: 'infrastructure-transformer',
+          recipes: ['infrastructure-transform'],
+          extraDependencies: [],
+        },
+      ]
     }
 
     case 2: {
-      // Fase 2: migração de linguagem Java
+      // Fase 2: migração de linguagem Java (OpenRewrite) + limpeza de APIs removidas
       const recipes = config.sourceJdk === '6'
         ? [
             'org.openrewrite.java.migrate.Java8toJava11',
@@ -39,7 +47,16 @@ export function selectRecipes(phase: PhaseNumber, config: JdkMigrationConfig): R
             'org.openrewrite.java.migrate.UpgradeToJava21',
           ]
         : ['org.openrewrite.java.migrate.UpgradeToJava21']
-      return [{ runner: 'openrewrite', recipes, extraDependencies: [] }]
+      return [
+        { runner: 'openrewrite', recipes, extraDependencies: [] },
+        {
+          // E2.2: remove chamadas no-op removidas (runFinalizersOnExit, java.lang.Compiler)
+          // e sinaliza Thread.stop/destroy para intervenção humana no Gate 2
+          runner: 'source-cleaner',
+          recipes: ['source-clean'],
+          extraDependencies: [],
+        },
+      ]
     }
 
     case 3: {
