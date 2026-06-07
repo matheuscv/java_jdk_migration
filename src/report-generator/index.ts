@@ -100,7 +100,10 @@ export async function generateAuditReport(projectPath: string): Promise<AuditRep
   const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps })
   writeFileSync(reportPath, html, 'utf-8')
 
-  await generatePhase5Checklist(migrationDir, config, plan, now)
+  const phase5St = config?.phases?.[5]?.status ?? config?.phases?.['5']?.status ?? 'pending'
+  if (['in_progress', 'awaiting_gate', 'approved', 'completed'].includes(phase5St)) {
+    await generatePhase5Checklist(migrationDir, config, plan, now)
+  }
 
   return {
     reportPath,
