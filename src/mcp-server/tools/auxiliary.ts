@@ -1,5 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { readConfig, writeConfig, configExists, readPinStore, writePinStore, deletePinEntry } from '../../lib/config.js'
 import type { MigrationStep } from '../../lib/config.js'
 import { MigrationError } from '../../lib/errors.js'
@@ -98,7 +100,11 @@ export function registerAuxiliaryTools(server: McpServer): void {
         'Solicita a aprovação humana para uma fase. Gera um PIN de 6 dígitos que é ' +
         'exibido ao responsável técnico. O PIN deve ser informado de volta pelo humano ' +
         'na chamada de approve_gate. SEMPRE chame esta tool ANTES de approve_gate e ' +
-        'AGUARDE o humano fornecer o PIN — nunca tente adivinhar ou reutilizar PINs anteriores.',
+        'AGUARDE o humano fornecer o PIN — nunca tente adivinhar ou reutilizar PINs anteriores. ' +
+        'IMPORTANTE — fase 0: se o retorno incluir o campo pendingHumanDecisions, você DEVE ' +
+        'apresentar CADA pergunta listada ao usuário e registrar as respostas ANTES de revelar ' +
+        'o PIN. Só mostre o PIN após coletar todas as respostas ou após o usuário decidir ' +
+        'explicitamente seguir sem respondê-las.',
       inputSchema: {
         projectPath: z.string().describe('Caminho absoluto da raiz do projeto Java'),
         phaseNumber: z.number().int().min(0).max(5).describe('Número da fase a aprovar (0–5)'),
@@ -130,6 +136,78 @@ export function registerAuxiliaryTools(server: McpServer): void {
       pinStore[phase] = { pin, expiresAt, phaseNumber: phase }
       writePinStore(projectPath, pinStore)
 
+      // ── Fase 0: coletar perguntas abertas com requiresHumanDecision ───────────
+      // Lê o plano de migração para identificar todos os itens que precisam de
+      // informação humana antes que as fases seguintes possam executar com sucesso.
+      // O campo pendingHumanDecisions instrui o agente a apresentar cada pergunta
+      // ao usuário ANTES de revelar o PIN (ver description da tool).
+      let pendingHumanDecisions: Array<{
+        id: string
+        phase: number
+        category: string
+        title: string
+        question: string
+        files: string[]
+        blocking: boolean  // true = bloqueia execução da fase sem resposta
+      }> | undefined
+
+      if (phase === 0) {
+        const migDir = join(projectPath, '.jdk-migration')
+        const planPath = join(migDir, 'migration-plan.json')
+        const discoveryPath = join(migDir, 'discovery-report.json')
+
+        try {
+          const plan = existsSync(planPath) ? JSON.parse(readFileSync(planPath, 'utf-8')) : null
+          const discovery = existsSync(discoveryPath) ? JSON.parse(readFileSync(discoveryPath, 'utf-8')) : null
+
+          const decisions: typeof pendingHumanDecisions = []
+
+          // 1. ManualReviewItems com requiresHumanDecision de todas as fases do plano
+          if (plan?.phases) {
+            for (const phasePlan of plan.phases) {
+              for (const item of (phasePlan.manualItems ?? [])) {
+                if (!item.requiresHumanDecision) continue
+                decisions.push({
+                  id: item.id,
+                  phase: phasePlan.number,
+                  category: item.category ?? 'infrastructure',
+                  title: item.title,
+                  question: item.suggestedApproach
+                    ? `${item.description} — ${item.suggestedApproach}`
+                    : item.description,
+                  files: item.files ?? [],
+                  blocking: phasePlan.number <= 1,  // fase 0/1 são bloqueantes
+                })
+              }
+            }
+          }
+
+          // 2. ContainerCi findings com requiresHumanDecision (imagens privadas)
+          const containerFindings: any[] = discovery?.containerCi?.findings ?? []
+          for (const f of containerFindings) {
+            if (!f.requiresHumanDecision) continue
+            // Evita duplicata com o que já veio do plano
+            const alreadyAdded = decisions.some(d => d.files.includes(f.file))
+            if (alreadyAdded) continue
+            decisions.push({
+              id: `container-ci-${f.fileType}-${f.line}`,
+              phase: 1,
+              category: 'infrastructure',
+              title: `Atualizar imagem JDK em ${f.file}`,
+              question: `${f.description} ${f.suggestion}`,
+              files: [f.file],
+              blocking: true,
+            })
+          }
+
+          if (decisions.length > 0) {
+            pendingHumanDecisions = decisions
+          }
+        } catch { /* plano ainda não gerado — não bloqueia */ }
+      }
+
+      const blockingCount = pendingHumanDecisions?.filter(d => d.blocking).length ?? 0
+
       return {
         content: [{
           type: 'text',
@@ -137,6 +215,13 @@ export function registerAuxiliaryTools(server: McpServer): void {
             status: 'awaiting_human_pin',
             phase,
             pinExpiresAt: expiresAt,
+            ...(pendingHumanDecisions && pendingHumanDecisions.length > 0 ? {
+              pendingHumanDecisions,
+              pendingHumanDecisionsNote:
+                `⚠️ ${pendingHumanDecisions.length} item(ns) requerem informação humana antes que as fases seguintes executem com sucesso` +
+                (blockingCount > 0 ? ` (${blockingCount} bloqueante(s) — fases falharão sem resposta)` : '') +
+                '. Apresente cada pergunta ao usuário e registre as respostas ANTES de revelar o PIN abaixo.',
+            } : {}),
             instructions: [
               '══════════════════════════════════════════════════',
               `  PIN DE APROVAÇÃO — FASE ${phase}`,
