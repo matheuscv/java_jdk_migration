@@ -4,6 +4,115 @@ import { MigrationError } from '../lib/errors.js'
 import { runProcess } from '../lib/process-runner.js'
 import type { MigrationAuditResult } from '../static-analysis/migration-audit.js'
 
+// ─── Grupo de critérios para o checklist MD ──────────────────────────────────
+const AUDIT_GROUPS: Array<{ prefix: string; label: string; ids: string[] }> = [
+  { prefix: 'A', label: 'Build & Infraestrutura (A1–A8)', ids: ['compiler-version','javax-imports','spring-boot-version','internal-deps','container-ci','runtime-evidence','obsolete-props','output-bytecode'] },
+  { prefix: 'C', label: 'Análise Avançada (C1–C12)',     ids: ['actual-bytecode','sun-internal-imports','security-manager','removed-jvm-flags','nashorn','add-opens','annotation-processors','finalize-override','mvn-jvm-config','serialization-risk','javax-script','reflective-internal'] },
+  { prefix: 'D', label: 'Fechamento (D1–D5)',             ids: ['removed-apis','bytecode-manip-libs','maven-plugin-versions','maven-jdk-profiles','k8s-manifests'] },
+]
+
+/**
+ * Gera audit-report-phase-0.md (baseline pré-migração) ou
+ * audit-report-phase-5.md (resultado pós-migração com [X] nos critérios ok).
+ * Não lança exceção.
+ */
+export function generateAuditChecklist(
+  migrationDir: string,
+  audit: MigrationAuditResult,
+  phase: 0 | 5,
+  config: any,
+): void {
+  try {
+    const sourceJdk = config?.sourceJdk ?? '?'
+    const targetJdk = audit.targetJdk ?? '21'
+    const generatedAt = new Date(audit.generatedAt).toISOString().slice(0, 10)
+    const isBaseline = phase === 0
+
+    const title = isBaseline
+      ? `# Auditoria de Migração JDK — Baseline (Fase 0 — Pré-Migração)`
+      : `# Auditoria de Migração JDK — Resultado Final (Fase 5 — Pós-Migração)`
+
+    const intro = isBaseline
+      ? `> ℹ️  Este é o **baseline pré-migração**. Registra o estado inicial do projeto para rastreamento.\n> Itens marcados \`[ ]\` = pendentes. Após a Fase 5 será gerado \`audit-report-phase-5.md\` com o resultado final.`
+      : (() => {
+          const finalStatus = audit.allOk
+            ? `> ✅ **STATUS FINAL: PROJETO MIGRADO COM SUCESSO** — Todos os ${audit.criteria.length} critérios atendidos.`
+            : `> ❌ **STATUS FINAL: PROJETO APRESENTA ISSUES QUE AINDA O LIGA A JDK ${sourceJdk}** — ${audit.summary.fail} falha(s) e ${audit.summary.warning} aviso(s) detectados.`
+          return finalStatus
+        })()
+
+    const criteriaMap = new Map(audit.criteria.map(c => [c.id, c]))
+
+    const groupsHtml = AUDIT_GROUPS.map(g => {
+      const lines: string[] = [`## Grupo ${g.prefix} — ${g.label}`]
+      g.ids.forEach((id, idx) => {
+        const num = `${g.prefix}${idx + 1}`
+        const c = criteriaMap.get(id)
+        if (!c) return
+        const checked = !isBaseline && c.status === 'ok' ? 'X' : ' '
+        const icon = c.status === 'ok' ? '✅' : c.status === 'warning' ? '⚠️' : '❌'
+        const statusStr = isBaseline ? '' : ` ${icon}`
+        lines.push(`- [${checked}] **${num}** — ${c.label}${statusStr}`)
+        if (c.detail) lines.push(`  > ${c.detail}`)
+        if (!isBaseline && c.action && c.status !== 'ok') lines.push(`  > 💡 ${c.action}`)
+      })
+      return lines.join('\n')
+    }).join('\n\n')
+
+    const summaryRows = AUDIT_GROUPS.flatMap(g =>
+      g.ids.map((id, idx) => {
+        const num = `${g.prefix}${idx + 1}`
+        const c = criteriaMap.get(id)
+        if (!c) return ''
+        const icon = c.status === 'ok' ? '✅ OK' : c.status === 'warning' ? '⚠️ Atenção' : '❌ Falha'
+        const detail = c.detail.length > 90 ? c.detail.slice(0, 87) + '...' : c.detail
+        return `| ${num} | ${c.label} | ${icon} | ${detail} |`
+      }).filter(Boolean)
+    ).join('\n')
+
+    const summaryBlock = [
+      '## Resumo dos 25 Critérios',
+      '',
+      `| # | Critério | Status | Detalhe |`,
+      `|---|---------|--------|---------|`,
+      summaryRows,
+    ].join('\n')
+
+    const finalBanner = !isBaseline
+      ? [
+          '---',
+          '',
+          audit.allOk
+            ? `## ✅ STATUS FINAL: PROJETO MIGRADO COM SUCESSO\n\nTodos os ${audit.criteria.length} critérios de auditoria foram atendidos. O projeto não possui artefatos ligados ao JDK ${sourceJdk}.`
+            : `## ❌ STATUS FINAL: PROJETO APRESENTA ISSUES QUE AINDA O LIGA A JDK ${sourceJdk}\n\n${audit.summary.fail} critério(s) com falha e ${audit.summary.warning} com atenção. Revise os itens acima antes do cutover.`,
+          '',
+        ].join('\n')
+      : ''
+
+    const md = [
+      title,
+      '',
+      `> Gerado em: ${generatedAt} | JDK ${sourceJdk} → ${targetJdk}`,
+      intro,
+      '',
+      '---',
+      '',
+      groupsHtml,
+      '',
+      '---',
+      '',
+      summaryBlock,
+      '',
+      finalBanner,
+    ].join('\n')
+
+    const filename = isBaseline ? 'audit-report-phase-0.md' : 'audit-report-phase-5.md'
+    writeFileSync(join(migrationDir, filename), md, 'utf-8')
+  } catch {
+    // Falha silenciosa
+  }
+}
+
 export interface AuditReportResult {
   reportPath: string
   phasesCompleted: number
@@ -584,7 +693,7 @@ function buildHtml(ctx: BuildContext): string {
   ${buildStepProgress(ctx)}
   ${buildManualItems(allManualItems)}
   ${buildExecutionPlan(allRiskItems, allManualItems)}
-  ${migrationAudit ? buildMigrationAuditSection(migrationAudit) : ''}
+  ${migrationAudit ? buildMigrationAuditSection(migrationAudit, config?.sourceJdk ?? discovery?.sourceJdk ?? '?') : ''}
   ${buildAuditTrail(ctx)}
 
   <footer>
@@ -1304,15 +1413,15 @@ function buildStepProgress(ctx: BuildContext): string {
   </section>`
 }
 
-function buildMigrationAuditSection(audit: MigrationAuditResult): string {
+function buildMigrationAuditSection(audit: MigrationAuditResult, sourceJdk: string = '?'): string {
   const { criteria, summary, allOk, generatedAt, targetJdk } = audit
   const sectionClass = allOk ? 'audit-ok' : 'audit-section'
 
   const iconMap: Record<string, string> = { ok: '✅', warning: '⚠️', fail: '❌' }
 
   const banner = allOk
-    ? `<div class="audit-clean-banner">✅ O PROJETO NÃO APRESENTA NENHUM ARTEFATO QUE SEJA RELACIONADO A JDK &lt;&gt; 21 - AUDITORIA APROVADA.</div>`
-    : `<div class="audit-blocker-banner">⚠️ O PROJETO AINDA APRESENTA ISSUES QUE PODEM SER IDENTIFICADOS EM UMA AUDITORIA FORMAL.</div>`
+    ? `<div class="audit-clean-banner">✅ STATUS FINAL: PROJETO MIGRADO COM SUCESSO — todos os ${criteria.length} critérios de auditoria foram atendidos.</div>`
+    : `<div class="audit-blocker-banner">❌ STATUS FINAL: PROJETO APRESENTA ISSUES QUE AINDA O LIGA A JDK ${escHtml(sourceJdk)} — ${summary.fail} falha(s) e ${summary.warning} aviso(s) detectados. Revise os itens abaixo antes do cutover.</div>`
 
   const pillsHtml = `
     <div class="audit-summary-bar">

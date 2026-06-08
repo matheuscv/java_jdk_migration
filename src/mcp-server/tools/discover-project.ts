@@ -11,6 +11,8 @@ import { correlate, getEntriesForJdk } from '../../knowledge-base/index.js'
 import { getProfilersForStacks } from '../../orchestrator/profiler-registry.js'
 import { detectTools, buildMissingToolsMessage, serializeTools, extractSourceJdkHome, extractTargetJdkHome } from '../../lib/tool-detector.js'
 import { runSourceBuild } from '../../orchestrator/build-validator.js'
+import { runMigrationAudit } from '../../static-analysis/migration-audit.js'
+import { generateAuditChecklist } from '../../report-generator/index.js'
 import { findCompiledClasses } from '../../static-analysis/jdeprscan-runner.js'
 import { enrichContainerFindings } from '../../static-analysis/container-registry-enricher.js'
 import type { ProfilerReport } from '../../profilers/types.js'
@@ -314,6 +316,13 @@ async function discoverProject(
   }
 
   writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8')
+
+  // 8b. Auditoria baseline (Fase 0) — gera audit-report-phase-0.md com os 25 critérios
+  try {
+    const baselineAudit = await runMigrationAudit(projectPath, '21')
+    const partialConfig = { sourceJdk, targetJdk: '21' }
+    generateAuditChecklist(reportDir, baselineAudit, 0, partialConfig)
+  } catch { /* não bloqueia a descoberta */ }
 
   // 9. Create jdk-migration.config.json if not present + ensure .gitignore entries
   if (!configExists(projectPath)) {

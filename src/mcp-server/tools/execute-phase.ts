@@ -15,7 +15,7 @@ import {
 } from '../../orchestrator/git-checkpoint.js'
 import { runBuild, runTests } from '../../orchestrator/build-validator.js'
 import { executePhaseTransform } from '../../transform-engine/index.js'
-import { generateAuditReportSilent } from '../../report-generator/index.js'
+import { generateAuditReportSilent, generateAuditChecklist } from '../../report-generator/index.js'
 import { runMigrationAudit } from '../../static-analysis/migration-audit.js'
 import type { PhaseNumber } from '../../types.js'
 
@@ -260,6 +260,14 @@ async function _executePhaseUnlocked(
   if (phase === 5) {
     try {
       migrationAudit = await runMigrationAudit(projectPath, config.targetJdk ?? '21')
+      // Gera audit-report-phase-5.md com [X] nos critérios atendidos
+      const { join } = await import('node:path')
+      generateAuditChecklist(
+        join(projectPath, '.jdk-migration'),
+        migrationAudit,
+        5,
+        config,
+      )
     } catch { /* não bloqueia a fase */ }
   }
 
