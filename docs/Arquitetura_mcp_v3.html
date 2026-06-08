@@ -1,0 +1,1797 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arquitetura v3 — jdk-migration-mcp</title>
+  <style>
+    :root {
+      --java-orange: #f89820;
+      --java-blue:   #5382a1;
+      --java-dark:   #1a1a2e;
+      --java-darker: #0f0f1a;
+      --accent-green:  #00d68f;
+      --accent-red:    #ff4757;
+      --accent-yellow: #ffd32a;
+      --accent-purple: #a55eea;
+      --accent-cyan:   #00c8e0;
+      --text-primary:   #e8eaf6;
+      --text-secondary: #9e9e9e;
+      --card-bg:     #1e1e3a;
+      --card-border: #2d2d5a;
+      --code-bg:     #0d1117;
+      --phase-0: #00d68f;
+      --phase-1: #5382a1;
+      --phase-2: #ffd32a;
+      --phase-3: #f89820;
+      --phase-4: #ff6b35;
+      --phase-5: #a55eea;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--java-darker);
+      color: var(--text-primary);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    ::selection { background: rgba(248,152,32,0.35); color: #fff; }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 11px; height: 11px; }
+    ::-webkit-scrollbar-track { background: #0a0a14; }
+    ::-webkit-scrollbar-thumb { background: linear-gradient(var(--java-blue), var(--java-orange)); border-radius: 6px; }
+
+    /* ── HERO ── */
+    .hero {
+      position: relative;
+      min-height: 440px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 70px 20px 90px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #0f0f1a 0%, #1a1a3e 50%, #0f1a2e 100%);
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 40%, rgba(83,130,161,0.20) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 50% at 80% 60%, rgba(248,152,32,0.18) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    /* animated grid backdrop */
+    .hero::after {
+      content: '';
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(83,130,161,0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(83,130,161,0.06) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: radial-gradient(ellipse 60% 80% at 50% 30%, #000 10%, transparent 75%);
+      animation: gridDrift 24s linear infinite;
+      pointer-events: none;
+    }
+    @keyframes gridDrift {
+      from { background-position: 0 0, 0 0; }
+      to   { background-position: 44px 44px, 44px 44px; }
+    }
+    .hero > * { position: relative; z-index: 1; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(248,152,32,0.15);
+      border: 1px solid rgba(248,152,32,0.4);
+      color: var(--java-orange);
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 6px 16px; border-radius: 20px; margin-bottom: 24px;
+      animation: fadeInDown 0.6s ease;
+    }
+    .hero h1 {
+      font-size: clamp(2.1rem, 5.5vw, 3.4rem);
+      font-weight: 800;
+      background: linear-gradient(135deg, #fff 0%, var(--java-orange) 55%, var(--java-blue) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.2; margin-bottom: 16px;
+      animation: fadeInDown 0.7s ease;
+    }
+    .hero-sub {
+      font-size: 1.08rem; color: var(--text-secondary);
+      max-width: 720px; animation: fadeInDown 0.8s ease;
+    }
+    .hero-arrow {
+      display: inline-flex; align-items: center; gap: 10px;
+      margin-top: 26px; padding: 8px 20px;
+      background: rgba(0,214,143,0.08);
+      border: 1px solid rgba(0,214,143,0.3);
+      border-radius: 30px; font-size: 0.95rem; font-weight: 600;
+      animation: fadeInDown 0.85s ease;
+    }
+    .hero-arrow .from { color: var(--java-orange); }
+    .hero-arrow .to   { color: var(--accent-cyan); }
+    .hero-arrow .sep  { color: var(--accent-green); font-size: 1.2rem; }
+    .hero-pills {
+      margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap;
+      justify-content: center; animation: fadeInDown 0.9s ease;
+    }
+    .pill {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text-secondary);
+      font-size: 0.78rem; padding: 4px 14px; border-radius: 20px;
+    }
+    .pill.green  { border-color: rgba(0,214,143,0.4);  color: var(--accent-green);  background: rgba(0,214,143,0.08); }
+    .pill.orange { border-color: rgba(248,152,32,0.4);  color: var(--java-orange);   background: rgba(248,152,32,0.08); }
+    .pill.blue   { border-color: rgba(83,130,161,0.4);  color: var(--java-blue);     background: rgba(83,130,161,0.08); }
+    .pill.purple { border-color: rgba(165,94,234,0.4);  color: var(--accent-purple); background: rgba(165,94,234,0.08); }
+    .pill.cyan   { border-color: rgba(0,200,224,0.4);   color: var(--accent-cyan);   background: rgba(0,200,224,0.08); }
+
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255,71,87,0.4); }
+      50%      { box-shadow: 0 0 0 8px rgba(255,71,87,0); }
+    }
+
+    /* reveal on scroll */
+    .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.6s ease, transform 0.6s ease; }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    /* ── CONTAINER ── */
+    .container { max-width: 1140px; margin: 0 auto; padding: 0 24px 100px; }
+
+    /* ── TOC ── */
+    .toc {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 26px 30px;
+      margin-top: 50px;
+    }
+    .toc h3 { font-size: 0.95rem; color: var(--java-orange); margin-bottom: 16px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .toc-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 8px 22px;
+    }
+    .toc-grid a {
+      display: flex; align-items: center; gap: 10px;
+      color: var(--text-secondary); text-decoration: none;
+      font-size: 0.86rem; padding: 6px 8px; border-radius: 8px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .toc-grid a:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+    .toc-grid a .num {
+      width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(248,152,32,0.14); color: var(--java-orange);
+      font-size: 0.72rem; font-weight: 700;
+    }
+
+    /* ── SECTION TITLE ── */
+    .section-title {
+      display: flex; align-items: center; gap: 14px;
+      margin: 66px 0 30px; scroll-margin-top: 20px;
+    }
+    .section-number {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--java-orange), var(--java-blue));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 1rem; flex-shrink: 0;
+      box-shadow: 0 6px 18px rgba(248,152,32,0.25);
+    }
+    .section-title h2 { font-size: 1.55rem; font-weight: 700; color: #fff; }
+    .section-title p   { font-size: 0.9rem; color: var(--text-secondary); margin-top: 2px; }
+
+    /* ── LAYER ARCHITECTURE ── */
+    .arch-layers {
+      display: flex; flex-direction: column; gap: 0;
+      border-radius: 18px; overflow: hidden;
+      border: 1px solid var(--card-border);
+    }
+    .arch-layer {
+      display: flex; align-items: stretch;
+      border-bottom: 1px solid var(--card-border);
+      transition: background 0.2s;
+    }
+    .arch-layer:last-child { border-bottom: none; }
+    .arch-layer:hover .layer-body { background: rgba(255,255,255,0.03); }
+    .layer-label {
+      width: 172px; flex-shrink: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 18px 12px; gap: 8px;
+      border-right: 1px solid var(--card-border);
+      text-align: center;
+    }
+    .layer-icon { font-size: 1.7rem; }
+    .layer-name { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; }
+    .layer-desc { font-size: 0.62rem; color: var(--text-secondary); }
+    .layer-body {
+      flex: 1; padding: 18px 24px;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+      background: var(--card-bg);
+    }
+    .layer-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 10px;
+      font-size: 0.8rem; font-weight: 600; border: 1px solid;
+      white-space: nowrap; transition: transform 0.15s;
+    }
+    .layer-chip:hover { transform: translateY(-2px); }
+    .layer-chip.new::after {
+      content: 'NOVO'; font-size: 0.55rem; font-weight: 800;
+      background: var(--accent-green); color: #04231a;
+      padding: 1px 5px; border-radius: 5px; letter-spacing: 0.05em;
+    }
+
+    .l-mcp    .layer-label { background: rgba(248,152,32,0.12); }
+    .l-mcp    .layer-name  { color: var(--java-orange); }
+    .l-mcp    .layer-chip  { background: rgba(248,152,32,0.12); border-color: rgba(248,152,32,0.35); color: #fbb347; }
+    .l-skill  .layer-label { background: rgba(0,200,224,0.10); }
+    .l-skill  .layer-name  { color: var(--accent-cyan); }
+    .l-skill  .layer-chip  { background: rgba(0,200,224,0.10); border-color: rgba(0,200,224,0.35); color: var(--accent-cyan); }
+    .l-orch   .layer-label { background: rgba(83,130,161,0.15); }
+    .l-orch   .layer-name  { color: var(--java-blue); }
+    .l-orch   .layer-chip  { background: rgba(83,130,161,0.12); border-color: rgba(83,130,161,0.35); color: #7eb8d8; }
+    .l-prof   .layer-label { background: rgba(0,214,143,0.10); }
+    .l-prof   .layer-name  { color: var(--accent-green); }
+    .l-prof   .layer-chip  { background: rgba(0,214,143,0.10); border-color: rgba(0,214,143,0.35); color: var(--accent-green); }
+    .l-eng    .layer-label { background: rgba(255,107,53,0.12); }
+    .l-eng    .layer-name  { color: #ff6b35; }
+    .l-eng    .layer-chip  { background: rgba(255,107,53,0.10); border-color: rgba(255,107,53,0.35); color: #ff8c5a; }
+    .l-static .layer-label { background: rgba(165,94,234,0.12); }
+    .l-static .layer-name  { color: var(--accent-purple); }
+    .l-static .layer-chip  { background: rgba(165,94,234,0.10); border-color: rgba(165,94,234,0.35); color: #c490f0; }
+    .l-kb     .layer-label { background: rgba(255,211,42,0.10); }
+    .l-kb     .layer-name  { color: var(--accent-yellow); }
+    .l-kb     .layer-chip  { background: rgba(255,211,42,0.08); border-color: rgba(255,211,42,0.35); color: var(--accent-yellow); }
+
+    /* ── FLOW DIAGRAM ── */
+    .flow-wrap {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 36px 28px;
+      overflow-x: auto;
+    }
+    .flow { display: flex; flex-direction: column; align-items: center; gap: 0; min-width: 600px; }
+    .fn { display: flex; flex-direction: column; align-items: center; gap: 0; width: 100%; }
+    .fnode {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 22px; border-radius: 14px;
+      border: 2px solid; width: 100%; max-width: 680px;
+      position: relative; cursor: default;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .fnode:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .fnode-icon { font-size: 1.3rem; flex-shrink: 0; }
+    .fnode-content { flex: 1; }
+    .fnode-title { font-size: 0.92rem; font-weight: 700; }
+    .fnode-sub   { font-size: 0.78rem; margin-top: 2px; opacity: 0.78; }
+    .fnode-badge {
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.07em;
+      text-transform: uppercase; padding: 3px 9px; border-radius: 8px;
+      flex-shrink: 0; border: 1px solid;
+    }
+    .fn-start  { background: rgba(0,214,143,0.12); border-color: rgba(0,214,143,0.45); }
+    .fn-start  .fnode-title { color: var(--accent-green); }
+    .fn-start  .fnode-badge { background: rgba(0,214,143,0.15); border-color: rgba(0,214,143,0.4); color: var(--accent-green); }
+    .fn-tool   { background: rgba(248,152,32,0.10); border-color: rgba(248,152,32,0.40); }
+    .fn-tool   .fnode-title { color: #fbb347; }
+    .fn-tool   .fnode-badge { background: rgba(248,152,32,0.12); border-color: rgba(248,152,32,0.4); color: var(--java-orange); }
+    .fn-gate   { background: rgba(255,71,87,0.10); border-color: rgba(255,71,87,0.45); }
+    .fn-gate   .fnode-title { color: var(--accent-red); }
+    .fn-gate   .fnode-badge { background: rgba(255,71,87,0.12); border-color: rgba(255,71,87,0.4); color: var(--accent-red); }
+    .fn-pin    { background: rgba(255,211,42,0.08); border-color: rgba(255,211,42,0.45); }
+    .fn-pin    .fnode-title { color: var(--accent-yellow); }
+    .fn-pin    .fnode-badge { background: rgba(255,211,42,0.12); border-color: rgba(255,211,42,0.4); color: var(--accent-yellow); }
+    .fn-phase  { background: rgba(83,130,161,0.12); border-color: rgba(83,130,161,0.45); }
+    .fn-phase  .fnode-title { color: #7eb8d8; }
+    .fn-phase  .fnode-badge { background: rgba(83,130,161,0.14); border-color: rgba(83,130,161,0.4); color: var(--java-blue); }
+    .fn-auto   { background: rgba(165,94,234,0.10); border-color: rgba(165,94,234,0.45); }
+    .fn-auto   .fnode-title { color: #c490f0; }
+    .fn-auto   .fnode-badge { background: rgba(165,94,234,0.12); border-color: rgba(165,94,234,0.4); color: var(--accent-purple); }
+    .fn-end    { background: rgba(0,214,143,0.12); border-color: rgba(0,214,143,0.45); }
+    .fn-end    .fnode-title { color: var(--accent-green); }
+    .fn-branch { width: 100%; max-width: 680px; display: flex; gap: 12px; }
+    .fn-branch-box { flex: 1; padding: 12px 16px; border-radius: 12px; border: 1px dashed; font-size: 0.8rem; }
+    .fn-branch-box.ok   { background: rgba(0,214,143,0.07); border-color: rgba(0,214,143,0.35); color: var(--accent-green); }
+    .fn-branch-box.fail { background: rgba(255,71,87,0.07);  border-color: rgba(255,71,87,0.35);  color: var(--accent-red);   }
+    .fn-branch-box .bb-label { font-weight: 700; margin-bottom: 4px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .farrow { display: flex; flex-direction: column; align-items: center; margin: 2px 0; gap: 0; }
+    .farrow-line { width: 2px; height: 28px; background: linear-gradient(to bottom, rgba(83,130,161,0.5), rgba(248,152,32,0.5)); }
+    .farrow-head { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid rgba(248,152,32,0.6); }
+    .farrow-label { font-size: 0.68rem; color: var(--text-secondary); letter-spacing: 0.04em; margin-top: 4px; }
+
+    /* ── PHASES GRID ── */
+    .phases-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+    .phase-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px; overflow: hidden; transition: border-color 0.2s, transform 0.15s; }
+    .phase-card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.15); }
+    .phase-header { padding: 16px 20px; display: flex; align-items: center; gap: 12px; }
+    .phase-num-badge { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; flex-shrink: 0; }
+    .phase-header-text .phase-name { font-size: 0.95rem; font-weight: 700; color: #fff; }
+    .phase-header-text .phase-crit { font-size: 0.72rem; margin-top: 2px; opacity: 0.78; }
+    .phase-body { padding: 0 20px 18px; }
+    .phase-tags { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+    .phase-tag { font-size: 0.68rem; font-weight: 600; padding: 3px 9px; border-radius: 7px; border: 1px solid; text-transform: uppercase; letter-spacing: 0.05em; }
+    .phase-items { list-style: none; }
+    .phase-items li { font-size: 0.82rem; color: var(--text-secondary); padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; align-items: flex-start; gap: 8px; }
+    .phase-items li:last-child { border-bottom: none; }
+    .phase-items li::before { content: '▸'; color: var(--java-orange); flex-shrink: 0; margin-top: 1px; }
+    .phase-gate-row { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: rgba(255,71,87,0.07); border: 1px solid rgba(255,71,87,0.22); font-size: 0.76rem; color: #ff9aa5; display: flex; gap: 8px; align-items: flex-start; }
+    .phase-gate-row strong { color: var(--accent-red); }
+
+    .ph0 .phase-header { background: rgba(0,214,143,0.10); }
+    .ph0 .phase-num-badge { background: rgba(0,214,143,0.20); color: var(--phase-0); }
+    .ph0 .phase-tag { background: rgba(0,214,143,0.10); border-color: rgba(0,214,143,0.35); color: var(--phase-0); }
+    .ph1 .phase-header { background: rgba(83,130,161,0.12); }
+    .ph1 .phase-num-badge { background: rgba(83,130,161,0.22); color: var(--phase-1); }
+    .ph1 .phase-tag { background: rgba(83,130,161,0.10); border-color: rgba(83,130,161,0.35); color: var(--phase-1); }
+    .ph2 .phase-header { background: rgba(255,211,42,0.08); }
+    .ph2 .phase-num-badge { background: rgba(255,211,42,0.18); color: var(--phase-2); }
+    .ph2 .phase-tag { background: rgba(255,211,42,0.08); border-color: rgba(255,211,42,0.35); color: var(--phase-2); }
+    .ph3 .phase-header { background: rgba(248,152,32,0.10); }
+    .ph3 .phase-num-badge { background: rgba(248,152,32,0.20); color: var(--phase-3); }
+    .ph3 .phase-tag { background: rgba(248,152,32,0.10); border-color: rgba(248,152,32,0.35); color: var(--phase-3); }
+    .ph4 .phase-header { background: rgba(255,107,53,0.10); }
+    .ph4 .phase-num-badge { background: rgba(255,107,53,0.20); color: var(--phase-4); }
+    .ph4 .phase-tag { background: rgba(255,107,53,0.10); border-color: rgba(255,107,53,0.35); color: var(--phase-4); }
+    .ph5 .phase-header { background: rgba(165,94,234,0.10); }
+    .ph5 .phase-num-badge { background: rgba(165,94,234,0.20); color: var(--phase-5); }
+    .ph5 .phase-tag { background: rgba(165,94,234,0.10); border-color: rgba(165,94,234,0.35); color: var(--phase-5); }
+
+    /* ── TOOLS ── */
+    .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+    .tool-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 18px 20px; transition: border-color 0.2s, transform 0.15s; position: relative; }
+    .tool-card:hover { border-color: rgba(248,152,32,0.35); transform: translateY(-2px); }
+    .tool-card.is-new { border-color: rgba(0,214,143,0.3); }
+    .tool-name { font-family: 'Consolas', 'Fira Code', monospace; font-size: 0.9rem; font-weight: 700; color: var(--java-orange); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    .tool-card.is-new .tool-name { color: var(--accent-green); }
+    .badge-new { font-size: 0.55rem; font-weight: 800; background: var(--accent-green); color: #04231a; padding: 2px 6px; border-radius: 5px; letter-spacing: 0.05em; }
+    .tool-desc { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; }
+    .tool-meta { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+    .tool-tag { font-size: 0.67rem; font-weight: 600; padding: 2px 8px; border-radius: 6px; border: 1px solid; text-transform: uppercase; }
+    .tool-tag.in    { background: rgba(83,130,161,0.12); border-color: rgba(83,130,161,0.3); color: #7eb8d8; }
+    .tool-tag.gate  { background: rgba(255,71,87,0.10);  border-color: rgba(255,71,87,0.3);  color: var(--accent-red); }
+    .tool-tag.auto  { background: rgba(165,94,234,0.10); border-color: rgba(165,94,234,0.3); color: var(--accent-purple); }
+    .tool-tag.human { background: rgba(0,214,143,0.09);  border-color: rgba(0,214,143,0.3);  color: var(--accent-green); }
+    .tool-tag.git   { background: rgba(248,152,32,0.10); border-color: rgba(248,152,32,0.3); color: var(--java-orange); }
+    .tool-tag.yellow{ background: rgba(255,211,42,0.09); border-color: rgba(255,211,42,0.3); color: var(--accent-yellow); }
+
+    /* ── GENERIC TABLE ── */
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th { background: rgba(255,255,255,0.04); color: var(--text-secondary); font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 11px 14px; border-bottom: 1px solid var(--card-border); text-align: left; }
+    .data-table td { padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.83rem; vertical-align: top; }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .data-table code { font-family: 'Consolas','Fira Code',monospace; font-size: 0.78rem; background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 5px; color: #fbb347; }
+    .table-wrap { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px; overflow: hidden; overflow-x: auto; }
+
+    .stk-name { font-weight: 700; color: #fff; }
+    .stk-level { display: inline-block; padding: 2px 10px; border-radius: 8px; font-size: 0.7rem; font-weight: 700; border: 1px solid; }
+    .stk-level.low      { background: rgba(0,214,143,0.10); border-color: rgba(0,214,143,0.35); color: var(--accent-green); }
+    .stk-level.medium   { background: rgba(255,211,42,0.08); border-color: rgba(255,211,42,0.35); color: var(--accent-yellow); }
+    .stk-level.high     { background: rgba(248,152,32,0.10); border-color: rgba(248,152,32,0.35); color: var(--java-orange); }
+    .stk-level.critical { background: rgba(255,71,87,0.10);  border-color: rgba(255,71,87,0.35);  color: var(--accent-red); }
+    .stk-auto { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; }
+    .stk-auto.yes { color: var(--accent-green); }
+    .stk-auto.partial { color: var(--accent-yellow); }
+    .stk-auto.no  { color: var(--accent-red); }
+
+    .res-ok    { color: var(--accent-green); font-weight: 700; }
+    .res-warn  { color: var(--accent-yellow); font-weight: 700; }
+    .res-err   { color: var(--accent-red); font-weight: 700; }
+
+    /* ── PRINCIPLES ── */
+    .principles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+    .principle-card { background: var(--card-bg); border: 1px solid var(--card-border); border-left: 3px solid var(--java-orange); border-radius: 12px; padding: 18px 20px; transition: transform 0.15s; }
+    .principle-card:hover { transform: translateY(-2px); }
+    .principle-icon { font-size: 1.4rem; margin-bottom: 8px; }
+    .principle-title { font-size: 0.92rem; font-weight: 700; color: #fff; margin-bottom: 6px; }
+    .principle-desc  { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.55; }
+
+    /* ── STATE MACHINE ── */
+    .gate-flow { display: flex; align-items: center; gap: 0; overflow-x: auto; padding: 24px 0; }
+    .gate-step { display: flex; flex-direction: column; align-items: center; min-width: 132px; text-align: center; padding: 0 8px; }
+    .gate-bubble { width: 62px; height: 62px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin-bottom: 10px; border: 2px solid; }
+    .gate-step-name { font-size: 0.78rem; font-weight: 700; color: #fff; font-family: 'Consolas',monospace; }
+    .gate-step-sub  { font-size: 0.68rem; color: var(--text-secondary); margin-top: 3px; }
+    .gate-connector { flex: 1; min-width: 30px; height: 2px; background: linear-gradient(to right, rgba(83,130,161,0.5), rgba(248,152,32,0.5)); margin-bottom: 28px; position: relative; }
+    .gate-connector::after { content: '▶'; position: absolute; right: -6px; top: -8px; font-size: 0.75rem; color: rgba(248,152,32,0.6); }
+    .gb-pending   { background: rgba(100,116,139,0.15); border-color: rgba(100,116,139,0.4); }
+    .gb-progress  { background: rgba(83,130,161,0.15);  border-color: rgba(83,130,161,0.5); }
+    .gb-awaiting  { background: rgba(255,211,42,0.12);  border-color: rgba(255,211,42,0.5); }
+    .gb-approved  { background: rgba(0,214,143,0.12);   border-color: rgba(0,214,143,0.5); }
+    .gb-completed { background: rgba(0,214,143,0.18);   border-color: rgba(0,214,143,0.6); }
+
+    /* ── TWO-FACTOR GATE ── */
+    .tf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 760px){ .tf-grid { grid-template-columns: 1fr; } }
+    .tf-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px; padding: 22px 24px; }
+    .tf-card h4 { font-size: 1rem; color: #fff; margin-bottom: 4px; display: flex; align-items: center; gap: 9px; }
+    .tf-card .tf-tag { font-size: 0.63rem; font-weight: 800; padding: 2px 7px; border-radius: 6px; letter-spacing: 0.05em; }
+    .tf-pin .tf-tag { background: rgba(255,211,42,0.16); color: var(--accent-yellow); }
+    .tf-token .tf-tag { background: rgba(0,214,143,0.16); color: var(--accent-green); }
+    .tf-card p { font-size: 0.84rem; color: var(--text-secondary); margin-top: 8px; line-height: 1.6; }
+    .tf-spec { list-style: none; margin-top: 12px; }
+    .tf-spec li { font-size: 0.8rem; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; gap: 8px; }
+    .tf-spec li:last-child { border-bottom: none; }
+    .tf-spec li::before { content: '◆'; color: var(--java-orange); font-size: 0.6rem; margin-top: 4px; }
+    .token-format { font-family: 'Consolas',monospace; font-size: 0.8rem; background: var(--code-bg); border: 1px solid #1e2a3a; border-radius: 9px; padding: 12px 14px; margin-top: 12px; color: #7eb8d8; word-break: break-all; }
+    .token-format .tk-p { color: var(--java-orange); }
+    .token-format .tk-h { color: var(--accent-green); }
+
+    /* ── STEP TRACKER ── */
+    .step-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px; }
+    .step-phase { border-radius: 12px; padding: 16px 18px; border: 1px solid; }
+    .step-phase .sp-letter { font-size: 1.5rem; font-weight: 800; }
+    .step-phase .sp-name { font-size: 0.9rem; font-weight: 700; color: #fff; margin: 4px 0; }
+    .step-phase .sp-desc { font-size: 0.78rem; color: var(--text-secondary); }
+    .sp-A { background: rgba(0,200,224,0.07); border-color: rgba(0,200,224,0.3); } .sp-A .sp-letter { color: var(--accent-cyan); }
+    .sp-B { background: rgba(248,152,32,0.07); border-color: rgba(248,152,32,0.3); } .sp-B .sp-letter { color: var(--java-orange); }
+    .sp-C { background: rgba(0,214,143,0.07); border-color: rgba(0,214,143,0.3); } .sp-C .sp-letter { color: var(--accent-green); }
+    .sp-D { background: rgba(165,94,234,0.07); border-color: rgba(165,94,234,0.3); } .sp-D .sp-letter { color: var(--accent-purple); }
+
+    /* ── DECISION FLOW (source jdk) ── */
+    .decision-flow { display: flex; flex-direction: column; gap: 0; align-items: center; }
+    .dnode { width: 100%; max-width: 620px; padding: 13px 20px; border-radius: 12px; border: 1px solid; font-size: 0.85rem; display: flex; align-items: center; gap: 12px; }
+    .dnode .didx { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.78rem; flex-shrink: 0; }
+    .dnode-try { background: rgba(83,130,161,0.08); border-color: rgba(83,130,161,0.32); }
+    .dnode-try .didx { background: rgba(83,130,161,0.2); color: #7eb8d8; }
+    .dnode-ok  { background: rgba(0,214,143,0.08); border-color: rgba(0,214,143,0.35); color: var(--accent-green); }
+    .dnode-ok .didx { background: rgba(0,214,143,0.2); color: var(--accent-green); }
+    .dnode-ask { background: rgba(255,211,42,0.07); border-color: rgba(255,211,42,0.35); color: #e8d66b; }
+    .dnode-ask .didx { background: rgba(255,211,42,0.2); color: var(--accent-yellow); }
+    .dnode code { font-family:'Consolas',monospace; font-size:0.78rem; color:#fbb347; }
+    .ddown { color: var(--text-secondary); font-size: 1rem; margin: 5px 0; }
+
+    /* ── INFO BOX ── */
+    .info-box { border-radius: 12px; padding: 16px 20px; font-size: 0.85rem; line-height: 1.6; margin-bottom: 20px; display: flex; gap: 12px; align-items: flex-start; }
+    .info-box.warn   { background: rgba(255,211,42,0.08); border: 1px solid rgba(255,211,42,0.3); color: #e8d66b; }
+    .info-box.info   { background: rgba(83,130,161,0.10); border: 1px solid rgba(83,130,161,0.3); color: #aac8de; }
+    .info-box.danger { background: rgba(255,71,87,0.08);  border: 1px solid rgba(255,71,87,0.3);  color: #ff8090; }
+    .info-box.good   { background: rgba(0,214,143,0.07);  border: 1px solid rgba(0,214,143,0.3);  color: #7ee0b8; }
+    .info-box-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+
+    /* ── CODE TREE ── */
+    .code-tree { background: var(--code-bg); border: 1px solid #1e2a3a; border-radius: 14px; padding: 24px 28px; font-family:'Consolas','Fira Code',monospace; font-size: 0.85rem; line-height: 2; overflow-x: auto; }
+    .code-tree .cmt { color: #555; font-family: sans-serif; font-size: 0.75rem; }
+
+    /* ── FOOTER ── */
+    footer { text-align: center; padding: 38px 20px; border-top: 1px solid var(--card-border); color: var(--text-secondary); font-size: 0.8rem; }
+    footer a { color: var(--java-orange); text-decoration: none; }
+
+    /* ── BACK TO TOP ── */
+    #toTop { position: fixed; right: 22px; bottom: 22px; width: 46px; height: 46px; border-radius: 50%; background: linear-gradient(135deg,var(--java-orange),var(--java-blue)); color:#fff; border:none; font-size:1.2rem; cursor:pointer; opacity:0; pointer-events:none; transition: opacity 0.25s, transform 0.15s; box-shadow: 0 6px 20px rgba(0,0,0,0.4); z-index: 50; }
+    #toTop.show { opacity: 1; pointer-events: auto; }
+    #toTop:hover { transform: translateY(-3px); }
+
+    .lead { font-size: 0.96rem; color: var(--text-secondary); margin-bottom: 22px; max-width: 880px; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<div class="hero">
+  <div class="hero-badge">📐 Documento de Arquitetura · v3</div>
+  <h1>jdk-migration-mcp</h1>
+  <p class="hero-sub">
+    Servidor <strong style="color:#fff">Model Context Protocol</strong> que orquestra a migração de
+    aplicações Java legadas com governança <em>human-in-the-loop</em>, gates de aprovação em dois fatores
+    (PIN + token assinado) e controle explícito de JDK de origem e destino.
+  </p>
+  <div class="hero-arrow">
+    <span class="from">JDK 6 / 8</span>
+    <span class="sep">➜</span>
+    <span class="to">JDK 21</span>
+  </div>
+  <div class="hero-pills">
+    <span class="pill orange">v0.3.25</span>
+    <span class="pill green">11 MCP Tools</span>
+    <span class="pill blue">6 Fases · 6 Gates</span>
+    <span class="pill purple">Node ≥ 20</span>
+    <span class="pill cyan">PIN + Token HMAC</span>
+    <span class="pill">OpenRewrite · SBM · Eclipse Transformer</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ═══════════════ TOC ═══════════════ -->
+  <div class="toc">
+    <h3>📑 Índice do documento</h3>
+    <div class="toc-grid">
+      <a href="#s1"><span class="num">1</span> Arquitetura em Camadas</a>
+      <a href="#s2"><span class="num">2</span> Fluxo Ponta a Ponta</a>
+      <a href="#s3"><span class="num">3</span> Ciclo de Vida da Fase</a>
+      <a href="#s4"><span class="num">4</span> As 6 Fases &amp; Gates</a>
+      <a href="#s5"><span class="num">5</span> Controle de JDK (JAVA_HOME)</a>
+      <a href="#s6"><span class="num">6</span> Gate em Dois Fatores</a>
+      <a href="#s7"><span class="num">7</span> As 11 MCP Tools</a>
+      <a href="#s8"><span class="num">8</span> Rastreio de Steps (A/B/C/D)</a>
+      <a href="#s9"><span class="num">9</span> Análise Estática &amp; Container/CI</a>
+      <a href="#s10"><span class="num">10</span> Registry de Dependências</a>
+      <a href="#s11"><span class="num">11</span> Stacks Suportadas</a>
+      <a href="#s12"><span class="num">12</span> Princípios Inegociáveis</a>
+      <a href="#s13"><span class="num">13</span> Artefatos Gerados</a>
+      <a href="#s14"><span class="num">14</span> Isolamento de Branches por Fase</a>
+      <a href="#s15"><span class="num">15</span> Cobertura de Testes</a>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 1 — CAMADAS ═══════════════ -->
+  <div class="section-title" id="s1">
+    <div class="section-number">1</div>
+    <div>
+      <h2>Arquitetura em Camadas</h2>
+      <p>Separação de responsabilidades — da surface MCP à knowledge base. A ferramenta <strong>orquestra</strong>, não reimplementa transformações.</p>
+    </div>
+  </div>
+
+  <p class="lead">
+    Cada camada tem uma responsabilidade única e se comunica apenas com a camada adjacente. O agente de IA toca
+    somente a <strong>MCP Surface</strong>; toda a lógica de governança, isolamento Git e validação de versões de JDK
+    vive em camadas inferiores que o agente não consegue subverter.
+  </p>
+
+  <div class="arch-layers reveal">
+    <div class="arch-layer l-mcp">
+      <div class="layer-label">
+        <span class="layer-icon">🔌</span>
+        <span class="layer-name">MCP Surface</span>
+        <span class="layer-desc">11 tools expostas</span>
+      </div>
+      <div class="layer-body">
+        <span class="layer-chip">discover_project</span>
+        <span class="layer-chip">build_migration_plan</span>
+        <span class="layer-chip">execute_phase</span>
+        <span class="layer-chip">request_gate_approval</span>
+        <span class="layer-chip">approve_gate</span>
+        <span class="layer-chip">get_phase_status</span>
+        <span class="layer-chip">rollback_phase</span>
+        <span class="layer-chip">update_step_status</span>
+        <span class="layer-chip">record_manual_phase</span>
+        <span class="layer-chip">check_internal_dependencies</span>
+        <span class="layer-chip">generate_report</span>
+      </div>
+    </div>
+    <div class="arch-layer l-skill">
+      <div class="layer-label">
+        <span class="layer-icon">⚙️</span>
+        <span class="layer-name">Install Skill</span>
+        <span class="layer-desc">parametrização</span>
+      </div>
+      <div class="layer-body">
+        <span class="layer-chip">Detecta stack &amp; build system</span>
+        <span class="layer-chip">Resolve JDK de origem</span>
+        <span class="layer-chip new">Auto-detecta executável Maven</span>
+        <span class="layer-chip">Grava jdk-migration.config.json</span>
+      </div>
+    </div>
+    <div class="arch-layer l-orch">
+      <div class="layer-label">
+        <span class="layer-icon">🎛️</span>
+        <span class="layer-name">Orchestrator</span>
+        <span class="layer-desc">governança</span>
+      </div>
+      <div class="layer-body">
+        <span class="layer-chip">State Machine</span>
+        <span class="layer-chip">Gate Validator (HMAC)</span>
+        <span class="layer-chip">Git Checkpoint</span>
+        <span class="layer-chip new">Build Validator (JDK-aware)</span>
+        <span class="layer-chip">Profiler Registry</span>
+        <span class="layer-chip new">syncMigrationBranch · PR automático</span>
+      </div>
+    </div>
+    <div class="arch-layer l-prof">
+      <div class="layer-label">
+        <span class="layer-icon">🔬</span>
+        <span class="layer-name">Stack Profilers</span>
+        <span class="layer-desc">por tecnologia</span>
+      </div>
+      <div class="layer-body">
+        <span class="layer-chip">REST Stateless</span>
+        <span class="layer-chip">Spring Boot 2→3</span>
+        <span class="layer-chip">Spring Batch 4→5</span>
+        <span class="layer-chip">EJB (crítico)</span>
+        <span class="layer-chip">JSF / PrimeFaces (crítico)</span>
+        <span class="layer-chip">WebLogic</span>
+        <span class="layer-chip">Jakarta Namespace</span>
+      </div>
+    </div>
+    <div class="arch-layer l-eng">
+      <div class="layer-label">
+        <span class="layer-icon">⚡</span>
+        <span class="layer-name">Transform Engine</span>
+        <span class="layer-desc">aplica recipes</span>
+      </div>
+      <div class="layer-body">
+        <span class="layer-chip">OpenRewrite Runner</span>
+        <span class="layer-chip">SBM Runner</span>
+        <span class="layer-chip">Eclipse Transformer</span>
+        <span class="layer-chip">Build Updater</span>
+        <span class="layer-chip">Recipe Selector</span>
+      </div>
+    </div>
+    <div class="arch-layer l-static">
+      <div class="layer-label">
+        <span class="layer-icon">🔍</span>
+        <span class="layer-name">Static Analysis</span>
+        <span class="layer-desc">diagnóstico</span>
+      </div>
+      <div class="layer-body">
+        <span class="layer-chip">jdeprscan</span>
+        <span class="layer-chip">jdeps</span>
+        <span class="layer-chip">Source Scanner</span>
+        <span class="layer-chip new">Container/CI Scanner</span>
+        <span class="layer-chip new">Registry Enricher</span>
+      </div>
+    </div>
+    <div class="arch-layer l-kb">
+      <div class="layer-label">
+        <span class="layer-icon">📚</span>
+        <span class="layer-name">Knowledge Base</span>
+        <span class="layer-desc">índices</span>
+      </div>
+      <div class="layer-body">
+        <span class="layer-chip">jdk6-to-21.json</span>
+        <span class="layer-chip">jdk8-to-21.json</span>
+        <span class="layer-chip">spring-boot-2-to-3.json</span>
+        <span class="layer-chip">APIs removidas por versão</span>
+        <span class="layer-chip">JEPs referenciados</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 2 — FLUXO ═══════════════ -->
+  <div class="section-title" id="s2">
+    <div class="section-number">2</div>
+    <div>
+      <h2>Fluxo de Execução Ponta a Ponta</h2>
+      <p>Da instalação ao cutover — com aprovação humana em dois fatores antes de cada fase</p>
+    </div>
+  </div>
+
+  <div class="flow-wrap reveal">
+    <div class="flow">
+
+      <div class="fn">
+        <div class="fnode fn-start">
+          <span class="fnode-icon">🚀</span>
+          <div class="fnode-content">
+            <div class="fnode-title">Install Skill — Configuração inicial</div>
+            <div class="fnode-sub">Detecta stack, JDK de origem e build system · Auto-detecta executável Maven · Grava <code>jdk-migration.config.json</code></div>
+          </div>
+          <span class="fnode-badge">Skill</span>
+        </div>
+      </div>
+      <div class="farrow"><div class="farrow-line"></div><div class="farrow-head"></div></div>
+
+      <div class="fn">
+        <div class="fnode fn-tool">
+          <span class="fnode-icon">🔭</span>
+          <div class="fnode-content">
+            <div class="fnode-title">discover_project (Fase 0)</div>
+            <div class="fnode-sub">Detecta &amp; valida JDKs (source ≠ 21, target = 21) · Compila com <strong>sourceJdkHome</strong> · jdeprscan / jdeps / source-scanner · Scan de Docker/CI · Correlaciona com Knowledge Base · Salva <code>discovery-report.json</code></div>
+          </div>
+          <span class="fnode-badge">MCP Tool</span>
+        </div>
+      </div>
+      <div class="farrow"><div class="farrow-line"></div><div class="farrow-head"></div></div>
+
+      <div class="fn">
+        <div class="fnode fn-tool">
+          <span class="fnode-icon">📋</span>
+          <div class="fnode-content">
+            <div class="fnode-title">build_migration_plan</div>
+            <div class="fnode-sub">Consolida diagnóstico em plano faseado · Seleciona recipes por stack · Estima esforço · Persiste <code>migration-plan.json</code></div>
+          </div>
+          <span class="fnode-badge">MCP Tool</span>
+        </div>
+      </div>
+      <div class="farrow"><div class="farrow-line"></div><div class="farrow-head"></div><div class="farrow-label">documento revisável gerado</div></div>
+
+      <div class="fn">
+        <div class="fnode fn-pin">
+          <span class="fnode-icon">📟</span>
+          <div class="fnode-content">
+            <div class="fnode-title">request_gate_approval — gera PIN de 6 dígitos</div>
+            <div class="fnode-sub">PIN salvo em <code>.gate-pins.json</code> (fora do alcance da IA) · Válido por 30 min · Exibido ao responsável técnico</div>
+          </div>
+          <span class="fnode-badge">Fator 1</span>
+        </div>
+      </div>
+      <div class="farrow"><div class="farrow-line"></div><div class="farrow-head"></div><div class="farrow-label">humano digita o PIN</div></div>
+
+      <div class="fn">
+        <div class="fnode fn-gate" style="animation: pulse 2.5s infinite;">
+          <span class="fnode-icon">🔐</span>
+          <div class="fnode-content">
+            <div class="fnode-title">approve_gate — aprovação humana obrigatória</div>
+            <div class="fnode-sub">Valida PIN (uso único) · Bloqueia nomes de sistemas automatizados · Emite token HMAC assinado para a fase seguinte</div>
+          </div>
+          <span class="fnode-badge">Fator 2 · Gate</span>
+        </div>
+      </div>
+      <div class="farrow"><div class="farrow-line"></div><div class="farrow-head"></div></div>
+
+      <div class="fn">
+        <div class="fnode fn-phase">
+          <span class="fnode-icon">⚡</span>
+          <div class="fnode-content">
+            <div class="fnode-title">execute_phase (Fases 1 → 5)</div>
+            <div class="fnode-sub">
+              Valida token do gate · Cria branch Git isolada · Aplica transformações (OpenRewrite / SBM / Eclipse Transformer) ·
+              <strong>Build + testes com targetJdkHome (JDK 21)</strong> · Commit na branch · Status → <em>awaiting_gate</em> · <code>dryRun</code> disponível
+            </div>
+          </div>
+          <span class="fnode-badge">MCP Tool</span>
+        </div>
+      </div>
+      <div class="farrow"><div class="farrow-line"></div><div class="farrow-head"></div></div>
+
+      <div class="fn">
+        <div class="fn-branch">
+          <div class="fn-branch-box fail">
+            <div class="bb-label">❌ Build / Tests falham</div>
+            Status → <strong>failed</strong><br>
+            Rollback automático para branch base<br>
+            Branch de fase preservada como evidência<br>
+            <em>Fallback:</em> <code>record_manual_phase</code> se ambiente quebrar
+          </div>
+          <div class="fn-branch-box ok">
+            <div class="bb-label">✅ Build + Tests passam</div>
+            Commit registrado na branch de fase<br>
+            PR criado automaticamente (se <code>gh</code> disponível)<br>
+            Audit report gerado em <code>.jdk-migration/</code>
+          </div>
+        </div>
+      </div>
+      <div class="farrow"><div class="farrow-line"></div><div class="farrow-head"></div><div class="farrow-label">caminho de sucesso → repete PIN + gate para a próxima fase</div></div>
+
+      <div class="fn">
+        <div class="fnode fn-auto">
+          <span class="fnode-icon">📊</span>
+          <div class="fnode-content">
+            <div class="fnode-title">Geração automática de Audit Report</div>
+            <div class="fnode-sub">Após cada <em>execute_phase</em>, <em>approve_gate</em>, <em>record_manual_phase</em> e (se <code>phase-gate-step</code>) cada <em>update_step_status</em> · Salvo como <code>audit-report-&lt;ts&gt;.html</code></div>
+          </div>
+          <span class="fnode-badge">Auto</span>
+        </div>
+      </div>
+      <div class="farrow"><div class="farrow-line"></div><div class="farrow-head"></div></div>
+
+      <div class="fn">
+        <div class="fnode fn-end">
+          <span class="fnode-icon">🏁</span>
+          <div class="fnode-content">
+            <div class="fnode-title">Fase 5 — Validação Final &amp; Cutover</div>
+            <div class="fnode-sub">Sign-off da liderança técnica E funcional · approve_gate da Fase 5 emite <code>audit-report-final.html</code> · Merge para a branch principal</div>
+          </div>
+          <span class="fnode-badge">Concluído</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════ 3 — CICLO DE VIDA ═══════════════ -->
+  <div class="section-title" id="s3">
+    <div class="section-number">3</div>
+    <div>
+      <h2>Ciclo de Vida de uma Fase (State Machine)</h2>
+      <p>7 estados possíveis — transições controladas, rollback automático em falha</p>
+    </div>
+  </div>
+
+  <div class="flow-wrap reveal">
+    <div class="gate-flow">
+      <div class="gate-step">
+        <div class="gate-bubble gb-pending">⏳</div>
+        <div class="gate-step-name">pending</div>
+        <div class="gate-step-sub">Estado inicial</div>
+      </div>
+      <div class="gate-connector"></div>
+      <div class="gate-step">
+        <div class="gate-bubble gb-progress">⚙️</div>
+        <div class="gate-step-name">in_progress</div>
+        <div class="gate-step-sub">execute_phase rodando</div>
+      </div>
+      <div class="gate-connector"></div>
+      <div class="gate-step">
+        <div class="gate-bubble gb-awaiting">🔔</div>
+        <div class="gate-step-name">awaiting_gate</div>
+        <div class="gate-step-sub">Build OK · aguarda PIN+gate</div>
+      </div>
+      <div class="gate-connector"></div>
+      <div class="gate-step">
+        <div class="gate-bubble gb-approved">✅</div>
+        <div class="gate-step-name">approved</div>
+        <div class="gate-step-sub">Token emitido pelo humano</div>
+      </div>
+      <div class="gate-connector"></div>
+      <div class="gate-step">
+        <div class="gate-bubble gb-completed">🏆</div>
+        <div class="gate-step-name">completed</div>
+        <div class="gate-step-sub">Próxima fase iniciada</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:240px;padding:14px 18px;background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.3);border-radius:10px;font-size:0.83rem;">
+        <div style="color:var(--accent-red);font-weight:700;margin-bottom:6px;">❌ <code style="color:inherit">failed</code> — caminho de falha</div>
+        <div style="color:var(--text-secondary);">
+          <code>in_progress</code> → <code>failed</code>: build ou testes falham<br>
+          Rollback automático para a branch base<br>
+          Branch de fase preservada para auditoria
+        </div>
+      </div>
+      <div style="flex:1;min-width:240px;padding:14px 18px;background:rgba(255,107,53,0.08);border:1px solid rgba(255,107,53,0.3);border-radius:10px;font-size:0.83rem;">
+        <div style="color:#ff6b35;font-weight:700;margin-bottom:6px;">↩️ <code style="color:inherit">rolled_back</code> — rollback manual</div>
+        <div style="color:var(--text-secondary);">
+          <code>rollback_phase</code>: volta à branch base sob demanda<br>
+          Disponível em <code>in_progress</code>, <code>awaiting_gate</code> ou <code>failed</code>
+        </div>
+      </div>
+      <div style="flex:1;min-width:240px;padding:14px 18px;background:rgba(83,130,161,0.08);border:1px solid rgba(83,130,161,0.3);border-radius:10px;font-size:0.83rem;">
+        <div style="color:#7eb8d8;font-weight:700;margin-bottom:6px;">🔧 <code style="color:inherit">awaiting_gate</code> via manual</div>
+        <div style="color:var(--text-secondary);">
+          <code>record_manual_phase</code>: registra trabalho feito fora do MCP<br>
+          Avança <code>pending/in_progress/failed</code> → <code>awaiting_gate</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 4 — FASES ═══════════════ -->
+  <div class="section-title" id="s4">
+    <div class="section-number">4</div>
+    <div>
+      <h2>As 6 Fases da Migração &amp; seus Gates</h2>
+      <p>Cada fase tem criticidade, nível de automação e um gate de aprovação humana específico</p>
+    </div>
+  </div>
+
+  <div class="phases-grid">
+
+    <div class="phase-card ph0 reveal">
+      <div class="phase-header">
+        <div class="phase-num-badge">0</div>
+        <div class="phase-header-text">
+          <div class="phase-name">Descoberta &amp; Baseline</div>
+          <div class="phase-crit" style="color:var(--phase-0)">Criticidade: Baixa · Automação: Alta</div>
+        </div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-tags">
+          <span class="phase-tag">Sem alteração de código</span>
+          <span class="phase-tag">jdeprscan · jdeps</span>
+        </div>
+        <ul class="phase-items">
+          <li>Detecta e valida JDKs (source 6/8 + target 21) na máquina</li>
+          <li>Compila o projeto com o JDK de origem para alimentar o jdeprscan</li>
+          <li>Inventário de riscos + scan de Dockerfile/CI + correlação com knowledge base</li>
+        </ul>
+        <div class="phase-gate-row">🔐 <div><strong>Gate 0:</strong> humano aprova o plano e confirma cobertura de testes ≥ 80%</div></div>
+      </div>
+    </div>
+
+    <div class="phase-card ph1 reveal">
+      <div class="phase-header">
+        <div class="phase-num-badge">1</div>
+        <div class="phase-header-text">
+          <div class="phase-name">Infraestrutura &amp; Build</div>
+          <div class="phase-crit" style="color:var(--phase-1)">Criticidade: Baixa · Automação: Alta</div>
+        </div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-tags">
+          <span class="phase-tag">Build Updater</span>
+          <span class="phase-tag">Mecânico</span>
+        </div>
+        <ul class="phase-items">
+          <li>Atualiza compiler target <code>1.8</code> → <code>21</code> no pom.xml / build.gradle</li>
+          <li>Ajusta plugin versions e toolchain do Maven/Gradle</li>
+          <li>Build executado já com o <strong>targetJdkHome (JDK 21)</strong></li>
+        </ul>
+        <div class="phase-gate-row">🔐 <div><strong>Gate 1:</strong> build verde no JDK 21 (<code>mvn clean compile</code> sem erros)</div></div>
+      </div>
+    </div>
+
+    <div class="phase-card ph2 reveal">
+      <div class="phase-header">
+        <div class="phase-num-badge">2</div>
+        <div class="phase-header-text">
+          <div class="phase-name">Modernização de Linguagem</div>
+          <div class="phase-crit" style="color:var(--phase-2)">Criticidade: Média · Automação: Alta</div>
+        </div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-tags">
+          <span class="phase-tag">OpenRewrite</span>
+          <span class="phase-tag">UpgradeToJava21</span>
+        </div>
+        <ul class="phase-items">
+          <li>Recipe <code>UpgradeToJava21</code> — APIs deprecadas e removidas</li>
+          <li>Modernização de sintaxe: try-with-resources, diamond operator, switch</li>
+          <li>dryRun recomendado para preview do diff</li>
+        </ul>
+        <div class="phase-gate-row">🔐 <div><strong>Gate 2:</strong> diff revisado pelo responsável técnico + testes verdes</div></div>
+      </div>
+    </div>
+
+    <div class="phase-card ph3 reveal">
+      <div class="phase-header">
+        <div class="phase-num-badge">3</div>
+        <div class="phase-header-text">
+          <div class="phase-name">Namespace Jakarta &amp; Frameworks</div>
+          <div class="phase-crit" style="color:var(--phase-3)">Criticidade: Alta · Automação: Alta</div>
+        </div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-tags">
+          <span class="phase-tag">OpenRewrite</span>
+          <span class="phase-tag">SBM</span>
+          <span class="phase-tag">dryRun obrigatório</span>
+        </div>
+        <ul class="phase-items">
+          <li><code>javax.*</code> → <code>jakarta.*</code> em todos os namespaces</li>
+          <li>Spring Boot 2→3, Spring Security 6, Spring Batch 5</li>
+          <li>check_internal_dependencies valida libs internas antes</li>
+        </ul>
+        <div class="phase-gate-row">🔐 <div><strong>Gate 3:</strong> aplicação sobe no servidor alvo + smoke tests passando</div></div>
+      </div>
+    </div>
+
+    <div class="phase-card ph4 reveal">
+      <div class="phase-header">
+        <div class="phase-num-badge">4</div>
+        <div class="phase-header-text">
+          <div class="phase-name">Refatoração Semântica Assistida</div>
+          <div class="phase-crit" style="color:var(--phase-4)">Criticidade: Crítica · Automação: Baixa/Nenhuma</div>
+        </div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-tags">
+          <span class="phase-tag">Manual EJB / JSF</span>
+          <span class="phase-tag">Sinaliza apenas</span>
+        </div>
+        <ul class="phase-items">
+          <li>EJB @Stateful / JTA: nenhuma automação — refatoração manual</li>
+          <li>JSF / PrimeFaces: namespace automático, revisão visual de XHTML</li>
+          <li>record_manual_phase registra o trabalho manual de forma auditável</li>
+        </ul>
+        <div class="phase-gate-row">🔐 <div><strong>Gate 4:</strong> paridade funcional confirmada item a item (técnico + funcional)</div></div>
+      </div>
+    </div>
+
+    <div class="phase-card ph5 reveal">
+      <div class="phase-header">
+        <div class="phase-num-badge">5</div>
+        <div class="phase-header-text">
+          <div class="phase-name">Validação Final &amp; Cutover</div>
+          <div class="phase-crit" style="color:var(--phase-5)">Criticidade: Média · Automação: Alta</div>
+        </div>
+      </div>
+      <div class="phase-body">
+        <div class="phase-tags">
+          <span class="phase-tag">generate_report</span>
+          <span class="phase-tag">audit-report-final</span>
+        </div>
+        <ul class="phase-items">
+          <li>Relatório consolidado com trilha de auditoria completa</li>
+          <li>Validação de performance e segurança em homologação</li>
+          <li>approve_gate desta fase gera o <code>audit-report-final.html</code> fixo</li>
+        </ul>
+        <div class="phase-gate-row">🔐 <div><strong>Gate 5:</strong> sign-off formal da liderança técnica E funcional</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════ 5 — CONTROLE DE JDK ═══════════════ -->
+  <div class="section-title" id="s5">
+    <div class="section-number">5</div>
+    <div>
+      <h2>Controle de JDK — JAVA_HOME · sourceJdkHome · targetJdkHome</h2>
+      <p>Como o MCP separa o JDK de origem do projeto do JDK 21 de destino — sem depender do JAVA_HOME global</p>
+    </div>
+  </div>
+
+  <p class="lead">
+    O processo MCP normalmente roda com <code>JAVA_HOME</code> apontando para o <strong>JDK 21</strong>. Depender desse
+    valor para detectar o JDK do projeto-alvo seria um erro: confundiria origem com destino. Por isso o MCP mantém
+    <strong>dois conceitos independentes</strong>, cada um com regras de validação rígidas.
+  </p>
+
+  <div class="tf-grid reveal" style="margin-bottom:24px;">
+    <div class="tf-card" style="border-left:3px solid var(--java-orange);">
+      <h4><span style="font-size:1.2rem;">🟠</span> sourceJdkHome <span class="tf-tag" style="background:rgba(248,152,32,0.16);color:var(--java-orange);">ORIGEM</span></h4>
+      <p>JDK da aplicação que será migrada — <strong>sempre JDK 6 ou 8, NUNCA 21</strong>. Usado na Fase 0 para compilar o
+      projeto antes do jdeprscan, garantindo análise de bytecode completa.</p>
+      <ul class="tf-spec">
+        <li>Busca casada com a versão do projeto (6 ou 8)</li>
+        <li><strong>Nunca</strong> usa <code>JAVA_HOME</code> direto — evita pegar o JDK 21</li>
+        <li>Se um candidato for versão 21, é <strong>rejeitado</strong></li>
+        <li>Cadeia: <code>SOURCE_JAVA_HOME</code> → <code>JAVA_HOME_8</code>/<code>JDK_8</code> → paths comuns → pede ao usuário</li>
+      </ul>
+    </div>
+    <div class="tf-card" style="border-left:3px solid var(--accent-cyan);">
+      <h4><span style="font-size:1.2rem;">🔵</span> targetJdkHome <span class="tf-tag" style="background:rgba(0,200,224,0.16);color:var(--accent-cyan);">DESTINO</span></h4>
+      <p>JDK de destino — <strong>sempre e somente JDK 21</strong>. Usado pelas fases 1–5 para compilar e validar a aplicação
+      já modernizada.</p>
+      <ul class="tf-spec">
+        <li>Valida que o candidato é realmente versão 21</li>
+        <li>Qualquer versão ≠ 21 é descartada</li>
+        <li>Cadeia: <code>JAVA_HOME_21</code>/<code>JDK_21</code> → <code>JAVA_HOME</code> → paths comuns → PATH</li>
+        <li>Se ausente, o MCP solicita o path do JDK 21 ao usuário</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="info-box info">
+    <span class="info-box-icon">🧬</span>
+    <div>
+      <strong>Isolamento por processo filho:</strong> ao compilar, o MCP monta um <code>env</code> dedicado para o processo do
+      Maven/Gradle — <code>JAVA_HOME</code> e <code>PATH</code> são reescritos apontando para o JDK correto (origem na Fase 0,
+      destino nas Fases 1–5). O <code>JAVA_HOME</code> do próprio processo MCP <strong>nunca é alterado</strong>.
+    </div>
+  </div>
+
+  <h3 style="font-size:1.05rem;color:#fff;margin:30px 0 14px;">🔎 Cadeia de detecção do <code style="color:var(--java-orange)">sourceJdkHome</code></h3>
+  <div class="flow-wrap reveal" style="padding:28px 24px;">
+    <div class="decision-flow">
+      <div class="dnode dnode-try"><span class="didx">1</span><div>Override do usuário via <code>toolOverrides</code>: <code>SOURCE_JAVA_HOME</code>, <code>JAVA_HOME_8</code>, <code>JAVA_HOME_6</code></div></div>
+      <div class="ddown">▼ não encontrado</div>
+      <div class="dnode dnode-try"><span class="didx">2</span><div>Variáveis de ambiente dedicadas: <code>SOURCE_JAVA_HOME</code>, <code>JDK_8</code>, <code>JAVA_HOME_1_8</code> …</div></div>
+      <div class="ddown">▼ não encontrado</div>
+      <div class="dnode dnode-try"><span class="didx">3</span><div>Varredura de paths comuns de instaladores: <code>zulu-8</code>, <code>temurin-8</code>, <code>jdk1.8.0</code>, <code>/usr/lib/jvm/...</code></div></div>
+      <div class="ddown">▼ candidato encontrado</div>
+      <div class="dnode dnode-ok"><span class="didx">✓</span><div><strong>Valida a versão:</strong> coincide com a do projeto (6/8) e <strong>não</strong> é 21 → aceito</div></div>
+      <div class="ddown">▼ nada válido encontrado</div>
+      <div class="dnode dnode-ask"><span class="didx">?</span><div><strong>Solicita ao usuário:</strong> "O projeto usa JDK 8 mas não localizei o path — informe <code>SOURCE_JAVA_HOME</code> via toolOverrides"</div></div>
+    </div>
+  </div>
+
+  <h3 style="font-size:1.05rem;color:#fff;margin:34px 0 14px;">📊 Tabela de cenários simulados</h3>
+  <div class="table-wrap reveal">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Projeto-alvo</th>
+          <th>JAVA_HOME (processo MCP)</th>
+          <th>SOURCE_JAVA_HOME</th>
+          <th>→ sourceJdkHome detectado</th>
+          <th>→ targetJdkHome detectado</th>
+          <th>Resultado</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1</strong></td>
+          <td>JDK 8</td>
+          <td><code>zulu-21</code></td>
+          <td><code>zulu-8</code></td>
+          <td><code>zulu-8</code> <span style="color:var(--text-secondary)">(via SOURCE_JAVA_HOME)</span></td>
+          <td><code>zulu-21</code> <span style="color:var(--text-secondary)">(via JAVA_HOME)</span></td>
+          <td><span class="res-ok">✔ Ideal</span><br><span style="color:var(--text-secondary);font-size:0.76rem">Fase 0 compila com JDK 8; fases 1–5 com JDK 21</span></td>
+        </tr>
+        <tr>
+          <td><strong>2</strong></td>
+          <td>JDK 8</td>
+          <td><code>zulu-21</code></td>
+          <td><em>não definido</em></td>
+          <td><code>zulu-8</code> <span style="color:var(--text-secondary)">(varredura de paths)</span></td>
+          <td><code>zulu-21</code></td>
+          <td><span class="res-ok">✔ Auto-detectado</span><br><span style="color:var(--text-secondary);font-size:0.76rem">JDK 8 encontrado em path comum de instalador</span></td>
+        </tr>
+        <tr>
+          <td><strong>3</strong></td>
+          <td>JDK 8</td>
+          <td><code>zulu-21</code></td>
+          <td><em>não definido</em></td>
+          <td><span class="res-warn">not_found</span> → pede ao usuário</td>
+          <td><code>zulu-21</code></td>
+          <td><span class="res-warn">⚠ Solicita input</span><br><span style="color:var(--text-secondary);font-size:0.76rem">MCP pede SOURCE_JAVA_HOME via toolOverrides</span></td>
+        </tr>
+        <tr>
+          <td><strong>4</strong></td>
+          <td>JDK 8</td>
+          <td><code>zulu-21</code></td>
+          <td><code>zulu-21</code> <span style="color:var(--accent-red)">(errado)</span></td>
+          <td><span class="res-err">rejeitado</span> (nunca aceita 21) → pede correto</td>
+          <td><code>zulu-21</code></td>
+          <td><span class="res-err">✘ Bloqueado</span><br><span style="color:var(--text-secondary);font-size:0.76rem">Candidato 21 ignorado; exige JDK 8 real</span></td>
+        </tr>
+        <tr>
+          <td><strong>5</strong></td>
+          <td>JDK 8</td>
+          <td><code>zulu-8</code></td>
+          <td><code>zulu-8</code></td>
+          <td><code>zulu-8</code></td>
+          <td><span class="res-warn">not_found</span> → pede <code>JAVA_HOME_21</code></td>
+          <td><span class="res-warn">⚠ Solicita input</span><br><span style="color:var(--text-secondary);font-size:0.76rem">JDK 21 não localizado; MCP pede o path</span></td>
+        </tr>
+        <tr>
+          <td><strong>6</strong></td>
+          <td>JDK 6</td>
+          <td><code>zulu-21</code></td>
+          <td><code>zulu-6</code></td>
+          <td><code>zulu-6</code> <span style="color:var(--text-secondary)">(busca JDK 6 específica)</span></td>
+          <td><code>zulu-21</code></td>
+          <td><span class="res-ok">✔ Ideal</span><br><span style="color:var(--text-secondary);font-size:0.76rem">Busca casa com a versão 6 do projeto</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="height:18px"></div>
+  <div class="info-box good">
+    <span class="info-box-icon">💡</span>
+    <div>
+      Os paths resolvidos são persistidos em <code>jdk-migration.config.json</code> (<code>sourceJdkHome</code> / <code>targetJdkHome</code>)
+      e expostos no <code>discovery-report.json</code> dentro de <code>detectedTools</code>. Uma vez gravados, tornam a migração
+      <strong>reproduzível</strong> sem depender do ambiente — e podem ser corrigidos manualmente se necessário.
+    </div>
+  </div>
+
+  <!-- ═══════════════ 6 — GATE DOIS FATORES ═══════════════ -->
+  <div class="section-title" id="s6">
+    <div class="section-number">6</div>
+    <div>
+      <h2>Gate de Aprovação em Dois Fatores</h2>
+      <p>PIN humano (fator 1) + token HMAC assinado (fator 2) — impossível de uma automação burlar</p>
+    </div>
+  </div>
+
+  <p class="lead">
+    Nenhuma fase avança sem aprovação humana real. O MCP impõe isso com dois mecanismos independentes que se complementam:
+    um <strong>PIN efêmero</strong> que só o humano vê e digita, e um <strong>token criptográfico</strong> que prova que o gate foi
+    legitimamente aprovado.
+  </p>
+
+  <div class="tf-grid reveal">
+    <div class="tf-card tf-pin">
+      <h4>📟 Fator 1 — PIN de Aprovação <span class="tf-tag">request_gate_approval</span></h4>
+      <p>Gera um PIN aleatório de 6 dígitos exibido ao responsável técnico. O agente de IA <strong>não tem acesso</strong> ao
+      arquivo onde o PIN é armazenado.</p>
+      <ul class="tf-spec">
+        <li>PIN de 6 dígitos via <code>crypto.randomInt</code></li>
+        <li>Salvo em <code>.jdk-migration/.gate-pins.json</code> — nunca retornado por nenhuma tool</li>
+        <li>Validade de <strong>30 minutos</strong>; expira automaticamente</li>
+        <li>Uso único — consumido na validação bem-sucedida</li>
+        <li>Só pode ser gerado se a fase estiver em <code>awaiting_gate</code></li>
+      </ul>
+    </div>
+    <div class="tf-card tf-token">
+      <h4>🔏 Fator 2 — Token HMAC <span class="tf-tag">approve_gate</span></h4>
+      <p>Após validar o PIN e o nome do aprovador, emite um token assinado por HMAC-SHA256 derivado do caminho do projeto.</p>
+      <ul class="tf-spec">
+        <li>Bloqueia nomes de sistemas (bot, claude, ci, ai, gpt…)</li>
+        <li>Assinatura HMAC-SHA256 com segredo derivado do <code>projectPath</code></li>
+        <li>Validade de <strong>30 dias</strong>; timestamp embutido para auditoria</li>
+        <li>Único por fase — exigido pelo <code>execute_phase</code> da fase seguinte</li>
+        <li><code>timingSafeEqual</code> contra ataques de timing</li>
+      </ul>
+      <div class="token-format">
+        <span class="tk-p">jdkm</span>.1.<span style="color:var(--accent-yellow)">{phase}</span>.<span style="color:var(--accent-cyan)">{issuedAtHex}</span>.<span class="tk-h">{hmac32}</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:18px"></div>
+  <div class="info-box danger">
+    <span class="info-box-icon">🛡️</span>
+    <div>
+      <strong>Por que dois fatores?</strong> O PIN garante presença humana no momento da aprovação (algo que o humano sabe e
+      digita). O token garante integridade e rastreabilidade ao longo do tempo (algo assinado que prova a aprovação). Mesmo
+      que um agente tente chamar <code>approve_gate</code> sozinho, ele não conhece o PIN — que vive em um arquivo fora do seu alcance.
+    </div>
+  </div>
+
+  <!-- ═══════════════ 7 — TOOLS ═══════════════ -->
+  <div class="section-title" id="s7">
+    <div class="section-number">7</div>
+    <div>
+      <h2>As 11 MCP Tools — Referência Completa</h2>
+      <p>Tudo que o servidor expõe ao agente de IA · <span style="color:var(--accent-green)">●</span> = novas desde v0.3.x</p>
+    </div>
+  </div>
+
+  <div class="tools-grid">
+
+    <div class="tool-card">
+      <div class="tool-name">discover_project</div>
+      <div class="tool-desc">Escaneia a aplicação sem alterá-la. Detecta e valida JDKs (origem/destino), compila com o JDK de origem, roda jdeprscan/jdeps/source-scanner, varre Docker/CI e correlaciona com a knowledge base. Primeiro comando da migração.</div>
+      <div class="tool-meta">
+        <span class="tool-tag in">Input: projectPath · toolOverrides</span>
+        <span class="tool-tag auto">Sem alteração de código</span>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">build_migration_plan</div>
+      <div class="tool-desc">Consolida o relatório de descoberta em plano faseado com gates. Seleciona recipes por stack, estima esforço em dias e persiste <code>migration-plan.json</code>. Requer discover_project anterior.</div>
+      <div class="tool-meta">
+        <span class="tool-tag in">Input: projectPath</span>
+        <span class="tool-tag auto">Gera migration-plan.json</span>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">execute_phase</div>
+      <div class="tool-desc">Aplica uma fase aprovada. Valida o gate token, <strong>cria branch <code>jdk-migration/phase-N-YYYYMMDDHHMMSS</code></strong> antes de qualquer alteração, aplica transformações, executa build + testes com o JDK 21, commita e abre PR via <code>syncMigrationBranch</code> (se <code>gh</code> disponível). Suporta <code>dryRun</code>. Rollback automático em falha — branch preservada como evidência.</div>
+      <div class="tool-meta">
+        <span class="tool-tag gate">Exige gate token (fase &gt; 0)</span>
+        <span class="tool-tag git">Branch jdk-migration/phase-N-&lt;ts&gt;</span>
+        <span class="tool-tag auto">PR automático · Rollback em falha</span>
+      </div>
+    </div>
+
+    <div class="tool-card is-new">
+      <div class="tool-name">request_gate_approval <span class="badge-new">NOVO</span></div>
+      <div class="tool-desc">Gera um PIN de 6 dígitos exibido ao responsável técnico, armazenado fora do alcance da IA. Deve ser chamado antes de approve_gate; o humano fornece o PIN de volta. Validade de 30 minutos.</div>
+      <div class="tool-meta">
+        <span class="tool-tag yellow">Fator 1 · PIN</span>
+        <span class="tool-tag human">Exige fase awaiting_gate</span>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">approve_gate</div>
+      <div class="tool-desc">Registra a aprovação humana e emite o token HMAC que libera a fase seguinte. <strong>Nunca por automação</strong> — rejeita nomes de sistemas e exige o PIN de 6 dígitos. Gera audit report (final na Fase 5).</div>
+      <div class="tool-meta">
+        <span class="tool-tag human">Human-only</span>
+        <span class="tool-tag gate">Fator 2 · Token</span>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">get_phase_status</div>
+      <div class="tool-desc">Retorna o status atual de todas as 6 fases: pending, in_progress, awaiting_gate, approved, completed, failed ou rolled_back — com branches, commits e datas de aprovação. Read-only.</div>
+      <div class="tool-meta">
+        <span class="tool-tag in">Read-only</span>
+        <span class="tool-tag auto">Sem efeito colateral</span>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">rollback_phase</div>
+      <div class="tool-desc">Reverte uma fase aplicada via Git — volta à branch base. A branch de fase é preservada como registro de auditoria. Disponível em in_progress, awaiting_gate ou failed. Não requer token.</div>
+      <div class="tool-meta">
+        <span class="tool-tag git">Checkout para branch base</span>
+        <span class="tool-tag auto">Branch fase preservada</span>
+      </div>
+    </div>
+
+    <div class="tool-card is-new">
+      <div class="tool-name">update_step_status <span class="badge-new">NOVO</span></div>
+      <div class="tool-desc">Registra o progresso de um step individual (fases A/B/C/D) dentro da fase ativa. Persiste no config para o relatório HTML. Com <code>reportMode=phase-gate-step</code>, gera um novo audit report a cada chamada.</div>
+      <div class="tool-meta">
+        <span class="tool-tag in">step · owner · phase · status</span>
+        <span class="tool-tag auto">Audit report incremental</span>
+      </div>
+    </div>
+
+    <div class="tool-card is-new">
+      <div class="tool-name">record_manual_phase <span class="badge-new">NOVO</span></div>
+      <div class="tool-desc">Registra uma fase executada manualmente fora do MCP (ex.: execute_phase falhou por EINVAL/ENOENT). Avança para awaiting_gate preservando a trilha, com merge atômico de steps. Não aplica transformações.</div>
+      <div class="tool-meta">
+        <span class="tool-tag git">Branch isolada obrigatória</span>
+        <span class="tool-tag auto">Merge de steps (upsert)</span>
+      </div>
+    </div>
+
+    <div class="tool-card is-new">
+      <div class="tool-name">check_internal_dependencies <span class="badge-new">NOVO</span></div>
+      <div class="tool-desc">Consulta o registry interno (Nexus 3 / Artifactory) para verificar quais dependências internas têm versões compatíveis com Spring Boot 3. Requer <code>artifactRegistry</code> no config.</div>
+      <div class="tool-meta">
+        <span class="tool-tag in">Input: projectPath</span>
+        <span class="tool-tag yellow">Nexus3 / Artifactory</span>
+      </div>
+    </div>
+
+    <div class="tool-card">
+      <div class="tool-name">generate_report</div>
+      <div class="tool-desc">Gera relatório HTML consolidado com trilha de auditoria, registro de riscos, status de fases, progresso de steps e itens manuais. Também disparado automaticamente em fases, gates e steps.</div>
+      <div class="tool-meta">
+        <span class="tool-tag in">Input: projectPath</span>
+        <span class="tool-tag auto">audit-report-&lt;ts&gt;.html</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════ 8 — STEPS ═══════════════ -->
+  <div class="section-title" id="s8">
+    <div class="section-number">8</div>
+    <div>
+      <h2>Rastreio Granular de Steps (A · B · C · D)</h2>
+      <p>Dentro de cada fase, o trabalho é organizado em steps com owner, status e commit — alimentando o relatório</p>
+    </div>
+  </div>
+
+  <p class="lead">
+    Além do estado macro de cada fase, o MCP rastreia <strong>steps individuais</strong> via <code>update_step_status</code> e
+    <code>record_manual_phase</code>. Cada step pertence a uma das quatro sub-fases de execução e tem um responsável
+    (<code>claude</code> ou <code>you</code>), status (<code>done</code>/<code>pending</code>/<code>skipped</code>), commit Git e nota opcional.
+  </p>
+
+  <div class="step-phases reveal">
+    <div class="step-phase sp-A">
+      <div class="sp-letter">A</div>
+      <div class="sp-name">Verificações &amp; Decisões</div>
+      <div class="sp-desc">Pré-condições, análise de impacto e decisões de abordagem antes de tocar o código.</div>
+    </div>
+    <div class="step-phase sp-B">
+      <div class="sp-letter">B</div>
+      <div class="sp-name">Implementação</div>
+      <div class="sp-desc">Aplicação das transformações, edições de código e atualização de dependências.</div>
+    </div>
+    <div class="step-phase sp-C">
+      <div class="sp-letter">C</div>
+      <div class="sp-name">Validação</div>
+      <div class="sp-desc">Build, testes, smoke tests e verificação de paridade funcional.</div>
+    </div>
+    <div class="step-phase sp-D">
+      <div class="sp-letter">D</div>
+      <div class="sp-name">Limpeza</div>
+      <div class="sp-desc">Remoção de código morto, ajustes finais e organização do commit.</div>
+    </div>
+  </div>
+
+  <div style="height:18px"></div>
+  <div class="info-box info">
+    <span class="info-box-icon">⚙️</span>
+    <div>
+      O campo <code>reportMode</code> controla a granularidade dos relatórios automáticos:
+      <code>phase-gate</code> (padrão) gera report ao fim de cada fase e gate; <code>phase-gate-step</code> também gera um novo
+      snapshot HTML a cada step concluído — útil para acompanhamento em tempo real de migrações longas.
+    </div>
+  </div>
+
+  <!-- ═══════════════ 9 — STATIC ANALYSIS ═══════════════ -->
+  <div class="section-title" id="s9">
+    <div class="section-number">9</div>
+    <div>
+      <h2>Análise Estática &amp; Scan de Container/CI</h2>
+      <p>Diagnóstico multinível na Fase 0 — do bytecode aos pipelines de deploy</p>
+    </div>
+  </div>
+
+  <div class="table-wrap reveal">
+    <table class="data-table">
+      <thead>
+        <tr><th>Analisador</th><th>O que faz</th><th>Requer</th><th>Saída</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="stk-name">Source Scanner</span></td>
+          <td>Varre o código-fonte por APIs deprecadas/removidas sem precisar compilar</td>
+          <td>Apenas os fontes</td>
+          <td>Sempre roda — base mínima garantida</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">jdeprscan</span></td>
+          <td>Detecta uso de APIs deprecadas no bytecode compilado (release 21)</td>
+          <td>Classes compiladas + JDK</td>
+          <td>Por isso a Fase 0 compila com o sourceJdkHome</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">jdeps</span></td>
+          <td>Analisa dependências entre pacotes, split-packages e acessos internos do JDK</td>
+          <td>Classes compiladas + JDK</td>
+          <td>Violações de módulo e runtime warnings</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">Container/CI Scanner</span> <span class="badge-new">NOVO</span></td>
+          <td>Varre Dockerfile, docker-compose e pipelines de CI por imagens/JDK incompatíveis</td>
+          <td>Arquivos de infra</td>
+          <td>Findings de imagens base e JDK de pipeline</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">Registry Enricher</span> <span class="badge-new">NOVO</span></td>
+          <td>Enriquece findings de container consultando o registry de artefatos configurado</td>
+          <td>artifactRegistry</td>
+          <td>Reclassifica compatibilidade de imagens</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════════ 10 — REGISTRY ═══════════════ -->
+  <div class="section-title" id="s10">
+    <div class="section-number">10</div>
+    <div>
+      <h2>Verificação de Dependências Internas</h2>
+      <p>check_internal_dependencies consulta Nexus 3 / Artifactory por versões compatíveis com Spring Boot 3</p>
+    </div>
+  </div>
+
+  <p class="lead">
+    Antes da Fase 3 (Jakarta &amp; Frameworks), libs internas da organização podem não ter versão compatível com Spring Boot 3 —
+    o que travaria a migração. A tool <code>check_internal_dependencies</code> consulta o registry configurado e indica, por
+    dependência, se há uma versão provavelmente compatível.
+  </p>
+
+  <div class="table-wrap reveal">
+    <table class="data-table">
+      <thead><tr><th>Campo de <code>artifactRegistry</code></th><th>Descrição</th><th>Exemplo</th></tr></thead>
+      <tbody>
+        <tr><td><code>type</code></td><td>Tipo do registry (ou <code>none</code> para desabilitar)</td><td><code>nexus3</code> · <code>artifactory</code></td></tr>
+        <tr><td><code>url</code></td><td>URL base do registry interno</td><td><code>https://nexus.empresa.local</code></td></tr>
+        <tr><td><code>internalGroupIds</code></td><td>Prefixos de groupId considerados internos</td><td><code>["com.empresa", "com.empresa.plat"]</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="height:18px"></div>
+  <div class="info-box info">
+    <span class="info-box-icon">📦</span>
+    <div>
+      A heurística de compatibilidade usa a data de release do Spring Boot 3.0 GA (24/11/2022) como referência: versões
+      publicadas após essa data têm maior probabilidade de suportar SB3. O resultado é um guia de priorização — não substitui
+      a validação funcional.
+    </div>
+  </div>
+
+  <!-- ═══════════════ 11 — STACKS ═══════════════ -->
+  <div class="section-title" id="s11">
+    <div class="section-number">11</div>
+    <div>
+      <h2>Stacks Suportadas</h2>
+      <p>Nível de automação e estratégia por tecnologia</p>
+    </div>
+  </div>
+
+  <div class="table-wrap reveal">
+    <table class="data-table">
+      <thead>
+        <tr><th>Stack</th><th>Complexidade</th><th>Automação</th><th>Ferramentas</th><th>Observações</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="stk-name">Microservices REST stateless</span></td>
+          <td><span class="stk-level low">Baixa</span></td>
+          <td><span class="stk-auto yes">✔ Alta</span></td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">OpenRewrite UpgradeToJava21</td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">Caso mais simples — totalmente automatizável</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">Spring Boot 2.x</span></td>
+          <td><span class="stk-level high">Alta</span></td>
+          <td><span class="stk-auto yes">✔ Alta (mecânica)</span></td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">OpenRewrite + SBM + jakarta recipes</td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">Revisão obrigatória em Spring Security 6</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">Spring Batch</span></td>
+          <td><span class="stk-level high">Alta</span></td>
+          <td><span class="stk-auto yes">✔ Alta</span></td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">OpenRewrite + validação de jobs</td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">Novo modelo de jobs no Batch 5 requer validação</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">EJB (Stateful / Stateless)</span></td>
+          <td><span class="stk-level critical">Crítica</span></td>
+          <td><span class="stk-auto no">✘ Baixa</span></td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">Apenas sinaliza · Nenhuma recipe automática</td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">@Stateful: redesenho manual. JTA complexo.</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">JSF / PrimeFaces</span></td>
+          <td><span class="stk-level critical">Crítica</span></td>
+          <td><span class="stk-auto partial">◑ Parcial</span></td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">Namespace automático · UI manual</td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">@ManagedBean removido · revisão visual de XHTML</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">WebLogic</span></td>
+          <td><span class="stk-level high">Alta</span></td>
+          <td><span class="stk-auto yes">✔ Alta</span></td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">oracle/rewrite-recipes (oficial)</td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">Recipe JDK roda ANTES do recipe WebLogic</td>
+        </tr>
+        <tr>
+          <td><span class="stk-name">Jakarta Namespace</span></td>
+          <td><span class="stk-level high">Alta</span></td>
+          <td><span class="stk-auto yes">✔ Alta</span></td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">OpenRewrite + Eclipse Transformer</td>
+          <td style="font-size:0.78rem;color:var(--text-secondary)">javax→jakarta; JARs sem equivalente via Transformer</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════════ 12 — PRINCÍPIOS ═══════════════ -->
+  <div class="section-title" id="s12">
+    <div class="section-number">12</div>
+    <div>
+      <h2>Princípios Inegociáveis</h2>
+      <p>Regras de governança que o MCP impõe programaticamente</p>
+    </div>
+  </div>
+
+  <div class="principles-grid">
+    <div class="principle-card">
+      <div class="principle-icon">🔐</div>
+      <div class="principle-title">Gate em Dois Fatores</div>
+      <div class="principle-desc">Nenhuma fase avança sem PIN humano (request_gate_approval) + token HMAC (approve_gate) da fase anterior. PIN fica fora do alcance da IA.</div>
+    </div>
+    <div class="principle-card">
+      <div class="principle-icon">🟠</div>
+      <div class="principle-title">Source JDK Nunca é 21</div>
+      <div class="principle-desc">A detecção do JDK de origem rejeita qualquer candidato versão 21 e nunca usa JAVA_HOME direto — casa com a versão real do projeto (6/8).</div>
+    </div>
+    <div class="principle-card">
+      <div class="principle-icon">🔵</div>
+      <div class="principle-title">Target JDK Sempre 21</div>
+      <div class="principle-desc">O JDK de destino é validado como versão 21. Qualquer outra versão é descartada; se ausente, o MCP solicita o path ao usuário.</div>
+    </div>
+    <div class="principle-card">
+      <div class="principle-icon">🛑</div>
+      <div class="principle-title">EJB: Sem Automação Semântica</div>
+      <div class="principle-desc">Transformações em EJB/JTA nunca são aplicadas automaticamente — o MCP apenas sinaliza e organiza a revisão humana obrigatória.</div>
+    </div>
+    <div class="principle-card">
+      <div class="principle-icon">🌿</div>
+      <div class="principle-title">Branch Git Isolada por Fase</div>
+      <div class="principle-desc">Cada fase opera em <code>jdk-migration/phase-N-&lt;ts&gt;</code>. Nunca há commit direto na branch principal. Rollback automático em falha.</div>
+    </div>
+    <div class="principle-card">
+      <div class="principle-icon">🧪</div>
+      <div class="principle-title">dryRun Antes de Stacks Críticas</div>
+      <div class="principle-desc">O parâmetro <code>dryRun: true</code> permite preview do diff sem aplicar mudanças — recomendado antes de fases de alta/crítica complexidade.</div>
+    </div>
+    <div class="principle-card">
+      <div class="principle-icon">📋</div>
+      <div class="principle-title">Ordem de Recipes Importa</div>
+      <div class="principle-desc">Recipe JDK (UpgradeToJava21) sempre executa antes do recipe WebLogic — ordem oficial Oracle, não pode ser invertida.</div>
+    </div>
+    <div class="principle-card">
+      <div class="principle-icon">👤</div>
+      <div class="principle-title">approve_gate é Humano-Only</div>
+      <div class="principle-desc">A tool rejeita approverNames que identifiquem sistemas (claude, bot, ci, ai, gpt…). O aprovador deve ser uma pessoa real.</div>
+    </div>
+    <div class="principle-card">
+      <div class="principle-icon">🔁</div>
+      <div class="principle-title">Trabalho Manual é Auditável</div>
+      <div class="principle-desc">Quando o ambiente quebra, record_manual_phase registra o trabalho feito na CLI em branch isolada, preservando a trilha de auditoria.</div>
+    </div>
+    <div class="principle-card" style="border-left-color:var(--accent-cyan);">
+      <div class="principle-icon">🔧</div>
+      <div class="principle-title">Protocolo Manual: Branch Antes do Trabalho</div>
+      <div class="principle-desc">Em execuções manuais, a branch <code>jdk-migration/phase-N-YYYYMMDDHHMMSS</code> <strong>deve ser criada antes de qualquer alteração</strong> (<code>git checkout -b</code>). Sem isso, o trabalho fica na branch errada e o rollback independente da fase fica inviável.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 13 — ARTEFATOS ═══════════════ -->
+  <div class="section-title" id="s13">
+    <div class="section-number">13</div>
+    <div>
+      <h2>Artefatos Gerados no Projeto-Alvo</h2>
+      <p>Estrutura criada pelo MCP na raiz da aplicação em migração</p>
+    </div>
+  </div>
+
+  <div class="code-tree reveal">
+    <div style="color:#7eb8d8">projeto-alvo/</div>
+    <div style="color:var(--accent-green);padding-left:20px">├── jdk-migration.config.json <span class="cmt">← state machine + config (fases, JDKs, steps, registry)</span></div>
+    <div style="color:var(--java-orange);padding-left:20px">└── .jdk-migration/</div>
+    <div style="color:#aac8de;padding-left:48px">├── discovery-report.json <span class="cmt">← resultado do discover_project (riscos + detectedTools)</span></div>
+    <div style="color:#aac8de;padding-left:48px">├── migration-plan.json <span class="cmt">← plano faseado do build_migration_plan</span></div>
+    <div style="color:#c490f0;padding-left:48px">├── audit-report-2026-06-06T10-00-00.html <span class="cmt">← snapshot após Fase 0</span></div>
+    <div style="color:#c490f0;padding-left:48px">├── audit-report-2026-06-06T11-30-00.html <span class="cmt">← snapshot após Gate 0 ... (acumula)</span></div>
+    <div style="color:#00d68f;padding-left:48px">├── audit-report-final.html <span class="cmt">← relatório final fixo (gerado no Gate 5)</span></div>
+    <div style="color:var(--accent-red);padding-left:48px">├── .gate-pins.json <span class="cmt">← PINs de aprovação — FORA do alcance da IA</span></div>
+    <div style="color:#555;padding-left:48px">└── lock <span class="cmt">← mutex enquanto execute_phase está rodando</span></div>
+  </div>
+
+  <div style="height:18px"></div>
+  <div class="info-box info">
+    <span class="info-box-icon">🌿</span>
+    <div>
+      Branches Git de fase seguem o padrão <code>jdk-migration/phase-N-YYYYMMDDHHMMSS</code>. Mesmo branches de fases que
+      falharam são preservadas — servem como evidência de auditoria e podem ser inspecionadas com <code>git log --all</code>.
+    </div>
+  </div>
+  <div class="info-box warn">
+    <span class="info-box-icon">⚠️</span>
+    <div>
+      O <code>jdk-migration.config.json</code> contém o estado do state machine. <strong>Nunca edite manualmente os campos
+      <code>phases[N].gateToken</code></strong> — tokens inválidos bloqueiam a fase seguinte e precisam ser regenerados via
+      o fluxo request_gate_approval → approve_gate.
+    </div>
+  </div>
+  <div class="info-box danger">
+    <span class="info-box-icon">🔒</span>
+    <div>
+      O arquivo <code>.gate-pins.json</code> <strong>nunca é retornado por nenhuma MCP tool</strong> — é deliberadamente
+      inacessível ao agente de IA. É o que garante que o fator humano do gate não possa ser contornado por automação.
+    </div>
+  </div>
+
+
+  <!-- ═══════════════ 14 — BRANCHES ═══════════════ -->
+  <div class="section-title" id="s14">
+    <div class="section-number">14</div>
+    <div>
+      <h2>Isolamento de Branches Git por Fase</h2>
+      <p>Cada fase opera em branch própria — rastreabilidade completa e rollback independente sem tocar na branch principal</p>
+    </div>
+  </div>
+
+  <p class="lead">
+    O isolamento por branch é um princípio arquitetural imposto pelo <code>execute_phase</code> e pelo protocolo de execução manual.
+    Nenhum commit vai direto na branch principal durante a migração — o trabalho de cada fase tem sua própria trilha no Git, auditável
+    via <code>git log --all</code> a qualquer momento.
+  </p>
+
+  <div class="tf-grid reveal">
+    <div class="tf-card" style="border-left:3px solid var(--accent-green);">
+      <h4>⚡ Modo automático — <code style="font-size:0.85rem">execute_phase</code></h4>
+      <p>A branch é criada <strong>automaticamente pelo MCP</strong> antes de qualquer transformação.</p>
+      <ul class="tf-spec">
+        <li>Padrão: <code>jdk-migration/phase-N-YYYYMMDDHHMMSS</code></li>
+        <li>Transformações aplicadas exclusivamente nessa branch</li>
+        <li>Commit registrado após build verde com JDK 21</li>
+        <li>PR criado via <code>syncMigrationBranch + gh pr create</code> (se <code>gh</code> disponível)</li>
+        <li>Rollback automático: <code>git checkout &lt;baseBranch&gt;</code> em falha</li>
+        <li>Branch da fase <strong>preservada mesmo em rollback</strong> — evidência de auditoria</li>
+      </ul>
+    </div>
+    <div class="tf-card" style="border-left:3px solid var(--accent-cyan);">
+      <h4>🔧 Modo manual — <code style="font-size:0.85rem">record_manual_phase</code></h4>
+      <p>Quando <code>execute_phase</code> falha por problema ambiental (EINVAL, ENOENT, timeout de Maven), o trabalho é feito na CLI.</p>
+      <ul class="tf-spec">
+        <li>Branch <strong>deve</strong> ser criada <em>antes</em> de qualquer alteração</li>
+        <li><code>git checkout -b jdk-migration/phase-N-YYYYMMDDHHMMSS</code></li>
+        <li>Mesmo padrão de nomenclatura — relatório mostra a branch correta</li>
+        <li>Commit manual na branch criada</li>
+        <li>Registrar com <code>record_manual_phase(branch, commit, note)</code></li>
+        <li>MCP avança status para <code>awaiting_gate</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="height:18px"></div>
+
+  <h3 style="font-size:1.05rem;color:#fff;margin:0 0 14px;">🔀 syncMigrationBranch — PR automático após cada fase</h3>
+  <div class="flow-wrap reveal" style="padding:24px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;min-width:560px;">
+      <div style="background:rgba(0,214,143,0.07);border:1px solid rgba(0,214,143,0.3);border-radius:12px;padding:16px 18px;">
+        <div style="color:var(--accent-green);font-weight:700;font-size:0.88rem;margin-bottom:8px;">1. Build verde</div>
+        <div style="font-size:0.8rem;color:var(--text-secondary);">execute_phase conclui com sucesso. Commit na branch <code style="color:#fbb347">jdk-migration/phase-N-&lt;ts&gt;</code></div>
+      </div>
+      <div style="background:rgba(83,130,161,0.08);border:1px solid rgba(83,130,161,0.3);border-radius:12px;padding:16px 18px;">
+        <div style="color:#7eb8d8;font-weight:700;font-size:0.88rem;margin-bottom:8px;">2. syncMigrationBranch</div>
+        <div style="font-size:0.8rem;color:var(--text-secondary);">Push da branch para o remote e chamada a <code style="color:#fbb347">createPullRequest</code> via <code>gh pr create</code></div>
+      </div>
+      <div style="background:rgba(165,94,234,0.07);border:1px solid rgba(165,94,234,0.3);border-radius:12px;padding:16px 18px;">
+        <div style="color:var(--accent-purple);font-weight:700;font-size:0.88rem;margin-bottom:8px;">3. Status awaiting_gate</div>
+        <div style="font-size:0.8rem;color:var(--text-secondary);">PR aberto no GitHub. Audit report gerado. Gate PIN solicitado ao aprovador humano.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:18px"></div>
+  <div class="info-box warn">
+    <span class="info-box-icon">⚠️</span>
+    <div>
+      <strong>Sem branch antes → trilha quebrada.</strong> Se o trabalho manual é feito na branch de uma fase anterior,
+      o relatório mostra a branch errada, o PR aponta para o diff incorreto e o <code>rollback_phase</code> da nova fase
+      fica inviável de forma independente. Por isso a branch <strong>deve existir antes do primeiro commit</strong>.
+    </div>
+  </div>
+
+  <!-- ═══════════════ 15 — COBERTURA ═══════════════ -->
+  <div class="section-title" id="s15">
+    <div class="section-number">15</div>
+    <div>
+      <h2>Cobertura de Testes</h2>
+      <p>Suite automatizada do próprio servidor MCP — métricas de qualidade da ferramenta</p>
+    </div>
+  </div>
+
+  <p class="lead">
+    O servidor MCP é testado por uma suite própria que cobre as 11 tools, o state machine, o gate validator, o
+    git-checkpoint, os profilers e os scanners. A cobertura é verificada a cada CI run.
+  </p>
+
+  <div class="table-wrap reveal">
+    <table class="data-table">
+      <thead><tr><th>Métrica</th><th>Valor atual</th><th>Meta</th><th>Observação</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Total de testes</strong></td>
+          <td style="color:var(--accent-green);font-weight:700;">714 passing</td>
+          <td>—</td>
+          <td>47 arquivos de teste · Jest</td>
+        </tr>
+        <tr>
+          <td><strong>Statements</strong></td>
+          <td><span class="res-ok">~84%</span></td>
+          <td>≥ 80%</td>
+          <td>Cobertura de linhas executadas</td>
+        </tr>
+        <tr>
+          <td><strong>Branches</strong></td>
+          <td><span class="res-warn">~78.5%</span></td>
+          <td>≥ 80%</td>
+          <td>Caminhos condicionais (if/else, switch)</td>
+        </tr>
+        <tr>
+          <td><strong>Functions</strong></td>
+          <td><span class="res-ok">~88.5%</span></td>
+          <td>≥ 80%</td>
+          <td>Funções e métodos cobertos</td>
+        </tr>
+        <tr>
+          <td><strong>Lines</strong></td>
+          <td><span class="res-ok">~84%</span></td>
+          <td>≥ 80%</td>
+          <td>Linhas físicas cobertas</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="height:18px"></div>
+  <div class="info-box info">
+    <span class="info-box-icon">🧪</span>
+    <div>
+      A cobertura de <strong>branches (~78.5%)</strong> está ligeiramente abaixo da meta de 80% — os caminhos descobertos
+      estão concentrados em caminhos de erro de network do registry enricher e fallbacks do scanner de CI. Meta de atingir
+      ≥ 80% na próxima sprint.
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<footer>
+  <div>
+    <strong style="color:var(--java-orange)">jdk-migration-mcp</strong> v0.3.25 &nbsp;·&nbsp;
+    <a href="https://www.npmjs.com/package/jdk-migration-mcp" target="_blank">npmjs.com/package/jdk-migration-mcp</a> &nbsp;·&nbsp;
+    <a href="https://github.com/matheuscv/java_jdk_migration" target="_blank">github.com/matheuscv/java_jdk_migration</a>
+  </div>
+  <div style="margin-top:8px;color:#555;">
+    Documento de arquitetura v3 · gerado em 08/06/2026 &nbsp;·&nbsp; 11 MCP Tools · 6 Fases · Gate em dois fatores · Branch por fase · 714 testes
+  </div>
+</footer>
+
+<button id="toTop" aria-label="Voltar ao topo">↑</button>
+
+<script>
+  // Reveal on scroll
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
+  }, { threshold: 0.08 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  // Back to top
+  const toTop = document.getElementById('toTop');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 600) toTop.classList.add('show'); else toTop.classList.remove('show');
+  });
+  toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+</script>
+
+</body>
+</html>
