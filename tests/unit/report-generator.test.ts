@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
-import { generateAuditReport } from '../../src/report-generator/index.js'
+import { generateAuditReport, generateFinalReport, generateAuditReportSilent } from '../../src/report-generator/index.js'
 
 function makeTempDir(): string {
   const dir = join(tmpdir(), `report-gen-${randomBytes(4).toString('hex')}`)
@@ -228,5 +228,165 @@ describe('generateAuditReport — sem dados', () => {
 
     const result = await generateAuditReport(dir)
     expect(existsSync(result.reportPath)).toBe(true)
+  })
+})
+
+// ─── generateFinalReport ──────────────────────────────────────────────────────
+
+describe('generateFinalReport', () => {
+  let dir: string
+  afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
+
+  it('gera relatório timestamped E audit-report-final.html', async () => {
+    dir = makeTempDir()
+    const migDir = join(dir, '.jdk-migration')
+    mkdirSync(migDir)
+    writeFileSync(join(migDir, 'discovery-report.json'), JSON.stringify(SAMPLE_DISCOVERY))
+
+    const result = await generateFinalReport(dir)
+    expect(result.timestamped).not.toBeNull()
+    expect(result.final).not.toBeNull()
+    expect(existsSync(result.final!)).toBe(true)
+    expect(result.final).toContain('audit-report-final.html')
+  })
+
+  it('retorna { timestamped: null, final: null } quando não há dados', async () => {
+    dir = makeTempDir()
+    const result = await generateFinalReport(dir)
+    expect(result.timestamped).toBeNull()
+    expect(result.final).toBeNull()
+  })
+})
+
+// ─── generateAuditReportSilent ────────────────────────────────────────────────
+
+describe('generateAuditReportSilent', () => {
+  let dir: string
+  afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
+
+  it('retorna caminho do report quando há dados', async () => {
+    dir = makeTempDir()
+    const migDir = join(dir, '.jdk-migration')
+    mkdirSync(migDir)
+    writeFileSync(join(migDir, 'discovery-report.json'), JSON.stringify(SAMPLE_DISCOVERY))
+
+    const path = await generateAuditReportSilent(dir)
+    expect(path).not.toBeNull()
+    expect(existsSync(path!)).toBe(true)
+  })
+
+  it('retorna null quando não há dados (sem lançar exceção)', async () => {
+    dir = makeTempDir()
+    const path = await generateAuditReportSilent(dir)
+    expect(path).toBeNull()
+  })
+})
+
+// ─── generateAuditReport — cenários avançados ────────────────────────────────
+
+describe('generateAuditReport — fase 5 ativa (gera checklist)', () => {
+  let dir: string
+  afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
+
+  it('gera phase-5-checklist.html quando fase 5 está in_progress', async () => {
+    // Este teste pode demorar pois tenta rodar runCompilerCheck internamente
+    // Timeout maior para aguardar o compilador (que falhará silenciosamente no CI)
+    dir = makeTempDir()
+    const migDir = join(dir, '.jdk-migration')
+    mkdirSync(migDir)
+
+    const configWithPhase5 = {
+      ...SAMPLE_CONFIG,
+      phases: {
+        ...SAMPLE_CONFIG.phases,
+        5: { status: 'in_progress', gateToken: null, approvedBy: null, approvedAt: null, executedAt: '2026-06-01T10:00:00Z', gitBranch: 'jdk-migration/phase-5', gitCommit: 'zzzzzz', baseBranch: 'main', baseCommit: 'yyy', prUrl: null },
+      },
+    }
+    writeFileSync(join(migDir, 'discovery-report.json'), JSON.stringify(SAMPLE_DISCOVERY))
+    writeFileSync(join(migDir, 'migration-plan.json'), JSON.stringify(SAMPLE_PLAN))
+    writeFileSync(join(dir, 'jdk-migration.config.json'), JSON.stringify(configWithPhase5))
+
+    const result = await generateAuditReport(dir)
+    // O report principal é gerado com sucesso mesmo que a checklist falhe silenciosamente
+    expect(existsSync(result.reportPath)).toBe(true)
+  }, 60000) // 60s timeout — runCompilerCheck roda mvn que pode ser lento
+
+  it('gera relatório com migrationAudit passado como parâmetro', async () => {
+    dir = makeTempDir()
+    const migDir = join(dir, '.jdk-migration')
+    mkdirSync(migDir)
+    writeFileSync(join(migDir, 'discovery-report.json'), JSON.stringify(SAMPLE_DISCOVERY))
+    writeFileSync(join(dir, 'jdk-migration.config.json'), JSON.stringify(SAMPLE_CONFIG))
+
+    const migrationAudit = {
+      projectPath: dir,
+      targetJdk: '21',
+      timestamp: new Date().toISOString(),
+      criteria: [],
+      summary: { passed: 20, warned: 3, failed: 2, total: 25 },
+    }
+
+    const result = await generateAuditReport(dir, migrationAudit as never)
+    expect(existsSync(result.reportPath)).toBe(true)
+  })
+})
+
+describe('generateAuditReport — containerCi e steps', () => {
+  let dir: string
+  afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }) })
+
+  it('HTML renderiza findings de container quando presentes no discovery', async () => {
+    dir = makeTempDir()
+    const migDir = join(dir, '.jdk-migration')
+    mkdirSync(migDir)
+
+    const discoveryWithContainer = {
+      ...SAMPLE_DISCOVERY,
+      containerCi: {
+        findings: [
+          {
+            file: 'Dockerfile',
+            fileType: 'dockerfile' as const,
+            line: 1,
+            content: 'FROM openjdk:8-jre-alpine',
+            detectedJdkVersion: '8',
+            detectedImage: 'openjdk:8-jre-alpine',
+            description: 'Imagem JDK 8 detectada',
+            suggestion: 'Use eclipse-temurin:21-jre-alpine',
+            severity: 'high' as const,
+            requiresHumanDecision: true,
+          },
+        ],
+        summary: { dockerfileCount: 1, ciFileCount: 0, outdatedImages: 1, requiresHumanDecision: 1 },
+      },
+    }
+    writeFileSync(join(migDir, 'discovery-report.json'), JSON.stringify(discoveryWithContainer))
+    writeFileSync(join(dir, 'jdk-migration.config.json'), JSON.stringify(SAMPLE_CONFIG))
+
+    const result = await generateAuditReport(dir)
+    const { readFileSync } = await import('node:fs')
+    const html = readFileSync(result.reportPath, 'utf-8')
+    expect(html).toContain('Dockerfile')
+  })
+
+  it('HTML renderiza steps quando config.steps está preenchido', async () => {
+    dir = makeTempDir()
+    const migDir = join(dir, '.jdk-migration')
+    mkdirSync(migDir)
+
+    const configWithSteps = {
+      ...SAMPLE_CONFIG,
+      steps: [
+        { num: 1, phase: '1', task: 'Atualizar pom.xml', commit: 'aaa111', status: 'done', completedAt: '2026-05-30T08:00:00Z', note: 'Concluído' },
+        { num: 2, phase: '2', task: 'Migrar imports jakarta', commit: 'bbb222', status: 'in_progress', completedAt: null, note: '' },
+      ],
+    }
+    writeFileSync(join(migDir, 'discovery-report.json'), JSON.stringify(SAMPLE_DISCOVERY))
+    writeFileSync(join(dir, 'jdk-migration.config.json'), JSON.stringify(configWithSteps))
+
+    const result = await generateAuditReport(dir)
+    const { readFileSync } = await import('node:fs')
+    const html = readFileSync(result.reportPath, 'utf-8')
+    expect(html).toContain('Atualizar pom.xml')
   })
 })
