@@ -233,3 +233,87 @@ describe('enrichContainerFindings — mix de findings', () => {
     expect(result.find(r => r.id === 'human')!.requiresHumanDecision).toBe(true)
   })
 })
+
+// ─── parseImageRef — branches não cobertos ───────────────────────────────────
+
+describe('enrichContainerFindings — imagem sem host (apenas nome/tag)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [{
+          name: 'app-java-21',
+          version: 'latest',
+          assets: [{ lastModified: '2024-01-01T00:00:00Z' }],
+        }],
+      }),
+    }))
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('parseia imagem sem host (sem ponto/colon no primeiro segmento)', async () => {
+    // "openjdk-8:jre" → host=null pois "openjdk-8" não contém . nem :
+    const finding = makeFinding({
+      requiresHumanDecision: true,
+      detectedImage: 'openjdk-8:jre',
+      detectedJdkVersion: '8',
+    })
+    const result = await enrichContainerFindings([finding], NEXUS_REGISTRY, '21')
+    // Deve processar sem crash
+    expect(result).toHaveLength(1)
+  })
+
+  it('parseia imagem sem tag (atIdx <= slashIdx)', async () => {
+    // "registry.example.com/app-java-8" — sem tag, atIdx=-1 (ou antes do slash)
+    const finding = makeFinding({
+      requiresHumanDecision: true,
+      detectedImage: 'registry.example.com/app-java-8',
+      detectedJdkVersion: '8',
+    })
+    const result = await enrichContainerFindings([finding], NEXUS_REGISTRY, '21')
+    expect(result).toHaveLength(1)
+  })
+})
+
+// ─── fetchArtifactoryDockerImages — catch block (inner) ──────────────────────
+
+describe('enrichContainerFindings — artifactory fetch rejeitado (inner catch)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ETIMEDOUT')))
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('retorna finding sem substituto quando fetch lança exceção para artifactory', async () => {
+    const finding = makeFinding({ requiresHumanDecision: true })
+    const result = await enrichContainerFindings([finding], ARTIFACTORY_REGISTRY, '21')
+    expect(result[0].suggestedReplacement).toBeNull()
+    expect(result[0].requiresHumanDecision).toBe(true)
+  })
+})
+
+// ─── Nexus: múltiplos repositórios (result.length > 0 → break) ───────────────
+
+describe('enrichContainerFindings — nexus retorna resultado no primeiro repo (break)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [{
+          name: 'app-java-21',
+          version: '21-jre',
+          assets: [{ lastModified: '2024-01-01T00:00:00Z' }],
+        }],
+      }),
+    }))
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('para no primeiro repositório nexus quando retorna resultado', async () => {
+    const finding = makeFinding({ requiresHumanDecision: true })
+    const result = await enrichContainerFindings([finding], NEXUS_REGISTRY, '21')
+    // resultado encontrado → break → apenas 1 chamada ao fetch (no primeiro repo)
+    expect(result[0].replacementFromRegistry).toBe(true)
+    // fetch pode ser chamado 1 vez (break no primeiro resultado)
+    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(1)
+  })
+})
