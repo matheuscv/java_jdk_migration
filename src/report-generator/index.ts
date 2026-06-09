@@ -2,7 +2,7 @@ import { existsSync, readFileSync, mkdirSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path'
 import { MigrationError } from '../lib/errors.js'
 import { runProcess } from '../lib/process-runner.js'
-import type { MigrationAuditResult } from '../static-analysis/migration-audit.js'
+import type { MigrationAuditResult, AuditCriterion } from '../static-analysis/migration-audit.js'
 
 // ─── Grupo de critérios para o checklist MD ──────────────────────────────────
 const AUDIT_GROUPS: Array<{ prefix: string; label: string; ids: string[] }> = [
@@ -106,11 +106,169 @@ export function generateAuditChecklist(
       finalBanner,
     ].join('\n')
 
+    const parecerFinal = (!isBaseline && audit.summary.fail === 0)
+      ? buildParecerFinal(audit, sourceJdk)
+      : ''
+
     const filename = isBaseline ? 'audit-report-phase-0.md' : 'audit-report-phase-5.md'
-    writeFileSync(join(migrationDir, filename), md, 'utf-8')
+    writeFileSync(join(migrationDir, filename), md + parecerFinal, 'utf-8')
   } catch {
     // Falha silenciosa
   }
+}
+
+// ─── Mapa auxiliar: criterion id → número exibido (ex: "A1", "C3", "D5") ──────
+function buildCriterionNumberMap(): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const g of AUDIT_GROUPS) {
+    g.ids.forEach((id, idx) => map.set(id, `${g.prefix}${idx + 1}`))
+  }
+  return map
+}
+
+const CRITERION_NUMBER_MAP = buildCriterionNumberMap()
+
+// IDs do grupo D — tratados como "Pendente gate" (sign-off formal)
+const D_GROUP_IDS = new Set(['removed-apis', 'bytecode-manip-libs', 'maven-plugin-versions', 'maven-jdk-profiles', 'k8s-manifests'])
+
+/**
+ * Gera o bloco "PARECER FINAL / RESULTADO DA AUDITORIA" para o
+ * audit-report-phase-5.md quando não há critérios com falha (fail === 0).
+ */
+function buildParecerFinal(audit: MigrationAuditResult, sourceJdk: string): string {
+  const { criteria, summary } = audit
+  const total = criteria.length
+
+  const warningCriteria = criteria.filter(c => c.status === 'warning')
+  const pendingGate    = warningCriteria.filter(c =>  D_GROUP_IDS.has(c.id))
+  const accepted       = warningCriteria.filter(c => !D_GROUP_IDS.has(c.id))
+
+  // PASS total = ok + "aceito sem bloqueio" (pendente gate não conta ainda)
+  const passTotal = summary.ok + accepted.length
+
+  // Helper: formata lista de critérios como "N (XN — label)"
+  const fmtItems = (items: AuditCriterion[]): string => {
+    if (items.length === 0) return '0'
+    const parts = items.map(c => {
+      const num  = CRITERION_NUMBER_MAP.get(c.id) ?? c.id
+      // Label curto: até 40 chars
+      const lbl  = c.label.length > 40 ? c.label.slice(0, 37) + '…' : c.label
+      return `${num} – ${lbl}`
+    })
+    return `${items.length} (${parts.join('; ')})`
+  }
+
+  // Checks de "referências ZERO" derivados de critérios específicos
+  const criteriaMap = new Map(criteria.map(c => [c.id, c]))
+
+  const jdkRefZero = (() => {
+    const a1 = criteriaMap.get('compiler-version')
+    const a8 = criteriaMap.get('output-bytecode')
+    return (a1?.status === 'ok' && (!a8 || a8.status === 'ok')) ? 'ZERO' : 'verificar'
+  })()
+
+  const javaxZero = criteriaMap.get('javax-imports')?.status === 'ok' ? 'ZERO' : 'verificar'
+
+  const sunZero   = criteriaMap.get('sun-internal-imports')?.status === 'ok' ? 'ZERO' : 'verificar'
+
+  const springfoxZero = (() => {
+    // Springfox v2 é detectado via spring-boot-version (A3) ou detalhes de qualquer critério
+    const hasSpringfoxIssue = criteria.some(
+      c => c.status !== 'ok' && c.detail.toLowerCase().includes('springfox'),
+    )
+    return hasSpringfoxIssue ? 'verificar' : 'ZERO'
+  })()
+
+  // VEREDICTO
+  const veredicto = summary.fail === 0
+    ? '✅ APROVADO PARA CUTOVER'
+    : `❌ REPROVADO — ${summary.fail} critério(s) com falha`
+
+  const conditionalNote = pendingGate.length > 0
+    ? `\n  (condicionado ao sign-off formal – ${pendingGate.map(c => CRITERION_NUMBER_MAP.get(c.id) ?? c.id).join(', ')})`
+    : (accepted.length > 0 ? '\n  (condicionado à revisão dos itens acima)' : '')
+
+  // Linhas do box com alinhamento fixo
+  const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - s.length))
+
+  const boxLines = [
+    `                   RESULTADO DA AUDITORIA`,
+    ``,
+    `  ${pad('PASS total',          20)}: ${passTotal} / ${total} critérios`,
+    `  ${pad('Aceito sem bloqueio', 20)}: ${fmtItems(accepted)}`,
+    `  ${pad('Pendente gate',       20)}: ${fmtItems(pendingGate)}`,
+    `  ${pad('FAIL',                20)}: ${summary.fail}`,
+    ``,
+    `  Referências a JDK ${sourceJdk} no código-fonte: ${jdkRefZero}`,
+    `  Referências a javax.* problemáticas: ${javaxZero}`,
+    `  APIs internas JDK (sun.*/com.sun.*): ${sunZero}`,
+    `  Springfox / Swagger v2: ${springfoxZero}`,
+    ``,
+    `  VEREDICTO: ${veredicto}${conditionalNote}`,
+  ]
+
+  const narrativa = buildNarrativaFinal(criteria, sourceJdk, summary)
+
+  return [
+    '',
+    '---',
+    '',
+    '## PARECER FINAL',
+    '',
+    '```',
+    ...boxLines,
+    '```',
+    '',
+    narrativa,
+    '',
+  ].join('\n')
+}
+
+function buildNarrativaFinal(
+  criteria: AuditCriterion[],
+  sourceJdk: string,
+  summary: { ok: number; warning: number; fail: number },
+): string {
+  const total = criteria.length
+  const passTotal = total - summary.fail
+
+  if (summary.fail > 0) {
+    const failLabels = criteria
+      .filter(c => c.status === 'fail')
+      .map(c => `${CRITERION_NUMBER_MAP.get(c.id) ?? c.id} (${c.label})`)
+      .join(', ')
+    return (
+      `O projeto apresenta ${summary.fail} critério(s) que impedem o cutover para JDK 21: ` +
+      `${failLabels}. Esses itens devem ser resolvidos antes de qualquer promoção para produção.`
+    )
+  }
+
+  const javaxC  = criteria.find(c => c.id === 'javax-imports')
+  const compC   = criteria.find(c => c.id === 'compiler-version')
+  const byteC   = criteria.find(c => c.id === 'output-bytecode')
+  const warnItems = criteria.filter(c => c.status === 'warning')
+
+  const javaxNote = (javaxC?.status === 'ok')
+    ? 'Todas as referências javax.* remanescentes são compatíveis com JDK 21 (javax.net.*, javax.sql.*, etc.) — nenhuma pertence ao espectro javax→jakarta do Jakarta EE.'
+    : ''
+
+  const buildNote = (compC?.status === 'ok' && byteC?.status === 'ok')
+    ? `Não existe nenhuma configuração, dependência ou instrução de build que force o uso do JDK ${sourceJdk}.`
+    : ''
+
+  const warnNote = warnItems.length > 0
+    ? `${warnItems.length} item(ns) permanecem pendente(s) de verificação (${warnItems.map(c => CRITERION_NUMBER_MAP.get(c.id) ?? c.id).join(', ')}) mas não constituem bloqueio para o cutover.`
+    : ''
+
+  const parts = [
+    `O projeto passou ${passTotal} de ${total} critérios de auditoria`,
+    summary.warning > 0 ? ` (${summary.warning} com ressalvas)` : '',
+    ' e está apto para cutover para JDK 21.',
+    javaxNote ? ` ${javaxNote}` : '',
+    buildNote ? ` ${buildNote}` : '',
+    warnNote  ? ` ${warnNote}` : '',
+  ]
+  return parts.join('')
 }
 
 export interface AuditReportResult {
