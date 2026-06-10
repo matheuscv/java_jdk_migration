@@ -9,6 +9,7 @@ import { generateGateToken, getTokenIssuedAt } from '../../orchestrator/gate-val
 import { rollbackPhase, syncMigrationBranch } from '../../orchestrator/git-checkpoint.js'
 import { updatePhaseStatus } from '../../orchestrator/state-machine.js'
 import { generateAuditReport, generateAuditReportSilent, generateFinalReport } from '../../report-generator/index.js'
+import { computePhaseRoi } from '../../roi-tracker/index.js'
 import type { PhaseNumber } from '../../types.js'
 import { randomInt } from 'node:crypto'
 
@@ -1135,6 +1136,116 @@ export function registerAuxiliaryTools(server: McpServer): void {
               `Fase ${phase} registrada como concluída manualmente (awaiting_gate). ` +
               `${stepsToMerge.length} step(s) gravados. ` +
               `Execute approve_gate(projectPath, ${phase}, "<seu nome>") para liberar a Fase ${phase + 1}.`,
+          }, null, 2),
+        }],
+      }
+    },
+  )
+
+  server.registerTool(
+    'update_phase_costs',
+    {
+      title: 'Update Phase Costs',
+      description:
+        'Atualiza o custo real de tokens de uma fase já executada, recalculando o ROI ' +
+        'com os valores reais da API Claude e regenerando o relatório de auditoria. ' +
+        'Use quando os tokens reais são conhecidos — por exemplo, extraindo-os do transcript ' +
+        'JSONL em ~/.claude/projects/<slug>/<session-id>.jsonl e somando os campos ' +
+        '"usage.input_tokens", "usage.cache_creation_input_tokens", ' +
+        '"usage.cache_read_input_tokens" e "usage.output_tokens" de cada turno da fase. ' +
+        'Os campos de cache são dominantes no custo real do Claude Code e devem ser ' +
+        'incluídos para um cálculo de ROI preciso.',
+      inputSchema: {
+        projectPath: z
+          .string()
+          .describe('Caminho absoluto da raiz do projeto Java'),
+        phaseNumber: z
+          .number()
+          .int()
+          .min(0)
+          .max(5)
+          .describe('Número da fase cujos custos serão atualizados (0–5)'),
+        tokenUsage: z
+          .object({
+            inputTokens: z
+              .number()
+              .int()
+              .nonnegative()
+              .describe('Soma de input_tokens (tokens fresh, não-cache) de todos os turnos da fase'),
+            outputTokens: z
+              .number()
+              .int()
+              .nonnegative()
+              .describe('Soma de output_tokens de todos os turnos da fase'),
+            cacheCreationTokens: z
+              .number()
+              .int()
+              .nonnegative()
+              .optional()
+              .describe('Soma de cache_creation_input_tokens — $3,75/MTok. Tokens gerados ao escrever no cache.'),
+            cacheReadTokens: z
+              .number()
+              .int()
+              .nonnegative()
+              .optional()
+              .describe(
+                'Soma de cache_read_input_tokens — $0,30/MTok. ' +
+                'Dominante em sessões longas do Claude Code (pode representar 95%+ do custo total). ' +
+                'Extraia do transcript JSONL somando o campo "usage.cache_read_input_tokens" de cada linha de resposta.',
+              ),
+          })
+          .describe(
+            'Tokens reais da fase. Para obter os valores: ' +
+            '(1) localize o arquivo ~/.claude/projects/<slug>/<session-id>.jsonl; ' +
+            '(2) filtre as linhas com "usage" no JSON; ' +
+            '(3) some cada campo de token para o período correspondente à fase.',
+          ),
+      },
+    },
+    async ({ projectPath, phaseNumber, tokenUsage }) => {
+      const config = readConfig(projectPath)
+      const phase = phaseNumber as PhaseNumber
+      const phaseState = config.phases[phase]
+
+      const phaseRoi = await computePhaseRoi(
+        {
+          phaseNumber: phase,
+          startedAt:   phaseState.executedAt ?? null,
+          completedAt: phaseState.completedAt ?? null,
+          tokenUsage,
+        },
+        config.stack,
+        config.multiModule,
+        config.discoveryEffortDays ?? 0,
+      )
+
+      const existingRoi = config.roi ?? []
+      writeConfig(projectPath, {
+        ...config,
+        roi: [...existingRoi.filter(r => r.phaseNumber !== phase), phaseRoi],
+      })
+
+      const autoReportPath = await generateAuditReportSilent(projectPath)
+
+      const totalTok = phaseRoi.estimatedInputTokens +
+        phaseRoi.estimatedCacheCreationTokens +
+        phaseRoi.estimatedCacheReadTokens +
+        phaseRoi.estimatedOutputTokens
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            status: 'ok',
+            phaseNumber: phase,
+            roi: phaseRoi,
+            totalTokens: totalTok,
+            auditReport: autoReportPath ?? null,
+            message:
+              `Custo da Fase ${phase} atualizado: ` +
+              `$${phaseRoi.claudeCostUsd.toFixed(4)} USD | R$${phaseRoi.claudeCostBrl.toFixed(2)} BRL. ` +
+              `Tokens: ${totalTok.toLocaleString()} (cache read: ${phaseRoi.estimatedCacheReadTokens.toLocaleString()}). ` +
+              `Relatório regenerado.`,
           }, null, 2),
         }],
       }

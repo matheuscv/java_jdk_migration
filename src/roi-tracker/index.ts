@@ -4,8 +4,10 @@ import type { PhaseRoiData, RoiSummary, TokenUsageInput } from './types.js'
 import type { StackType } from '../types.js'
 
 /** Pricing Claude Sonnet 4.6 (USD por token) */
-const CLAUDE_INPUT_PRICE_PER_TOKEN  = 3    / 1_000_000  // $3 / MTok
-const CLAUDE_OUTPUT_PRICE_PER_TOKEN = 15   / 1_000_000  // $15 / MTok
+const CLAUDE_INPUT_PRICE_PER_TOKEN          = 3    / 1_000_000  // $3    / MTok — input fresh
+const CLAUDE_CACHE_CREATION_PRICE_PER_TOKEN = 3.75 / 1_000_000  // $3,75 / MTok — cache_creation_input_tokens
+const CLAUDE_CACHE_READ_PRICE_PER_TOKEN     = 0.30 / 1_000_000  // $0,30 / MTok — cache_read_input_tokens (dominante)
+const CLAUDE_OUTPUT_PRICE_PER_TOKEN         = 15   / 1_000_000  // $15   / MTok — output
 const DEFAULT_HOURLY_RATE_USD = 75  // senior Java developer
 
 export type { PhaseRoiData, RoiSummary, TokenUsageInput }
@@ -43,24 +45,28 @@ export async function computePhaseRoi(
   const humanCostUsd  = round2(humanEst.hours * hourlyRateUsd)
   const humanCostBrl  = round2(humanCostUsd * exchangeRate)
 
-  const { inputTokens, outputTokens } = resolveTokens(input)
+  const { inputTokens, cacheCreationTokens, cacheReadTokens, outputTokens } = resolveTokens(input)
   const claudeCostUsd = round2(
-    inputTokens  * CLAUDE_INPUT_PRICE_PER_TOKEN +
-    outputTokens * CLAUDE_OUTPUT_PRICE_PER_TOKEN,
+    inputTokens          * CLAUDE_INPUT_PRICE_PER_TOKEN +
+    cacheCreationTokens  * CLAUDE_CACHE_CREATION_PRICE_PER_TOKEN +
+    cacheReadTokens      * CLAUDE_CACHE_READ_PRICE_PER_TOKEN +
+    outputTokens         * CLAUDE_OUTPUT_PRICE_PER_TOKEN,
   )
   const claudeCostBrl = round2(claudeCostUsd * exchangeRate)
 
   return {
-    phaseNumber:            input.phaseNumber,
-    startedAt:              input.startedAt,
-    completedAt:            input.completedAt,
+    phaseNumber:                    input.phaseNumber,
+    startedAt:                      input.startedAt,
+    completedAt:                    input.completedAt,
     durationMinutes,
-    humanEstimateHours:     humanEst.hours,
-    humanHourlyRateUsd:     hourlyRateUsd,
+    humanEstimateHours:             humanEst.hours,
+    humanHourlyRateUsd:             hourlyRateUsd,
     humanCostUsd,
     humanCostBrl,
-    estimatedInputTokens:   inputTokens,
-    estimatedOutputTokens:  outputTokens,
+    estimatedInputTokens:           inputTokens,
+    estimatedCacheCreationTokens:   cacheCreationTokens,
+    estimatedCacheReadTokens:       cacheReadTokens,
+    estimatedOutputTokens:          outputTokens,
     claudeCostUsd,
     claudeCostBrl,
   }
@@ -73,36 +79,40 @@ export async function buildRoiSummary(phases: PhaseRoiData[]): Promise<RoiSummar
   const { rate, fetchedAt } = await fetchBrlRate()
   const hourlyRateUsd = phases[0]?.humanHourlyRateUsd ?? DEFAULT_HOURLY_RATE_USD
 
-  const totalHumanHours  = sum(phases, p => p.humanEstimateHours)
-  const totalHumanUsd    = round2(sum(phases, p => p.humanCostUsd))
-  const totalHumanBrl    = round2(sum(phases, p => p.humanCostBrl))
-  const totalMcpMinutes  = sum(phases, p => p.durationMinutes ?? 0)
-  const totalInputTok    = sum(phases, p => p.estimatedInputTokens)
-  const totalOutputTok   = sum(phases, p => p.estimatedOutputTokens)
-  const totalClaudeUsd   = round2(sum(phases, p => p.claudeCostUsd))
-  const totalClaudeBrl   = round2(sum(phases, p => p.claudeCostBrl))
-  const savingsUsd       = round2(totalHumanUsd - totalClaudeUsd)
-  const savingsBrl       = round2(totalHumanBrl - totalClaudeBrl)
-  const savingsPct       = totalHumanUsd > 0
+  const totalHumanHours        = sum(phases, p => p.humanEstimateHours)
+  const totalHumanUsd          = round2(sum(phases, p => p.humanCostUsd))
+  const totalHumanBrl          = round2(sum(phases, p => p.humanCostBrl))
+  const totalMcpMinutes        = sum(phases, p => p.durationMinutes ?? 0)
+  const totalInputTok          = sum(phases, p => p.estimatedInputTokens)
+  const totalCacheCreationTok  = sum(phases, p => p.estimatedCacheCreationTokens ?? 0)
+  const totalCacheReadTok      = sum(phases, p => p.estimatedCacheReadTokens ?? 0)
+  const totalOutputTok         = sum(phases, p => p.estimatedOutputTokens)
+  const totalClaudeUsd         = round2(sum(phases, p => p.claudeCostUsd))
+  const totalClaudeBrl         = round2(sum(phases, p => p.claudeCostBrl))
+  const savingsUsd             = round2(totalHumanUsd - totalClaudeUsd)
+  const savingsBrl             = round2(totalHumanBrl - totalClaudeBrl)
+  const savingsPct             = totalHumanUsd > 0
     ? round2((savingsUsd / totalHumanUsd) * 100)
     : 0
 
   return {
-    generatedAt:                  new Date().toISOString(),
-    exchangeRateBrl:              rate,
-    exchangeRateFetchedAt:        fetchedAt,
+    generatedAt:                          new Date().toISOString(),
+    exchangeRateBrl:                      rate,
+    exchangeRateFetchedAt:                fetchedAt,
     hourlyRateUsd,
-    totalHumanEstimateHours:      totalHumanHours,
-    totalHumanEstimateDays:       round2(totalHumanHours / 8),
-    totalHumanCostUsd:            totalHumanUsd,
-    totalHumanCostBrl:            totalHumanBrl,
-    totalMcpDurationMinutes:      round2(totalMcpMinutes),
-    totalMcpDurationHours:        round2(totalMcpMinutes / 60),
-    totalEstimatedInputTokens:    totalInputTok,
-    totalEstimatedOutputTokens:   totalOutputTok,
-    totalEstimatedTokens:         totalInputTok + totalOutputTok,
-    totalClaudeCostUsd:           totalClaudeUsd,
-    totalClaudeCostBrl:           totalClaudeBrl,
+    totalHumanEstimateHours:              totalHumanHours,
+    totalHumanEstimateDays:               round2(totalHumanHours / 8),
+    totalHumanCostUsd:                    totalHumanUsd,
+    totalHumanCostBrl:                    totalHumanBrl,
+    totalMcpDurationMinutes:              round2(totalMcpMinutes),
+    totalMcpDurationHours:                round2(totalMcpMinutes / 60),
+    totalEstimatedInputTokens:            totalInputTok,
+    totalEstimatedCacheCreationTokens:    totalCacheCreationTok,
+    totalEstimatedCacheReadTokens:        totalCacheReadTok,
+    totalEstimatedOutputTokens:           totalOutputTok,
+    totalEstimatedTokens:                 totalInputTok + totalCacheCreationTok + totalCacheReadTok + totalOutputTok,
+    totalClaudeCostUsd:                   totalClaudeUsd,
+    totalClaudeCostBrl:                   totalClaudeBrl,
     savingsUsd,
     savingsBrl,
     savingsPct,
@@ -119,15 +129,26 @@ function computeDurationMinutes(start: string | null, end: string | null): numbe
   return round2(ms / 60_000)
 }
 
-function resolveTokens(input: RoiPhaseInput): { inputTokens: number; outputTokens: number } {
+function resolveTokens(input: RoiPhaseInput): {
+  inputTokens: number
+  cacheCreationTokens: number
+  cacheReadTokens: number
+  outputTokens: number
+} {
   if (input.tokenUsage) {
-    return { inputTokens: input.tokenUsage.inputTokens, outputTokens: input.tokenUsage.outputTokens }
+    return {
+      inputTokens:         input.tokenUsage.inputTokens,
+      cacheCreationTokens: input.tokenUsage.cacheCreationTokens ?? 0,
+      cacheReadTokens:     input.tokenUsage.cacheReadTokens ?? 0,
+      outputTokens:        input.tokenUsage.outputTokens,
+    }
   }
   // Estimativa: output ≈ bytes/4 (UTF-8 média ≈ 4 chars/token)
   const outputTokens = Math.ceil((input.outputJsonBytes ?? 0) / 4)
   // Heurística conservadora: input ≈ 2× output (contexto + instrução + resposta)
-  const inputTokens  = outputTokens * 2
-  return { inputTokens, outputTokens }
+  // Cache tokens ficam em zero — não é possível estimar sem o JSONL real
+  const inputTokens = outputTokens * 2
+  return { inputTokens, cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens }
 }
 
 function sum<T>(arr: T[], fn: (item: T) => number): number {

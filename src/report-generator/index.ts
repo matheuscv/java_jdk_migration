@@ -1723,7 +1723,9 @@ export function buildRoiSection(roi: import('../roi-tracker/index.js').RoiSummar
           totalHumanEstimateHours, totalHumanEstimateDays,
           totalHumanCostUsd, totalHumanCostBrl,
           totalMcpDurationHours, totalMcpDurationMinutes,
-          totalEstimatedTokens, totalEstimatedInputTokens, totalEstimatedOutputTokens,
+          totalEstimatedTokens, totalEstimatedInputTokens,
+          totalEstimatedCacheCreationTokens, totalEstimatedCacheReadTokens,
+          totalEstimatedOutputTokens,
           totalClaudeCostUsd, totalClaudeCostBrl,
           exchangeRateBrl, exchangeRateFetchedAt, hourlyRateUsd } = roi
 
@@ -1733,7 +1735,12 @@ export function buildRoiSection(roi: import('../roi-tracker/index.js').RoiSummar
       ? `${(p.humanEstimateHours / 8).toFixed(1)} dias (${p.humanEstimateHours}h)`
       : `${p.humanEstimateHours}h`
     const mcpTime = fmtMin(p.durationMinutes)
-    const tokens = (p.estimatedInputTokens + p.estimatedOutputTokens).toLocaleString('pt-BR')
+    const tokens = (
+      p.estimatedInputTokens +
+      (p.estimatedCacheCreationTokens ?? 0) +
+      (p.estimatedCacheReadTokens ?? 0) +
+      p.estimatedOutputTokens
+    ).toLocaleString('pt-BR')
     return `
     <tr>
       <td><strong>${escHtml(name)}</strong></td>
@@ -1810,12 +1817,16 @@ export function buildRoiSection(roi: import('../roi-tracker/index.js').RoiSummar
 
     <div style="margin-top:12px;display:flex;gap:20px;flex-wrap:wrap">
       <div class="card blue" style="min-width:0;flex:1">
-        <div class="num">${totalEstimatedInputTokens.toLocaleString('pt-BR')}</div>
-        <div class="lbl">Tokens de entrada (est.)</div>
+        <div class="num">${(totalEstimatedInputTokens + totalEstimatedCacheCreationTokens).toLocaleString('pt-BR')}</div>
+        <div class="lbl">Input + cache write ($3–3,75/MTok)</div>
       </div>
       <div class="card cyan" style="min-width:0;flex:1">
+        <div class="num">${(totalEstimatedCacheReadTokens ?? 0).toLocaleString('pt-BR')}</div>
+        <div class="lbl">Cache read ($0,30/MTok)</div>
+      </div>
+      <div class="card blue" style="min-width:0;flex:1">
         <div class="num">${totalEstimatedOutputTokens.toLocaleString('pt-BR')}</div>
-        <div class="lbl">Tokens de saída (est.)</div>
+        <div class="lbl">Output tokens ($15/MTok)</div>
       </div>
       <div class="card green" style="min-width:0;flex:1">
         <div class="num">${escHtml(fmtUsd(totalClaudeCostUsd))}</div>
@@ -1828,8 +1839,11 @@ export function buildRoiSection(roi: import('../roi-tracker/index.js').RoiSummar
     </div>
 
     <p class="roi-note">
-      ⚠️ Estimativas: tempo humano baseado em benchmarks de mercado (dev sênior Java) · tokens calculados a partir do volume de output do MCP (input = 2× output) — passe <code>tokenUsage</code> no <code>execute_phase</code> para valores reais ·
-      ${escHtml(rateNote)} · preço Claude Sonnet 4.6: $3/MTok entrada, $15/MTok saída.
+      ⚠️ Estimativas: tempo humano baseado em benchmarks de mercado (dev sênior Java) ·
+      tokens extraídos do JSONL da sessão Claude Code ou estimados pelo volume de output do MCP quando não informados —
+      use <code>update_phase_costs</code> para registrar os valores reais de cada fase ·
+      ${escHtml(rateNote)} ·
+      preço Claude Sonnet 4.6: input $3/MTok · cache write $3,75/MTok · cache read $0,30/MTok · output $15/MTok.
     </p>
   </section>`
 }

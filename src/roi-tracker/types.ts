@@ -7,8 +7,10 @@ export interface PhaseRoiData {
   humanHourlyRateUsd: number       // taxa horária usada no cálculo
   humanCostUsd: number
   humanCostBrl: number
-  estimatedInputTokens: number     // estimativa — pode ser atualizado pelo caller
-  estimatedOutputTokens: number    // estimativa — derivado do tamanho do output JSON
+  estimatedInputTokens: number           // input_tokens (fresh, não-cache) — $3/MTok
+  estimatedCacheCreationTokens: number   // cache_creation_input_tokens — $3,75/MTok
+  estimatedCacheReadTokens: number       // cache_read_input_tokens — $0,30/MTok (dominante no Claude Code)
+  estimatedOutputTokens: number          // output_tokens — $15/MTok
   claudeCostUsd: number
   claudeCostBrl: number
 }
@@ -25,6 +27,8 @@ export interface RoiSummary {
   totalMcpDurationMinutes: number
   totalMcpDurationHours: number    // minutos / 60
   totalEstimatedInputTokens: number
+  totalEstimatedCacheCreationTokens: number
+  totalEstimatedCacheReadTokens: number
   totalEstimatedOutputTokens: number
   totalEstimatedTokens: number
   totalClaudeCostUsd: number
@@ -38,4 +42,6 @@ export interface RoiSummary {
 export interface TokenUsageInput {
   inputTokens: number
   outputTokens: number
+  cacheCreationTokens?: number  // cache_creation_input_tokens da API Claude ($3,75/MTok)
+  cacheReadTokens?: number      // cache_read_input_tokens da API Claude ($0,30/MTok) — dominante em sessões longas
 }

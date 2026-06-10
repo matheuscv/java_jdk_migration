@@ -63,10 +63,10 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// ─── registerAuxiliaryTools registra os 7 tools ──────────────────────────────
+// ─── registerAuxiliaryTools registra os 8 tools ──────────────────────────────
 
 describe('registerAuxiliaryTools', () => {
-  it('registra exatamente os 7 tools esperados', () => {
+  it('registra exatamente os 8 tools esperados', () => {
     expect(Object.keys(handlers)).toEqual(expect.arrayContaining([
       'get_phase_status',
       'request_gate_approval',
@@ -74,9 +74,10 @@ describe('registerAuxiliaryTools', () => {
       'rollback_phase',
       'update_step_status',
       'record_manual_phase',
+      'update_phase_costs',
       'generate_report',
     ]))
-    expect(Object.keys(handlers)).toHaveLength(7)
+    expect(Object.keys(handlers)).toHaveLength(8)
   })
 })
 

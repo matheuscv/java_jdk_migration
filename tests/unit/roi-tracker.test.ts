@@ -164,6 +164,32 @@ describe('computePhaseRoi', () => {
     )
     expect(roi.estimatedInputTokens).toBe(1000)
     expect(roi.estimatedOutputTokens).toBe(500)
+    expect(roi.estimatedCacheCreationTokens).toBe(0)
+    expect(roi.estimatedCacheReadTokens).toBe(0)
+  })
+
+  it('usa cacheReadTokens e cacheCreationTokens quando fornecidos', async () => {
+    const roi = await computePhaseRoi(
+      {
+        phaseNumber: 1, startedAt: null, completedAt: null,
+        tokenUsage: { inputTokens: 100, outputTokens: 50, cacheCreationTokens: 200, cacheReadTokens: 5000 },
+      },
+      ['rest'], false, 0,
+    )
+    expect(roi.estimatedCacheCreationTokens).toBe(200)
+    expect(roi.estimatedCacheReadTokens).toBe(5000)
+  })
+
+  it('inclui custo de cache_read no claudeCostUsd', async () => {
+    const roi = await computePhaseRoi(
+      {
+        phaseNumber: 1, startedAt: null, completedAt: null,
+        // 0 outros tokens, apenas 1M de cache read = $0.30
+        tokenUsage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 1_000_000 },
+      },
+      ['rest'], false, 0,
+    )
+    expect(roi.claudeCostUsd).toBeCloseTo(0.30, 2)
   })
 
   it('estima tokens a partir de outputJsonBytes quando tokenUsage ausente', async () => {
@@ -171,8 +197,10 @@ describe('computePhaseRoi', () => {
       { phaseNumber: 1, startedAt: null, completedAt: null, outputJsonBytes: 4000 },
       ['rest'], false, 0,
     )
-    expect(roi.estimatedOutputTokens).toBe(1000)   // 4000 / 4
-    expect(roi.estimatedInputTokens).toBe(2000)    // 2× output
+    expect(roi.estimatedOutputTokens).toBe(1000)          // 4000 / 4
+    expect(roi.estimatedInputTokens).toBe(2000)           // 2× output
+    expect(roi.estimatedCacheCreationTokens).toBe(0)      // não estimável sem JSONL
+    expect(roi.estimatedCacheReadTokens).toBe(0)          // não estimável sem JSONL
   })
 
   it('calcula custos Claude corretamente', async () => {
@@ -221,6 +249,8 @@ describe('buildRoiSummary', () => {
     humanCostUsd: 600,
     humanCostBrl: 3420,
     estimatedInputTokens: 2000,
+    estimatedCacheCreationTokens: 0,
+    estimatedCacheReadTokens: 0,
     estimatedOutputTokens: 1000,
     claudeCostUsd: 0.02,
     claudeCostBrl: 0.11,
@@ -232,12 +262,26 @@ describe('buildRoiSummary', () => {
     expect(summary.totalHumanCostUsd).toBeCloseTo(1800, 1)
   })
 
-  it('totalEstimatedTokens = input + output somados', async () => {
+  it('totalEstimatedTokens = input + cache_creation + cache_read + output somados', async () => {
     const phases = [makePhase(0), makePhase(1)]
     const summary = await buildRoiSummary(phases)
     expect(summary.totalEstimatedInputTokens).toBe(4000)
+    expect(summary.totalEstimatedCacheCreationTokens).toBe(0)
+    expect(summary.totalEstimatedCacheReadTokens).toBe(0)
     expect(summary.totalEstimatedOutputTokens).toBe(2000)
     expect(summary.totalEstimatedTokens).toBe(6000)
+  })
+
+  it('agrega cache tokens corretamente quando presentes', async () => {
+    const phaseWithCache: import('../../src/roi-tracker/types.js').PhaseRoiData = {
+      ...makePhase(0),
+      estimatedCacheCreationTokens: 5000,
+      estimatedCacheReadTokens: 50000,
+    }
+    const summary = await buildRoiSummary([phaseWithCache])
+    expect(summary.totalEstimatedCacheCreationTokens).toBe(5000)
+    expect(summary.totalEstimatedCacheReadTokens).toBe(50000)
+    expect(summary.totalEstimatedTokens).toBe(2000 + 5000 + 50000 + 1000)
   })
 
   it('savingsUsd = totalHuman - totalClaude', async () => {
@@ -288,8 +332,10 @@ describe('buildRoiSection', () => {
     totalMcpDurationMinutes: 45,
     totalMcpDurationHours: 0.75,
     totalEstimatedInputTokens: 50000,
+    totalEstimatedCacheCreationTokens: 10000,
+    totalEstimatedCacheReadTokens: 500000,
     totalEstimatedOutputTokens: 25000,
-    totalEstimatedTokens: 75000,
+    totalEstimatedTokens: 585000,
     totalClaudeCostUsd: 0.53,
     totalClaudeCostBrl: 3.02,
     savingsUsd: 9699.47,
@@ -306,6 +352,8 @@ describe('buildRoiSection', () => {
         humanCostUsd: 600,
         humanCostBrl: 3420,
         estimatedInputTokens: 5000,
+        estimatedCacheCreationTokens: 10000,
+        estimatedCacheReadTokens: 500000,
         estimatedOutputTokens: 2500,
         claudeCostUsd: 0.05,
         claudeCostBrl: 0.28,

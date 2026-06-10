@@ -56,11 +56,19 @@ export function registerExecutePhase(server: McpServer): void {
               'fases de alta e crítica criticidade.',
           ),
         tokenUsage: z
-          .object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative() })
+          .object({
+            inputTokens:          z.number().int().nonnegative(),
+            outputTokens:         z.number().int().nonnegative(),
+            cacheCreationTokens:  z.number().int().nonnegative().optional()
+              .describe('cache_creation_input_tokens da API Claude — $3,75/MTok'),
+            cacheReadTokens:      z.number().int().nonnegative().optional()
+              .describe('cache_read_input_tokens da API Claude — $0,30/MTok. Dominante em sessões longas do Claude Code.'),
+          })
           .optional()
           .describe(
-            'Uso real de tokens desta fase (Claude Code pode informar após a execução). ' +
-              'Quando ausente, o ROI tracker estima a partir do tamanho do output.',
+            'Uso real de tokens desta fase. Inclua cacheCreationTokens e cacheReadTokens ' +
+              'para custo preciso — esses campos dominam o gasto real em sessões longas. ' +
+              'Quando ausente, o ROI tracker estima apenas a partir do tamanho do output JSON.',
           ),
       },
     },
@@ -90,7 +98,7 @@ async function executePhase(
   phase: PhaseNumber,
   gateToken: string,
   dryRun: boolean,
-  tokenUsage?: { inputTokens: number; outputTokens: number },
+  tokenUsage?: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number },
 ) {
   // ── 1. Lock ────────────────────────────────────────────────────────────────
   const lockPath = join(projectPath, '.jdk-migration', 'lock')
@@ -115,7 +123,7 @@ async function _executePhaseUnlocked(
   phase: PhaseNumber,
   gateToken: string,
   dryRun: boolean,
-  tokenUsage?: { inputTokens: number; outputTokens: number },
+  tokenUsage?: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number },
 ) {
   // ── 2. Ler config ─────────────────────────────────────────────────────────
   let config = readConfig(projectPath)
