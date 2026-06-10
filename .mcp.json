@@ -3,7 +3,7 @@
     "jdk-migration": {
       "command": "node",
       "args": ["dist/mcp-server/index.js"],
-      "cwd": "C:\\devtools\\estudos\\labs\\java_jdk_migration"
+      "cwd": "C:\\devtools\\workspace\\java_jdk_migration"
     }
   }
 }

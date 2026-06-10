@@ -9,6 +9,7 @@ import { generateGateToken, getTokenIssuedAt } from '../../orchestrator/gate-val
 import { rollbackPhase, syncMigrationBranch } from '../../orchestrator/git-checkpoint.js'
 import { updatePhaseStatus } from '../../orchestrator/state-machine.js'
 import { generateAuditReport, generateAuditReportSilent, generateFinalReport } from '../../report-generator/index.js'
+import { runMigrationAudit } from '../../static-analysis/migration-audit.js'
 import { computePhaseRoi } from '../../roi-tracker/index.js'
 import type { PhaseNumber } from '../../types.js'
 import { randomInt } from 'node:crypto'
@@ -1268,7 +1269,20 @@ export function registerAuxiliaryTools(server: McpServer): void {
     },
     async ({ projectPath }) => {
       try {
-        const result = await generateAuditReport(projectPath)
+        // Executa a auditoria de migração sempre que a Fase 5 estiver em andamento
+        // ou concluída, garantindo que a seção "🔍 Auditoria de Migração JDK 21"
+        // seja gerada independentemente de quais campos do config foram alterados
+        // (ex: adição de dados de ROI entre duas chamadas a generate_report).
+        let migrationAudit: import('../../static-analysis/migration-audit.js').MigrationAuditResult | undefined
+        try {
+          const cfg = configExists(projectPath) ? readConfig(projectPath) : null
+          const phase5Status = cfg?.phases?.[5]?.status ?? 'pending'
+          if (['in_progress', 'awaiting_gate', 'approved', 'completed'].includes(phase5Status)) {
+            migrationAudit = await runMigrationAudit(projectPath, cfg?.targetJdk ?? '21')
+          }
+        } catch { /* auditoria não bloqueia a geração do relatório */ }
+
+        const result = await generateAuditReport(projectPath, migrationAudit)
         return {
           content: [{
             type: 'text',
