@@ -340,15 +340,17 @@ async function discoverProject(
       reportMode: 'phase-gate-step',
       phases: createDefaultPhases(),
       detectedTools: serializedTools,
+      discoveryEffortDays: riskSummary.estimatedEffortDays,
       ...(sourceJdkHome ? { sourceJdkHome } : {}),
       ...(targetJdkHome ? { targetJdkHome } : {}),
     })
   } else {
-    // Atualiza detectedTools + paths dos JDKs no config existente
+    // Atualiza detectedTools + paths dos JDKs + esforço de descoberta no config existente
     const existing = readConfig(projectPath)
     writeConfig(projectPath, {
       ...existing,
       detectedTools: serializedTools,
+      discoveryEffortDays: riskSummary.estimatedEffortDays,
       ...(sourceJdkHome && !existing.sourceJdkHome ? { sourceJdkHome } : {}),
       ...(targetJdkHome && !existing.targetJdkHome ? { targetJdkHome } : {}),
     })

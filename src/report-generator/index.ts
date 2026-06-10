@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { MigrationError } from '../lib/errors.js'
 import { runProcess } from '../lib/process-runner.js'
 import type { MigrationAuditResult, AuditCriterion } from '../static-analysis/migration-audit.js'
+import { buildRoiSummary } from '../roi-tracker/index.js'
+import type { PhaseRoiData } from '../roi-tracker/types.js'
 
 // ─── Grupo de critérios para o checklist MD ──────────────────────────────────
 const AUDIT_GROUPS: Array<{ prefix: string; label: string; ids: string[] }> = [
@@ -374,7 +376,17 @@ export async function generateAuditReport(
   // Mescla: steps manuais têm prioridade; git-derived preenchem o que sobrou
   const steps = mergeSteps(manualSteps, gitDerivedSteps)
 
-  const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps, migrationAudit })
+  // ROI — compila dados persistidos no config
+  let roiSummaryHtml = ''
+  try {
+    const roiPhases: PhaseRoiData[] | undefined = config?.roi
+    if (roiPhases && roiPhases.length > 0) {
+      const roiSummary = await buildRoiSummary(roiPhases)
+      roiSummaryHtml = buildRoiSection(roiSummary)
+    }
+  } catch { /* ROI não bloqueia o relatório */ }
+
+  const html = buildHtml({ plan, discovery, config, phases, allRiskItems, allManualItems, now, projectPath, steps, migrationAudit, roiSummaryHtml })
   writeFileSync(reportPath, html, 'utf-8')
 
   const phase5St = config?.phases?.[5]?.status ?? config?.phases?.['5']?.status ?? 'pending'
@@ -679,6 +691,7 @@ interface BuildContext {
   projectPath: string
   steps: any[]
   migrationAudit?: MigrationAuditResult
+  roiSummaryHtml?: string
 }
 
 function buildHtml(ctx: BuildContext): string {
@@ -827,6 +840,16 @@ function buildHtml(ctx: BuildContext): string {
     .audit-pill-fail    { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; }
     .audit-blocker-banner { background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:13px; color:#991b1b; font-weight:600; }
     .audit-clean-banner   { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:13px; color:#15803d; font-weight:600; }
+    /* ── ROI ── */
+    section.roi-section { border-left: 4px solid #059669; }
+    section.roi-section h2 { color: #065f46; border-color: #a7f3d0; }
+    .roi-saving-banner { background: linear-gradient(135deg,#d1fae5,#ecfdf5); border:1px solid #6ee7b7; border-radius:8px; padding:16px 20px; margin-bottom:16px; }
+    .roi-saving-banner .saving-pct { font-size:36px; font-weight:800; color:#059669; }
+    .roi-saving-banner .saving-label { font-size:13px; color:#065f46; font-weight:600; }
+    .roi-saving-banner .saving-amounts { font-size:13px; color:#047857; margin-top:4px; }
+    .roi-note { font-size:11px; color:#94a3b8; font-style:italic; margin-top:8px; }
+    .roi-phase-table td.money { font-family:monospace; text-align:right; }
+    .roi-phase-table td.time  { font-family:monospace; }
   </style>
 </head>
 <body>
@@ -852,6 +875,7 @@ function buildHtml(ctx: BuildContext): string {
   ${buildManualItems(allManualItems)}
   ${buildExecutionPlan(allRiskItems, allManualItems)}
   ${migrationAudit ? buildMigrationAuditSection(migrationAudit, config?.sourceJdk ?? discovery?.sourceJdk ?? '?') : ''}
+  ${ctx.roiSummaryHtml ?? ''}
   ${buildAuditTrail(ctx)}
 
   <footer>
@@ -1677,4 +1701,135 @@ function shortRecipe(recipe: string): string {
   // mostra apenas a parte final da recipe — ex: UpgradeToJava21
   const parts = recipe.split('.')
   return parts.slice(-1)[0] ?? recipe
+}
+
+// ─── ROI section ──────────────────────────────────────────────────────────────
+
+const PHASE_NAMES_ROI: Record<number, string> = {
+  0: 'Descoberta & Baseline',
+  1: 'Infra & Build',
+  2: 'Modernização de Linguagem',
+  3: 'Jakarta & Frameworks',
+  4: 'Refatoração Semântica',
+  5: 'Validação Final',
+}
+
+function fmtUsd(n: number): string  { return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
+function fmtBrl(n: number): string  { return `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
+function fmtMin(m: number | null): string { return m === null ? '—' : m >= 60 ? `${(m / 60).toFixed(1)}h` : `${m.toFixed(0)}min` }
+
+export function buildRoiSection(roi: import('../roi-tracker/index.js').RoiSummary): string {
+  const { phases, savingsPct, savingsUsd, savingsBrl,
+          totalHumanEstimateHours, totalHumanEstimateDays,
+          totalHumanCostUsd, totalHumanCostBrl,
+          totalMcpDurationHours, totalMcpDurationMinutes,
+          totalEstimatedTokens, totalEstimatedInputTokens, totalEstimatedOutputTokens,
+          totalClaudeCostUsd, totalClaudeCostBrl,
+          exchangeRateBrl, exchangeRateFetchedAt, hourlyRateUsd } = roi
+
+  const phaseRows = phases.map(p => {
+    const name = PHASE_NAMES_ROI[p.phaseNumber] ?? `Fase ${p.phaseNumber}`
+    const humanTime = p.humanEstimateHours >= 8
+      ? `${(p.humanEstimateHours / 8).toFixed(1)} dias (${p.humanEstimateHours}h)`
+      : `${p.humanEstimateHours}h`
+    const mcpTime = fmtMin(p.durationMinutes)
+    const tokens = (p.estimatedInputTokens + p.estimatedOutputTokens).toLocaleString('pt-BR')
+    return `
+    <tr>
+      <td><strong>${escHtml(name)}</strong></td>
+      <td class="time">${escHtml(humanTime)}</td>
+      <td class="money">${escHtml(fmtUsd(p.humanCostUsd))}</td>
+      <td class="money">${escHtml(fmtBrl(p.humanCostBrl))}</td>
+      <td class="time">${escHtml(mcpTime)}</td>
+      <td class="money" style="font-size:11px;color:#64748b">${escHtml(tokens)}</td>
+      <td class="money">${escHtml(fmtUsd(p.claudeCostUsd))}</td>
+      <td class="money">${escHtml(fmtBrl(p.claudeCostBrl))}</td>
+    </tr>`
+  }).join('')
+
+  const totalHumanTime = totalHumanEstimateDays >= 1
+    ? `${totalHumanEstimateDays.toFixed(1)} dias (${totalHumanEstimateHours}h)`
+    : `${totalHumanEstimateHours}h`
+  const totalMcpTime = totalMcpDurationMinutes >= 60
+    ? `${totalMcpDurationHours.toFixed(1)}h`
+    : `${totalMcpDurationMinutes.toFixed(0)}min`
+
+  const rateNote = `USD/BRL R$${exchangeRateBrl.toFixed(2)} · taxa dev $${hourlyRateUsd}/h · cotação BCB ${new Date(exchangeRateFetchedAt).toLocaleDateString('pt-BR')}`
+
+  return `
+  <section class="roi-section">
+    <h2>ROI — Return on Investment</h2>
+    <div class="roi-saving-banner">
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+        <div>
+          <div class="saving-pct">${savingsPct.toFixed(0)}%</div>
+          <div class="saving-label">de economia estimada vs. desenvolvimento humano</div>
+        </div>
+        <div>
+          <div class="saving-label">Economia total</div>
+          <div class="saving-amounts">${escHtml(fmtUsd(savingsUsd))} &nbsp;|&nbsp; ${escHtml(fmtBrl(savingsBrl))}</div>
+        </div>
+        <div>
+          <div class="saving-label">Tempo humano estimado</div>
+          <div class="saving-amounts">${escHtml(totalHumanTime)}</div>
+        </div>
+        <div>
+          <div class="saving-label">Tempo real do MCP</div>
+          <div class="saving-amounts">${escHtml(totalMcpTime)}</div>
+        </div>
+      </div>
+    </div>
+
+    <table class="roi-phase-table">
+      <thead>
+        <tr>
+          <th>Fase</th>
+          <th>Tempo Humano</th>
+          <th>Custo Humano $</th>
+          <th>Custo Humano R$</th>
+          <th>Tempo MCP</th>
+          <th>Tokens (est.)</th>
+          <th>Custo Claude $</th>
+          <th>Custo Claude R$</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${phaseRows}
+        <tr style="font-weight:700;background:#f1f5f9">
+          <td>TOTAL</td>
+          <td class="time">${escHtml(totalHumanTime)}</td>
+          <td class="money">${escHtml(fmtUsd(totalHumanCostUsd))}</td>
+          <td class="money">${escHtml(fmtBrl(totalHumanCostBrl))}</td>
+          <td class="time">${escHtml(totalMcpTime)}</td>
+          <td class="money" style="font-size:11px;color:#64748b">${totalEstimatedTokens.toLocaleString('pt-BR')}</td>
+          <td class="money">${escHtml(fmtUsd(totalClaudeCostUsd))}</td>
+          <td class="money">${escHtml(fmtBrl(totalClaudeCostBrl))}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="margin-top:12px;display:flex;gap:20px;flex-wrap:wrap">
+      <div class="card blue" style="min-width:0;flex:1">
+        <div class="num">${totalEstimatedInputTokens.toLocaleString('pt-BR')}</div>
+        <div class="lbl">Tokens de entrada (est.)</div>
+      </div>
+      <div class="card cyan" style="min-width:0;flex:1">
+        <div class="num">${totalEstimatedOutputTokens.toLocaleString('pt-BR')}</div>
+        <div class="lbl">Tokens de saída (est.)</div>
+      </div>
+      <div class="card green" style="min-width:0;flex:1">
+        <div class="num">${escHtml(fmtUsd(totalClaudeCostUsd))}</div>
+        <div class="lbl">Custo total Claude</div>
+      </div>
+      <div class="card purple" style="min-width:0;flex:1">
+        <div class="num">${escHtml(fmtBrl(totalClaudeCostBrl))}</div>
+        <div class="lbl">Custo total Claude (BRL)</div>
+      </div>
+    </div>
+
+    <p class="roi-note">
+      ⚠️ Estimativas: tempo humano baseado em benchmarks de mercado (dev sênior Java) · tokens calculados a partir do volume de output do MCP (input = 2× output) — passe <code>tokenUsage</code> no <code>execute_phase</code> para valores reais ·
+      ${escHtml(rateNote)} · preço Claude Sonnet 4.6: $3/MTok entrada, $15/MTok saída.
+    </p>
+  </section>`
 }

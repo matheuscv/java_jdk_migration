@@ -17,6 +17,7 @@ import { runBuild, runTests } from '../../orchestrator/build-validator.js'
 import { executePhaseTransform } from '../../transform-engine/index.js'
 import { generateAuditReportSilent, generateAuditChecklist } from '../../report-generator/index.js'
 import { runMigrationAudit } from '../../static-analysis/migration-audit.js'
+import { computePhaseRoi } from '../../roi-tracker/index.js'
 import type { PhaseNumber } from '../../types.js'
 
 export function registerExecutePhase(server: McpServer): void {
@@ -54,11 +55,18 @@ export function registerExecutePhase(server: McpServer): void {
             'Se true, exibe o diff sem modificar arquivos. Recomendado antes de executar ' +
               'fases de alta e crítica criticidade.',
           ),
+        tokenUsage: z
+          .object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative() })
+          .optional()
+          .describe(
+            'Uso real de tokens desta fase (Claude Code pode informar após a execução). ' +
+              'Quando ausente, o ROI tracker estima a partir do tamanho do output.',
+          ),
       },
     },
-    async ({ projectPath, phaseNumber, gateToken = '', dryRun = false }) => {
+    async ({ projectPath, phaseNumber, gateToken = '', dryRun = false, tokenUsage }) => {
       try {
-        const result = await executePhase(projectPath, phaseNumber as PhaseNumber, gateToken, dryRun)
+        const result = await executePhase(projectPath, phaseNumber as PhaseNumber, gateToken, dryRun, tokenUsage)
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
       } catch (err) {
         if (err instanceof MigrationError) {
@@ -82,6 +90,7 @@ async function executePhase(
   phase: PhaseNumber,
   gateToken: string,
   dryRun: boolean,
+  tokenUsage?: { inputTokens: number; outputTokens: number },
 ) {
   // ── 1. Lock ────────────────────────────────────────────────────────────────
   const lockPath = join(projectPath, '.jdk-migration', 'lock')
@@ -95,7 +104,7 @@ async function executePhase(
   writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }))
 
   try {
-    return await _executePhaseUnlocked(projectPath, phase, gateToken, dryRun)
+    return await _executePhaseUnlocked(projectPath, phase, gateToken, dryRun, tokenUsage)
   } finally {
     try { rmSync(lockPath) } catch { /* ignore */ }
   }
@@ -106,6 +115,7 @@ async function _executePhaseUnlocked(
   phase: PhaseNumber,
   gateToken: string,
   dryRun: boolean,
+  tokenUsage?: { inputTokens: number; outputTokens: number },
 ) {
   // ── 2. Ler config ─────────────────────────────────────────────────────────
   let config = readConfig(projectPath)
@@ -286,7 +296,8 @@ async function _executePhaseUnlocked(
     writeConfig(projectPath, config)
   }
 
-  return {
+  // ── 15. Calcular e persistir ROI desta fase ───────────────────────────────
+  const result = {
     status: 'awaiting_gate',
     phase,
     branchName: checkpoint.branchName,
@@ -303,4 +314,33 @@ async function _executePhaseUnlocked(
       ? `Revise o campo migrationAudit acima. Quando satisfeito, execute approve_gate(projectPath, 5, "<seu nome>") para concluir a migração.`
       : `Execute approve_gate(projectPath, ${phase}, "<seu nome>") para liberar a Fase ${phase + 1}.`,
   }
+
+  // ROI é calculado de forma não-bloqueante — não atrasa a resposta da fase
+  const outputJsonBytes = JSON.stringify(result).length
+  void (async () => {
+    try {
+      const cfg = readConfig(projectPath)
+      const phaseRoi = await computePhaseRoi(
+        {
+          phaseNumber: phase,
+          startedAt:   cfg.phases[phase].executedAt,
+          completedAt: null,  // preenchido no approve_gate
+          tokenUsage,
+          outputJsonBytes,
+        },
+        cfg.stack,
+        cfg.multiModule,
+        cfg.discoveryEffortDays ?? 0,
+      )
+      const latestCfg = readConfig(projectPath)
+      const existingRoi = latestCfg.roi ?? []
+      writeConfig(projectPath, {
+        ...latestCfg,
+        roi: [...existingRoi.filter(r => r.phaseNumber !== phase), phaseRoi],
+      })
+      ;(result as Record<string, unknown>)['roi'] = phaseRoi
+    } catch { /* ROI não bloqueia a fase */ }
+  })()
+
+  return result
 }

@@ -10,11 +10,16 @@ export interface PhaseState {
   approvedBy: string | null
   approvedAt: string | null  // ISO 8601
   executedAt: string | null  // ISO 8601
+  completedAt: string | null // ISO 8601 — preenchido quando o gate é aprovado
   gitBranch: string | null   // phase branch: jdk-migration/phase-N-ts
   gitCommit: string | null   // commit after phase transform
   baseBranch: string | null  // branch to return to on rollback
   baseCommit: string | null  // HEAD before phase branch was created
   prUrl: string | null
+  /** Tokens reais reportados pelo chamador (Claude Code) para esta fase */
+  reportedTokenUsage?: { inputTokens: number; outputTokens: number }
+  /** Bytes do JSON de output do execute_phase — para estimativa de tokens */
+  outputJsonBytes?: number
   /** Detalhes persistidos dos runners customizados (infrastructure-transformer, source-cleaner) */
   runnerDetails?: Record<string, unknown>
 }
@@ -93,6 +98,16 @@ export interface JdkMigrationConfig {
    * Ex: "C:\\Program Files\\Zulu\\zulu-21"
    */
   targetJdkHome?: string
+  /**
+   * Esforço estimado em dias retornado pelo discover_project.
+   * Usado pelo ROI tracker para ajustar as estimativas de tempo humano por fase.
+   */
+  discoveryEffortDays?: number
+  /**
+   * Dados de ROI acumulados por fase.
+   * Populados automaticamente após cada execute_phase e approve_gate.
+   */
+  roi?: import('../roi-tracker/types.js').PhaseRoiData[]
 }
 
 const CONFIG_FILENAME = 'jdk-migration.config.json'
@@ -103,6 +118,7 @@ const DEFAULT_PHASE_STATE: PhaseState = {
   approvedBy: null,
   approvedAt: null,
   executedAt: null,
+  completedAt: null,
   gitBranch: null,
   gitCommit: null,
   baseBranch: null,

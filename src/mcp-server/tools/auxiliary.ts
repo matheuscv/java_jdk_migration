@@ -692,6 +692,15 @@ export function registerAuxiliaryTools(server: McpServer): void {
         gateToken: token,
         approvedBy: approverName.trim(),
         approvedAt: now,
+        completedAt: now,
+      }
+
+      // Atualiza completedAt no ROI desta fase
+      if (config.roi) {
+        const phaseRoiIdx = config.roi.findIndex(r => r.phaseNumber === phaseNumber)
+        if (phaseRoiIdx >= 0) {
+          config.roi[phaseRoiIdx] = { ...config.roi[phaseRoiIdx], completedAt: now }
+        }
       }
 
       writeConfig(projectPath, config)
