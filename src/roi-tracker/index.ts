@@ -1,5 +1,6 @@
 import { fetchBrlRate } from './exchange-rate.js'
 import { estimateHumanHoursForPhase } from './human-time-estimator.js'
+import { readTokensForPhase } from './session-reader.js'
 import type { PhaseRoiData, RoiSummary, TokenUsageInput } from './types.js'
 import type { StackType } from '../types.js'
 
@@ -17,7 +18,11 @@ export interface RoiPhaseInput {
   startedAt: string | null
   completedAt: string | null
   tokenUsage?: TokenUsageInput
-  /** Tamanho em bytes do JSON de output do tool — usado para estimar tokens quando tokenUsage não é informado */
+  /** Path absoluto do projeto; quando fornecido, o ROI tracker lê o JSONL da sessão
+   *  do Claude Code para obter o custo real em vez de usar a heurística de estimativa. */
+  projectPath?: string
+  /** Tamanho em bytes do JSON de output do tool — usado como último recurso de estimativa
+   *  quando tokenUsage não é informado e o JSONL não pode ser lido. */
   outputJsonBytes?: number
 }
 
@@ -45,7 +50,7 @@ export async function computePhaseRoi(
   const humanCostUsd  = round2(humanEst.hours * hourlyRateUsd)
   const humanCostBrl  = round2(humanCostUsd * exchangeRate)
 
-  const { inputTokens, cacheCreationTokens, cacheReadTokens, outputTokens } = resolveTokens(input)
+  const { inputTokens, cacheCreationTokens, cacheReadTokens, outputTokens, source } = resolveTokens(input)
   const claudeCostUsd = round2(
     inputTokens          * CLAUDE_INPUT_PRICE_PER_TOKEN +
     cacheCreationTokens  * CLAUDE_CACHE_CREATION_PRICE_PER_TOKEN +
@@ -69,6 +74,7 @@ export async function computePhaseRoi(
     estimatedOutputTokens:          outputTokens,
     claudeCostUsd,
     claudeCostBrl,
+    tokenSource:                    source,
   }
 }
 
@@ -134,21 +140,37 @@ function resolveTokens(input: RoiPhaseInput): {
   cacheCreationTokens: number
   cacheReadTokens: number
   outputTokens: number
+  source: 'explicit' | 'jsonl' | 'heuristic'
 } {
+  // 1ª prioridade: valores explícitos passados pelo caller (ex: update_phase_costs)
   if (input.tokenUsage) {
     return {
       inputTokens:         input.tokenUsage.inputTokens,
       cacheCreationTokens: input.tokenUsage.cacheCreationTokens ?? 0,
       cacheReadTokens:     input.tokenUsage.cacheReadTokens ?? 0,
       outputTokens:        input.tokenUsage.outputTokens,
+      source: 'explicit',
     }
   }
-  // Estimativa: output ≈ bytes/4 (UTF-8 média ≈ 4 chars/token)
+
+  // 2ª prioridade: leitura automática do JSONL da sessão Claude Code
+  if (input.projectPath) {
+    const fromJsonl = readTokensForPhase(input.projectPath, input.startedAt, input.completedAt)
+    if (fromJsonl) {
+      return {
+        inputTokens:         fromJsonl.inputTokens,
+        cacheCreationTokens: fromJsonl.cacheCreationTokens ?? 0,
+        cacheReadTokens:     fromJsonl.cacheReadTokens ?? 0,
+        outputTokens:        fromJsonl.outputTokens,
+        source: 'jsonl',
+      }
+    }
+  }
+
+  // 3ª prioridade: heurística baseada no tamanho do JSON de output
   const outputTokens = Math.ceil((input.outputJsonBytes ?? 0) / 4)
-  // Heurística conservadora: input ≈ 2× output (contexto + instrução + resposta)
-  // Cache tokens ficam em zero — não é possível estimar sem o JSONL real
-  const inputTokens = outputTokens * 2
-  return { inputTokens, cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens }
+  const inputTokens  = outputTokens * 2
+  return { inputTokens, cacheCreationTokens: 0, cacheReadTokens: 0, outputTokens, source: 'heuristic' }
 }
 
 function sum<T>(arr: T[], fn: (item: T) => number): number {

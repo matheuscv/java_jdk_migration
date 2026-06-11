@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Comandos essenciais
+
+```bash
+npm run build          # compila TypeScript → dist/ e copia knowledge-base/data
+npm run dev            # servidor MCP em modo watch (tsx, sem compilar)
+npm test               # todos os testes (vitest run)
+npm run test:unit      # apenas tests/unit/
+npm run test:integration  # apenas tests/integration/
+npm run typecheck      # tsc --noEmit (sem gerar arquivos)
+npm run lint           # eslint src --ext .ts
+```
+
+Rodar um único teste: `npx vitest run tests/unit/gate-validator.test.ts`
+
+O servidor MCP usa `dist/mcp-server/index.js` (entry point compilado). Durante dev, use `npm run dev` para recarga automática via `tsx watch`.
+
 ## Visão geral do projeto
 
 Ferramenta MCP (Model Context Protocol) que orquestra a migração de aplicações Java legadas de **JDK 6 e JDK 8 para JDK 21**. Não reimplementa transformações — ela orquestra ferramentas maduras do ecossistema (OpenRewrite, Spring Boot Migrator, Eclipse Transformer) e impõe governança human-in-the-loop com gates obrigatórios entre fases.
@@ -57,9 +73,20 @@ docs/                ← proposta técnica e documentação de referência
 | `build_migration_plan` | Consolida diagnóstico em plano faseado com gates; gera documento revisável |
 | `execute_phase` | Aplica uma fase aprovada; exige token do gate; dryRun disponível |
 | `get_phase_status` | Situação atual de cada fase |
-| `approve_gate` | Registra aprovação humana e emite token para a fase seguinte |
+| `request_gate_approval` | Gera PIN de 6 dígitos para o responsável humano; também coleta `pendingHumanDecisions` por fase |
+| `approve_gate` | Valida PIN digitado pelo humano e emite token que libera a fase seguinte |
 | `rollback_phase` | Reverte uma fase aplicada via Git |
-| `generate_report` | Relatório consolidado com trilha de auditoria |
+| `generate_report` | Relatório consolidado com trilha de auditoria (.jdk-migration/audit-report-{ts}.html) |
+| `update_step_status` | Registra progresso granular de um step individual dentro da fase ativa |
+| `record_manual_phase` | Registra fase executada manualmente (quando execute_phase falha) |
+| `update_phase_costs` | Atualiza tokens reais de uma fase e recalcula ROI |
+| `check_internal_dependencies` | Consulta Nexus/Artifactory para verificar compatibilidade SB3 de libs internas |
+
+### Fluxo obrigatório de gate (request → PIN → approve)
+
+`approve_gate` requer que `request_gate_approval` seja chamado primeiro. O tool gera um PIN de 6 dígitos exibido ao responsável. O PIN expira em 30 minutos e fica em `.jdk-migration/.gate-pins.json` (inacessível ao agente). `approve_gate` só aceita o código digitado explicitamente pelo humano — nunca inferido ou reutilizado.
+
+Nomes proibidos em `approverName`: `bot`, `claude`, `ai`, `agent`, `automation`, `system` (e variações) — a tool rejeita com `GATE_TOKEN_INVALID`.
 
 ## Fluxo de uso (ponta a ponta)
 
@@ -137,6 +164,32 @@ git add -A && git commit -m "chore(jdk-migration): fase N -- <descricao>"
 - **Cada fase em branch Git isolada** — rollback automático em falha de build; nunca commit direto na branch principal. Em execução manual, criar a branch ANTES de iniciar o trabalho.
 - **dryRun obrigatório antes de qualquer execute_phase** em stacks de alta/crítica complexidade.
 - **Ordem de recipes importa:** recipe JDK antes do recipe WebLogic (ordem oficial Oracle).
+
+## Estado persistido dentro da aplicação-alvo
+
+```
+<projectPath>/
+  jdk-migration.config.json          ← config principal (lido/escrito por todas as tools)
+  .jdk-migration/
+    discovery-report.json            ← gerado por discover_project
+    migration-plan.json              ← gerado por build_migration_plan
+    .gate-pins.json                  ← PINs em espera (inacessível ao agente)
+    audit-report-<timestamp>.html    ← gerado automaticamente após cada gate
+    audit-report-final.html          ← fixo, gerado ao aprovar gate da Fase 5
+    audit-report-phase-0.md          ← checklist baseline pré-migração
+    audit-report-phase-5.md          ← checklist resultado pós-migração
+```
+
+O config possui o campo `reportMode`: `'phase-gate'` (padrão) gera relatório por fase/gate; `'phase-gate-step'` gera também por step individual.
+
+## Convenções de código
+
+- **TypeScript 5.x, strict, ESM** (`"type": "module"` — sempre usar extensão `.js` nos imports)
+- **Factory functions**, não singletons: `export function createXxxProfiler(...): StackProfiler { ... }`
+- **Processos externos** sempre via `src/lib/process-runner.ts` (`runProcess`) — nunca `exec`/shell string
+- **Erros tipados** como `MigrationError` de `src/lib/errors.ts` — sem `try/catch` genérico
+- **Sem estado global mutável** — todo estado persiste em `jdk-migration.config.json`
+- **ROI tracker** em `src/roi-tracker/` computa custo real vs. esforço humano estimado por fase; chamado automaticamente em `approve_gate` e `update_phase_costs`
 
 ## Ferramentas externas integradas
 

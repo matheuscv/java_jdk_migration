@@ -13,6 +13,11 @@ export interface PhaseRoiData {
   estimatedOutputTokens: number          // output_tokens — $15/MTok
   claudeCostUsd: number
   claudeCostBrl: number
+  /** Origem dos dados de token usados no cálculo:
+   *  - 'explicit'  — informado manualmente via update_phase_costs
+   *  - 'jsonl'     — lido automaticamente do arquivo de sessão Claude Code
+   *  - 'heuristic' — estimado por heurística (bytes/4); menos preciso */
+  tokenSource?: 'explicit' | 'jsonl' | 'heuristic'
 }
 
 export interface RoiSummary {

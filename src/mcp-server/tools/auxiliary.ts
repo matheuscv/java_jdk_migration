@@ -704,7 +704,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
         existingRoi[phaseRoiIdx] = { ...existingRoi[phaseRoiIdx], completedAt: now }
         config.roi = existingRoi
       } else {
-        // Entry mínimo: sem dados de token — será enriquecido quando update_phase_costs for chamado
+        // Lê tokens reais do JSONL da sessão Claude Code para o intervalo da fase
         try {
           const { computePhaseRoi } = await import('../../roi-tracker/index.js')
           const phaseState = config.phases[phaseNumber as PhaseNumber]
@@ -713,7 +713,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
               phaseNumber,
               startedAt:   phaseState.executedAt ?? now,
               completedAt: now,
-              tokenUsage:  { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+              projectPath,
             },
             config.stack ?? [],
             config.multiModule ?? false,

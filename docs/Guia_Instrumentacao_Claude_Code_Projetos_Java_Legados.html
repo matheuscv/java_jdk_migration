@@ -682,7 +682,7 @@
   </h1>
 
   <div class="hero-meta">
-    <span class="hero-tag y">3 Fases</span>
+    <span class="hero-tag y">4 Fases</span>
     <span class="hero-tag g">Java Legado</span>
     <span class="hero-tag o">Claude Code</span>
     <span class="hero-tag y">CLAUDE.md</span>
@@ -692,6 +692,7 @@
 
 <!-- ═══════════════ NAV ═══════════════ -->
 <nav class="progress-nav">
+  <a href="#fase0" class="nav-item p1"><span class="nav-num">0</span>Premissas</a>
   <a href="#fase1" class="nav-item p1"><span class="nav-num">1</span>Descoberta</a>
   <a href="#fase2" class="nav-item p2"><span class="nav-num">2</span>Instrumentação</a>
   <a href="#fase2-1" class="nav-item p2"><span class="nav-num">↳</span>CLAUDE.md</a>
@@ -711,6 +712,86 @@
     <div class="highlight-band">
       <p>Este guia cobre o processo completo de instrumentação de um projeto Java legado — desenvolvido por humanos sem apoio de IA — para que passe a evoluir com o <strong>Claude Code</strong>. O objetivo é fazer com que o Claude tenha contexto suficiente para trabalhar com qualidade e segurança em um codebase que ele não conhece.</p>
       <p style="margin-top:0.75rem;">O processo está dividido em <strong>3 fases</strong>: Descoberta, Instrumentação e Workflow. Siga em ordem na primeira vez; depois, consulte conforme necessário.</p>
+    </div>
+  </section>
+
+  <!-- ═══ FASE 0 ═══ -->
+  <section class="section" id="fase0">
+    <div class="phase-header phase1">
+      <div class="phase-number">00</div>
+      <div class="phase-info">
+        <div class="phase-label">Fase 0</div>
+        <div class="phase-title">Premissas</div>
+        <div class="phase-desc">Prepare o repositório em uma branch isolada antes de qualquer trabalho de migração.</div>
+      </div>
+    </div>
+
+    <p>Antes de iniciar qualquer etapa de migração, é fundamental garantir que todo o trabalho seja realizado em uma branch isolada no GitHub. Isso protege a branch <code>RELEASE</code> e garante que o merge final seja feito exclusivamente por um humano (gate humano).</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <div class="step-title">Acesse o seu workspace local</div>
+          <div class="step-desc">Navegue até a pasta onde se localizam os seus projetos em sua máquina local.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <div class="step-title">Localize o repositório no GitHub</div>
+          <div class="step-desc">Acesse o GitHub, selecione o repositório que será migrado e selecione também a branch <code>RELEASE</code>.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <div class="step-title">Clone o repositório localmente</div>
+          <div class="step-desc">Execute o comando abaixo para gerar uma cópia em seu workspace:</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+        <div class="terminal-title">bash — workspace</div>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-prompt">$</span> <span class="t-cmd">git clone &lt;url do repositório&gt;</span></div>
+        <div class="t-out">Cloning into 'meu-projeto'...</div>
+        <div class="t-out">remote: Enumerating objects: 1234, done.</div>
+        <div class="t-out">Receiving objects: 100% (1234/1234), done.</div>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <div class="step-title">Crie uma branch de migração isolada no GitHub</div>
+          <div class="step-desc">Desconecte o projeto clonado localmente e peça para criar uma nova branch no GitHub com o nome <code>migrate/jdk8-to-jdk21-yyyymmdd</code> (substituindo <code>yyyymmdd</code> pela data atual).</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          <div class="step-title">Commit e push na nova branch</div>
+          <div class="step-desc">Faça o commit e push do projeto nesta nova branch criada para que ela exista no repositório remoto antes de iniciar o trabalho.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <div class="callout-label">Gate Humano</div>
+      <p>Realizados os passos acima, todo o trabalho de migração do projeto estará sendo tratado em uma branch isolada. Ao final, após validado, os PRs desta branch para a branch <strong>RELEASE</strong> devem ser executados exclusivamente por um humano — nunca por automação.</p>
+    </div>
+
+    <div class="callout danger">
+      <div class="callout-label">Importante</div>
+      <p>Se você estiver executando o MCP <strong>fora da Cielo</strong> — é <strong>necessário</strong> estar conectado à <strong>VPN Cielo</strong> para que a ferramenta funcione corretamente. Verifique sua conexão antes de prosseguir.</p>
     </div>
   </section>
 
