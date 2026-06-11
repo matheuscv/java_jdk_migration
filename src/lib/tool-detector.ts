@@ -83,12 +83,6 @@ function parseMajorVersion(version: string): number | null {
   return first === 1 ? parseInt(m[2], 10) : first
 }
 
-/** Retorna true se a versão pertence à família JDK 6 ou 8 */
-function isSourceJdkVersion(version: string): boolean {
-  const major = parseMajorVersion(version)
-  return major === 6 || major === 8
-}
-
 /** Retorna true se a versão pertence ao JDK 21 */
 function isJdk21Version(version: string): boolean {
   const major = parseMajorVersion(version)

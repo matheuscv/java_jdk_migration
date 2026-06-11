@@ -84,10 +84,43 @@ function findJavaFiles(dir: string): string[] {
 }
 
 /**
+ * Detecta módulos Maven a partir do pom.xml raiz.
+ * Retorna array com os nomes dos módulos (ex: ["star-cad-brand-api", "star-cad-brand-domain"]).
+ * Retorna [] se o projeto não for multi-módulo ou se o pom.xml não for encontrado.
+ */
+function detectMavenModulePaths(projectPath: string): string[] {
+  const pom = readSafe(join(projectPath, 'pom.xml'))
+  if (!pom) return []
+  if (!/<packaging>\s*pom\s*<\/packaging>/.test(pom)) return []
+  const block = pom.match(/<modules>([\s\S]*?)<\/modules>/)
+  if (!block) return []
+  const modules: string[] = []
+  const re = /<module>([\s\S]*?)<\/module>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(block[1])) !== null) {
+    const p = m[1].trim()
+    if (p) modules.push(p)
+  }
+  return modules
+}
+
+/**
  * Retorna .java varrendo src/main/java + src/test/java do projeto.
+ * Em projetos multi-módulo Maven (packaging=pom + <modules>), varre cada módulo.
  * Usado nos critérios que precisam de cobertura total (main + testes).
  */
 function findAllJavaFiles(projectPath: string): string[] {
+  const modules = detectMavenModulePaths(projectPath)
+  if (modules.length > 0) {
+    const files: string[] = []
+    for (const mod of modules) {
+      const mainDir = join(projectPath, mod, 'src', 'main', 'java')
+      const testDir = join(projectPath, mod, 'src', 'test', 'java')
+      if (existsSync(mainDir)) files.push(...findJavaFiles(mainDir))
+      if (existsSync(testDir)) files.push(...findJavaFiles(testDir))
+    }
+    return files
+  }
   const mainDir = join(projectPath, 'src', 'main', 'java')
   const testDir = join(projectPath, 'src', 'test', 'java')
   return [

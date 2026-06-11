@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
@@ -152,6 +152,7 @@ async function discoverProject(
     sourceJdk = shallow.detectedJdk ?? '8'
     detectedStacks = [...shallow.detectedStacks]
     buildSystem = shallow.buildSystem
+    isMultiModule = detectIsMultiModule(projectPath, buildSystem)
   }
 
   // 1b. Detectar ferramentas do ambiente de build
@@ -393,4 +394,31 @@ async function checkGitAvailable(projectPath: string): Promise<boolean> {
     timeoutMs: 5_000,
   })
   return result.exitCode === 0
+}
+
+/**
+ * Detecta automaticamente se o projeto é multi-módulo.
+ * Maven: verifica <packaging>pom</packaging> + bloco <modules> no pom.xml raiz.
+ * Gradle: verifica include() em settings.gradle ou settings.gradle.kts.
+ */
+function detectIsMultiModule(projectPath: string, buildSystem: string): boolean {
+  if (buildSystem === 'maven') {
+    const pomPath = join(projectPath, 'pom.xml')
+    if (!existsSync(pomPath)) return false
+    try {
+      const pom = readFileSync(pomPath, 'utf-8')
+      return /<packaging>\s*pom\s*<\/packaging>/.test(pom) && /<modules>/.test(pom)
+    } catch { return false }
+  }
+  if (buildSystem === 'gradle') {
+    const kts = join(projectPath, 'settings.gradle.kts')
+    const groovy = join(projectPath, 'settings.gradle')
+    const settingsPath = existsSync(kts) ? kts : existsSync(groovy) ? groovy : null
+    if (!settingsPath) return false
+    try {
+      const settings = readFileSync(settingsPath, 'utf-8')
+      return /\binclude\s*[\("']/.test(settings)
+    } catch { return false }
+  }
+  return false
 }
