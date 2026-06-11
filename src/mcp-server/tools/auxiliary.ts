@@ -697,11 +697,31 @@ export function registerAuxiliaryTools(server: McpServer): void {
         completedAt: now,
       }
 
-      // Atualiza completedAt no ROI desta fase
-      if (config.roi) {
-        const phaseRoiIdx = config.roi.findIndex(r => r.phaseNumber === phaseNumber)
-        if (phaseRoiIdx >= 0) {
-          config.roi[phaseRoiIdx] = { ...config.roi[phaseRoiIdx], completedAt: now }
+      // Atualiza ou cria entry de ROI para esta fase
+      const existingRoi: any[] = config.roi ?? []
+      const phaseRoiIdx = existingRoi.findIndex(r => r.phaseNumber === phaseNumber)
+      if (phaseRoiIdx >= 0) {
+        existingRoi[phaseRoiIdx] = { ...existingRoi[phaseRoiIdx], completedAt: now }
+        config.roi = existingRoi
+      } else {
+        // Entry mínimo: sem dados de token — será enriquecido quando update_phase_costs for chamado
+        try {
+          const { computePhaseRoi } = await import('../../roi-tracker/index.js')
+          const phaseState = config.phases[phaseNumber as PhaseNumber]
+          const minimalRoi = await computePhaseRoi(
+            {
+              phaseNumber,
+              startedAt:   phaseState.executedAt ?? now,
+              completedAt: now,
+              tokenUsage:  { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+            },
+            config.stack ?? [],
+            config.multiModule ?? false,
+            config.discoveryEffortDays ?? 0,
+          )
+          config.roi = [...existingRoi, minimalRoi]
+        } catch {
+          // ROI não bloqueia a aprovação
         }
       }
 
