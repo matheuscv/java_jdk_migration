@@ -1215,11 +1215,11 @@ export function registerAuxiliaryTools(server: McpServer): void {
                 'Extraia do transcript JSONL somando o campo "usage.cache_read_input_tokens" de cada linha de resposta.',
               ),
           })
+          .optional()
           .describe(
-            'Tokens reais da fase. Para obter os valores: ' +
-            '(1) localize o arquivo ~/.claude/projects/<slug>/<session-id>.jsonl; ' +
-            '(2) filtre as linhas com "usage" no JSON; ' +
-            '(3) some cada campo de token para o período correspondente à fase.',
+            'Tokens reais da fase. Quando omitido, o MCP lê automaticamente o arquivo ' +
+            '~/.claude/projects/<slug>/*.jsonl e soma os tokens do intervalo da fase. ' +
+            'Informe manualmente apenas para corrigir ou sobrescrever o valor lido.',
           ),
       },
     },
@@ -1234,6 +1234,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
           startedAt:   phaseState.executedAt ?? null,
           completedAt: phaseState.completedAt ?? null,
           tokenUsage,
+          projectPath: tokenUsage ? undefined : projectPath,
         },
         config.stack,
         config.multiModule,
@@ -1253,12 +1254,19 @@ export function registerAuxiliaryTools(server: McpServer): void {
         phaseRoi.estimatedCacheReadTokens +
         phaseRoi.estimatedOutputTokens
 
+      const sourceLabel: Record<string, string> = {
+        explicit:  'informado manualmente',
+        jsonl:     'lido do arquivo de sessão Claude Code (.jsonl)',
+        heuristic: 'estimado por heurística (JSONL não encontrado)',
+      }
+
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             status: 'ok',
             phaseNumber: phase,
+            tokenSource: phaseRoi.tokenSource,
             roi: phaseRoi,
             totalTokens: totalTok,
             auditReport: autoReportPath ?? null,
@@ -1266,6 +1274,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
               `Custo da Fase ${phase} atualizado: ` +
               `$${phaseRoi.claudeCostUsd.toFixed(4)} USD | R$${phaseRoi.claudeCostBrl.toFixed(2)} BRL. ` +
               `Tokens: ${totalTok.toLocaleString()} (cache read: ${phaseRoi.estimatedCacheReadTokens.toLocaleString()}). ` +
+              `Origem: ${sourceLabel[phaseRoi.tokenSource ?? 'heuristic']}. ` +
               `Relatório regenerado.`,
           }, null, 2),
         }],
