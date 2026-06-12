@@ -1769,7 +1769,7 @@ export function buildRoiSection(roi: import('../roi-tracker/index.js').RoiSummar
     <div class="roi-saving-banner">
       <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
         <div>
-          <div class="saving-pct">${savingsPct.toFixed(0)}%</div>
+          <div class="saving-pct">${savingsPct >= 99.5 ? savingsPct.toFixed(2) : savingsPct.toFixed(0)}%</div>
           <div class="saving-label">de economia estimada vs. desenvolvimento humano</div>
         </div>
         <div>
