@@ -47,6 +47,43 @@ export interface MigrationAuditResult {
   hasBlockers: boolean
   /** true se TODOS os critérios são ✅ ok — AUDITORIA APROVADA */
   allOk: boolean
+  /** Veredicto crítico e fundamentado gerado por generateVerdict() */
+  verdict: AuditVerdict
+}
+
+// ─── verdict types ─────────────────────────────────────────────────────────────
+
+export type VerdictLevel = 'approved' | 'conditionally_approved' | 'rejected'
+
+export interface AuditVerdictItem {
+  criterionId: string
+  label: string
+  detail: string
+}
+
+/**
+ * Veredicto de auditoria crítico e fundamentado — gerado por generateVerdict().
+ * Distingue falsos positivos do scanner estático, riscos reais de runtime,
+ * itens necessários aceitos (ex: --add-opens) e bloqueadores genuínos.
+ */
+export interface AuditVerdict {
+  level: VerdictLevel
+  /** Ex: "APROVADO CONDICIONALMENTE" */
+  label: string
+  /** Manchete do banner — frase direta de status */
+  headline: string
+  /** Condições que devem ser satisfeitas antes do cutover para PRD */
+  conditions: string[]
+  /** Labels dos critérios ✅ com evidência positiva forte */
+  positiveEvidence: string[]
+  /** Riscos reais que fundamentam as condições */
+  realRisks: AuditVerdictItem[]
+  /** Itens triados: reconhecidos, não bloqueadores, com justificativa */
+  acceptedItems: AuditVerdictItem[]
+  /** Quantidade de ⚠️ descartados como falso positivo do scanner */
+  falsePosCount: number
+  /** Quantidade de ⚠️ triviais (ex: target/ não gerado) */
+  trivialCount: number
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -1336,9 +1373,142 @@ function checkKubernetesManifests(projectPath: string, targetJdk: string): Audit
 
 // ─── entry point público ───────────────────────────────────────────────────────
 
+// ─── verdict engine ────────────────────────────────────────────────────────────
+
+/** Critérios que, quando ✅, constituem evidência positiva forte de ausência de JDK 8. */
+const STRONG_EVIDENCE_IDS = new Set([
+  'compiler-version', 'javax-imports', 'spring-boot-version', 'container-ci',
+  'sun-internal-imports', 'security-manager', 'removed-apis', 'removed-jvm-flags',
+])
+
+type WarningKind = 'false-positive' | 'trivial' | 'runtime' | 'dependency' | 'module-opens' | 'other'
+
+function classifyWarning(c: AuditCriterion): WarningKind {
+  if (c.detail.includes('Nenhum arquivo .java encontrado')) return 'false-positive'
+  if (c.id === 'output-bytecode' || c.id === 'actual-bytecode') return 'trivial'
+  if (c.id === 'runtime-evidence')  return 'runtime'
+  if (c.id === 'internal-deps')     return 'dependency'
+  if (c.id === 'add-opens' || c.id === 'jvm-config') return 'module-opens'
+  return 'other'
+}
+
+/**
+ * Gera o veredicto crítico e fundamentado da auditoria de migração.
+ *
+ * Lógica:
+ *   REPROVADO            — qualquer critério ❌ (bloqueador confirmado)
+ *   APROVADO COND.       — zero ❌ + ⚠️ reais (runtime sem evidência, deps internas)
+ *   APROVADO             — zero ❌ + todos os ⚠️ são falsos positivos, triviais ou aceitos
+ *
+ * Separa explicitamente:
+ *   - Falsos positivos do scanner (projeto multi-módulo: scanner estático não traversa subdiretórios)
+ *   - Riscos reais de runtime (startup com infra real, dependências internas)
+ *   - Itens aceitos/necessários (--add-opens para Mockito/ByteBuddy)
+ *   - Evidência positiva confirmada (critérios ✅ de alto valor)
+ */
+export function generateVerdict(criteria: AuditCriterion[], sourceJdk = '8'): AuditVerdict {
+  const blockers = criteria.filter(c => c.status === 'fail')
+  const warnings = criteria.filter(c => c.status === 'warning')
+  const oks      = criteria.filter(c => c.status === 'ok')
+
+  const falsePosW = warnings.filter(c => classifyWarning(c) === 'false-positive')
+  const trivialW  = warnings.filter(c => classifyWarning(c) === 'trivial')
+  const runtimeW  = warnings.filter(c => classifyWarning(c) === 'runtime')
+  const depW      = warnings.filter(c => classifyWarning(c) === 'dependency')
+  const moduleW   = warnings.filter(c => classifyWarning(c) === 'module-opens')
+  const otherW    = warnings.filter(c => classifyWarning(c) === 'other')
+
+  const positiveEvidence = oks
+    .filter(c => STRONG_EVIDENCE_IDS.has(c.id))
+    .map(c => c.label)
+
+  const acceptedItems: AuditVerdictItem[] = [
+    ...moduleW.map(c => ({
+      criterionId: c.id, label: c.label,
+      detail: 'Flags --add-opens/--add-exports necessárias para Mockito 5 / ByteBuddy em JDK 21. Comportamento esperado e documentado — não é resquício de JDK 8.',
+    })),
+    ...trivialW.map(c => ({
+      criterionId: c.id, label: c.label,
+      detail: 'Artefato não gerado nesta sessão (apenas mvn test executado). Execute mvn package para produzir o JAR e verificar MANIFEST.MF.',
+    })),
+    ...otherW.map(c => ({
+      criterionId: c.id, label: c.label,
+      detail: c.action ?? c.detail,
+    })),
+  ]
+
+  // ── REPROVADO ──────────────────────────────────────────────────────────────
+  if (blockers.length > 0) {
+    return {
+      level: 'rejected', label: 'REPROVADO',
+      headline: `${blockers.length} falha(s) bloqueadora(s) detectada(s) — não apto para promoção até resolução completa.`,
+      conditions: blockers.map(b => b.action ?? b.label),
+      positiveEvidence,
+      realRisks: blockers.map(c => ({ criterionId: c.id, label: c.label, detail: c.action ?? c.detail })),
+      acceptedItems,
+      falsePosCount: falsePosW.length,
+      trivialCount:  trivialW.length,
+    }
+  }
+
+  // ── APROVADO CONDICIONALMENTE ──────────────────────────────────────────────
+  const realRisks: AuditVerdictItem[] = [
+    ...runtimeW.map(c => ({
+      criterionId: c.id, label: c.label,
+      detail: 'Nenhuma evidência de execução da aplicação com JDK 21 e infraestrutura real conectada. Testes unitários com mocks não substituem validação de runtime com banco, mensageria e integrações externas.',
+    })),
+    ...depW.map(c => ({
+      criterionId: c.id, label: c.label,
+      detail: c.detail + (c.action ? ` ${c.action}` : ''),
+    })),
+  ]
+
+  if (realRisks.length > 0) {
+    const conditions: string[] = []
+    if (runtimeW.length > 0) {
+      conditions.push(
+        'Startup com infraestrutura real não evidenciado — iniciar a aplicação em HML com banco, Kafka e integrações conectadas e confirmar ausência de erros de runtime antes do cutover para PRD',
+      )
+    }
+    if (depW.length > 0) {
+      const depNames = depW
+        .flatMap(c => c.detail.match(/[\w.-]+:[\w.-]+:[\d.]+/g) ?? [c.label])
+        .slice(0, 3).join(', ')
+      conditions.push(
+        `Dependências internas com compatibilidade JDK 21 não verificada formalmente: ${depNames} — validar com os times responsáveis`,
+      )
+    }
+    return {
+      level: 'conditionally_approved', label: 'APROVADO CONDICIONALMENTE',
+      headline: 'Apto para deploy em HML. ' + conditions[0],
+      conditions,
+      positiveEvidence,
+      realRisks,
+      acceptedItems,
+      falsePosCount: falsePosW.length,
+      trivialCount:  trivialW.length,
+    }
+  }
+
+  // ── APROVADO ──────────────────────────────────────────────────────────────
+  return {
+    level: 'approved', label: 'APROVADO',
+    headline: `Projeto sem vínculos ativos com JDK ${sourceJdk} — todos os critérios verificáveis estaticamente confirmados.`,
+    conditions: [],
+    positiveEvidence,
+    realRisks: [],
+    acceptedItems,
+    falsePosCount: falsePosW.length,
+    trivialCount:  trivialW.length,
+  }
+}
+
+// ─── runner ────────────────────────────────────────────────────────────────────
+
 export async function runMigrationAudit(
   projectPath: string,
   targetJdk: string = '21',
+  sourceJdk: string = '8',
 ): Promise<MigrationAuditResult> {
   const criteria: AuditCriterion[] = await Promise.all([
     // Critérios A1–A8 — build, namespace, Spring Boot, CI/CD, runtime, artefatos
@@ -1377,12 +1547,15 @@ export async function runMigrationAudit(
     fail:    criteria.filter(c => c.status === 'fail').length,
   }
 
+  const verdict = generateVerdict(criteria, sourceJdk)
+
   return {
     generatedAt: new Date().toISOString(),
     targetJdk,
     criteria,
     summary,
     hasBlockers: summary.fail > 0,
-    allOk: summary.ok === criteria.length,  // true só se TODOS forem ✅
+    allOk: summary.ok === criteria.length,
+    verdict,
   }
 }

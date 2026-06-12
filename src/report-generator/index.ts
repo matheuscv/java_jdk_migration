@@ -2,7 +2,7 @@ import { existsSync, readFileSync, mkdirSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path'
 import { MigrationError } from '../lib/errors.js'
 import { runProcess } from '../lib/process-runner.js'
-import type { MigrationAuditResult, AuditCriterion } from '../static-analysis/migration-audit.js'
+import type { MigrationAuditResult, AuditCriterion, AuditVerdict } from '../static-analysis/migration-audit.js'
 import { buildRoiSummary } from '../roi-tracker/index.js'
 import type { PhaseRoiData } from '../roi-tracker/types.js'
 
@@ -37,10 +37,14 @@ export function generateAuditChecklist(
     const intro = isBaseline
       ? `> ℹ️  Este é o **baseline pré-migração**. Registra o estado inicial do projeto para rastreamento.\n> Itens marcados \`[ ]\` = pendentes. Após a Fase 5 será gerado \`audit-report-phase-5.md\` com o resultado final.`
       : (() => {
-          const finalStatus = audit.allOk
+          const v = (audit as MigrationAuditResult & { verdict?: { level: string; label: string; headline: string } }).verdict
+          if (v) {
+            const icon = v.level === 'approved' ? '✅' : v.level === 'conditionally_approved' ? '⚠️' : '❌'
+            return `> ${icon} **STATUS FINAL: ${v.label}** — ${v.headline}`
+          }
+          return audit.allOk
             ? `> ✅ **STATUS FINAL: PROJETO MIGRADO COM SUCESSO** — Todos os ${audit.criteria.length} critérios atendidos.`
             : `> ❌ **STATUS FINAL: PROJETO APRESENTA ISSUES QUE AINDA O LIGA A JDK ${sourceJdk}** — ${audit.summary.fail} falha(s) e ${audit.summary.warning} aviso(s) detectados.`
-          return finalStatus
         })()
 
     const criteriaMap = new Map(audit.criteria.map(c => [c.id, c]))
@@ -84,9 +88,22 @@ export function generateAuditChecklist(
       ? [
           '---',
           '',
-          audit.allOk
-            ? `## ✅ STATUS FINAL: PROJETO MIGRADO COM SUCESSO\n\nTodos os ${audit.criteria.length} critérios de auditoria foram atendidos. O projeto não possui artefatos ligados ao JDK ${sourceJdk}.`
-            : `## ❌ STATUS FINAL: PROJETO APRESENTA ISSUES QUE AINDA O LIGA A JDK ${sourceJdk}\n\n${audit.summary.fail} critério(s) com falha e ${audit.summary.warning} com atenção. Revise os itens acima antes do cutover.`,
+          (() => {
+            const v = (audit as MigrationAuditResult & { verdict?: { level: string; label: string; headline: string; conditions: string[]; positiveEvidence: string[] } }).verdict
+            if (v) {
+              const icon = v.level === 'approved' ? '✅' : v.level === 'conditionally_approved' ? '⚠️' : '❌'
+              const condLines = v.conditions.length > 0
+                ? '\n\n**Condições:**\n' + v.conditions.map(c => `- ${c}`).join('\n')
+                : ''
+              const evidLines = v.positiveEvidence.length > 0
+                ? '\n\n**Base técnica confirmada:**\n' + v.positiveEvidence.map(e => `- ${e}`).join('\n')
+                : ''
+              return `## ${icon} STATUS FINAL: ${v.label}\n\n${v.headline}${condLines}${evidLines}`
+            }
+            return audit.allOk
+              ? `## ✅ STATUS FINAL: PROJETO MIGRADO COM SUCESSO\n\nTodos os ${audit.criteria.length} critérios de auditoria foram atendidos. O projeto não possui artefatos ligados ao JDK ${sourceJdk}.`
+              : `## ❌ STATUS FINAL: PROJETO APRESENTA ISSUES QUE AINDA O LIGA A JDK ${sourceJdk}\n\n${audit.summary.fail} critério(s) com falha e ${audit.summary.warning} com atenção. Revise os itens acima antes do cutover.`
+          })(),
           '',
         ].join('\n')
       : ''
@@ -181,14 +198,20 @@ function buildParecerFinal(audit: MigrationAuditResult, sourceJdk: string): stri
     return hasSpringfoxIssue ? 'verificar' : 'ZERO'
   })()
 
-  // VEREDICTO
-  const veredicto = summary.fail === 0
-    ? '✅ APROVADO PARA CUTOVER'
-    : `❌ REPROVADO — ${summary.fail} critério(s) com falha`
+  // VEREDICTO — usa verdict fundamentado se disponível, fallback ao comportamento anterior
+  const verdictFromEngine = (audit as MigrationAuditResult & { verdict?: { level: string; label: string; headline: string; conditions: string[]; falsePosCount: number } }).verdict
+  const veredicto = verdictFromEngine
+    ? (() => {
+        const icon = verdictFromEngine.level === 'approved' ? '✅' : verdictFromEngine.level === 'conditionally_approved' ? '⚠️' : '❌'
+        return `${icon} ${verdictFromEngine.label}`
+      })()
+    : (summary.fail === 0 ? '✅ APROVADO PARA CUTOVER' : `❌ REPROVADO — ${summary.fail} critério(s) com falha`)
 
-  const conditionalNote = pendingGate.length > 0
-    ? `\n  (condicionado ao sign-off formal – ${pendingGate.map(c => CRITERION_NUMBER_MAP.get(c.id) ?? c.id).join(', ')})`
-    : (accepted.length > 0 ? '\n  (condicionado à revisão dos itens acima)' : '')
+  const conditionalNote = verdictFromEngine?.conditions?.length
+    ? `\n  ${verdictFromEngine.conditions.map(c => `→ ${c}`).join('\n  ')}`
+    : (pendingGate.length > 0
+      ? `\n  (condicionado ao sign-off formal – ${pendingGate.map(c => CRITERION_NUMBER_MAP.get(c.id) ?? c.id).join(', ')})`
+      : (accepted.length > 0 ? '\n  (condicionado à revisão dos itens acima)' : ''))
 
   // Linhas do box com alinhamento fixo
   const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - s.length))
@@ -840,6 +863,28 @@ function buildHtml(ctx: BuildContext): string {
     .audit-pill-fail    { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; }
     .audit-blocker-banner { background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:13px; color:#991b1b; font-weight:600; }
     .audit-clean-banner   { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:10px 14px; margin-bottom:14px; font-size:13px; color:#15803d; font-weight:600; }
+    /* ── Verdict banner ── */
+    .verdict-banner { border-radius:8px; padding:16px 18px; margin-bottom:16px; }
+    .verdict-approved    { background:#f0fdf4; border:2px solid #22c55e; }
+    .verdict-conditional { background:#fffbeb; border:2px solid #f59e0b; }
+    .verdict-rejected    { background:#fef2f2; border:2px solid #ef4444; }
+    .verdict-header { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    .verdict-icon { font-size:22px; flex-shrink:0; }
+    .verdict-label { font-size:16px; font-weight:800; letter-spacing:.04em; }
+    .verdict-label-approved    { color:#15803d; }
+    .verdict-label-conditional { color:#92400e; }
+    .verdict-label-rejected    { color:#991b1b; }
+    .verdict-headline { font-size:13px; font-weight:600; color:#1e293b; margin-bottom:12px; line-height:1.5; }
+    .verdict-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:8px; }
+    .verdict-col { background:rgba(255,255,255,.55); border-radius:6px; padding:10px 12px; border:1px solid rgba(0,0,0,.06); }
+    .verdict-col-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; margin-bottom:6px; }
+    .verdict-col-evidence .verdict-col-title { color:#15803d; }
+    .verdict-col-risks    .verdict-col-title { color:#b45309; }
+    .verdict-col-accepted .verdict-col-title { color:#0369a1; }
+    .verdict-col-blockers .verdict-col-title { color:#dc2626; }
+    .verdict-list { list-style:none; padding:0; margin:0; font-size:12px; color:#334155; line-height:1.7; }
+    .verdict-list li::before { content:"·"; margin-right:6px; font-weight:700; opacity:.5; }
+    .verdict-triage-note { font-size:11px; color:#64748b; margin-top:10px; font-style:italic; }
     /* ── ROI ── */
     section.roi-section { border-left: 4px solid #059669; }
     section.roi-section h2 { color: #065f46; border-color: #a7f3d0; }
@@ -1595,15 +1640,65 @@ function buildStepProgress(ctx: BuildContext): string {
   </section>`
 }
 
+function buildVerdictBannerHtml(verdict: AuditVerdict): string {
+  const { level, label, headline, conditions, positiveEvidence, realRisks, acceptedItems, falsePosCount, trivialCount } = verdict
+
+  const cssClass  = level === 'approved' ? 'verdict-approved' : level === 'conditionally_approved' ? 'verdict-conditional' : 'verdict-rejected'
+  const labelCss  = level === 'approved' ? 'verdict-label-approved' : level === 'conditionally_approved' ? 'verdict-label-conditional' : 'verdict-label-rejected'
+  const icon      = level === 'approved' ? '✅' : level === 'conditionally_approved' ? '⚠️' : '❌'
+
+  const colEvidence = positiveEvidence.length > 0 ? `
+    <div class="verdict-col verdict-col-evidence">
+      <div class="verdict-col-title">✅ Base técnica confirmada</div>
+      <ul class="verdict-list">${positiveEvidence.map(e => `<li>${escHtml(e)}</li>`).join('')}</ul>
+    </div>` : ''
+
+  const colRisks = realRisks.length > 0 ? `
+    <div class="verdict-col verdict-col-risks">
+      <div class="verdict-col-title">${level === 'rejected' ? '❌ Bloqueadores' : '⚠️ Condições para cutover PRD'}</div>
+      <ul class="verdict-list">${realRisks.map(r => `<li><strong>${escHtml(r.label)}:</strong> ${escHtml(r.detail)}</li>`).join('')}</ul>
+    </div>` : ''
+
+  const colAccepted = acceptedItems.length > 0 ? `
+    <div class="verdict-col verdict-col-accepted">
+      <div class="verdict-col-title">ℹ️ Itens triados (não bloqueadores)</div>
+      <ul class="verdict-list">${acceptedItems.map(a => `<li><strong>${escHtml(a.label)}:</strong> ${escHtml(a.detail)}</li>`).join('')}</ul>
+    </div>` : ''
+
+  const triageNote = (falsePosCount > 0 || trivialCount > 0) ? `
+    <div class="verdict-triage-note">
+      ${falsePosCount > 0 ? `${falsePosCount} aviso(s) descartado(s) como falso positivo do scanner estático (projeto multi-módulo — fontes não traversados pelo auditor). ` : ''}
+      ${trivialCount > 0 ? `${trivialCount} aviso(s) trivial(is) (artefato não gerado — execute mvn package).` : ''}
+    </div>` : ''
+
+  const conditionsHtml = conditions.length > 1 ? `
+    <ul class="verdict-list" style="margin-bottom:10px">${conditions.map(c => `<li>${escHtml(c)}</li>`).join('')}</ul>` : ''
+
+  return `<div class="verdict-banner ${cssClass}">
+    <div class="verdict-header">
+      <span class="verdict-icon">${icon}</span>
+      <span class="verdict-label ${labelCss}">STATUS FINAL: ${escHtml(label)}</span>
+    </div>
+    <div class="verdict-headline">${escHtml(headline)}</div>
+    ${conditionsHtml}
+    <div class="verdict-cols">
+      ${colEvidence}${colRisks}${colAccepted}
+    </div>
+    ${triageNote}
+  </div>`
+}
+
 function buildMigrationAuditSection(audit: MigrationAuditResult, sourceJdk: string = '?'): string {
   const { criteria, summary, allOk, generatedAt, targetJdk } = audit
   const sectionClass = allOk ? 'audit-ok' : 'audit-section'
 
   const iconMap: Record<string, string> = { ok: '✅', warning: '⚠️', fail: '❌' }
 
-  const banner = allOk
-    ? `<div class="audit-clean-banner">✅ STATUS FINAL: PROJETO MIGRADO COM SUCESSO — todos os ${criteria.length} critérios de auditoria foram atendidos.</div>`
-    : `<div class="audit-blocker-banner">❌ STATUS FINAL: PROJETO APRESENTA ISSUES QUE AINDA O LIGA A JDK ${escHtml(sourceJdk)} — ${summary.fail} falha(s) e ${summary.warning} aviso(s) detectados. Revise os itens abaixo antes do cutover.</div>`
+  const banner = audit.verdict
+    ? buildVerdictBannerHtml(audit.verdict)
+    : (allOk
+      ? `<div class="audit-clean-banner">✅ STATUS FINAL: PROJETO MIGRADO COM SUCESSO — todos os ${criteria.length} critérios de auditoria foram atendidos.</div>`
+      : `<div class="audit-blocker-banner">❌ STATUS FINAL: PROJETO APRESENTA ISSUES QUE AINDA O LIGA A JDK ${escHtml(sourceJdk)} — ${summary.fail} falha(s) e ${summary.warning} aviso(s) detectados. Revise os itens abaixo antes do cutover.</div>`)
 
   const pillsHtml = `
     <div class="audit-summary-bar">
