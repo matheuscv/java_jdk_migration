@@ -321,6 +321,27 @@ export async function generateAuditReportSilent(
 }
 
 /**
+ * Gera o relatório de resultado da fase 5 (pós-migração).
+ * Grava o snapshot com timestamp E sobrescreve audit-report-phase-5.html —
+ * artefato fixo simétrico ao audit-report-phase-0.md gerado pelo discover_project.
+ * Não lança exceção.
+ */
+export async function generatePhase5Report(
+  projectPath: string,
+  migrationAudit?: MigrationAuditResult,
+): Promise<{ timestamped: string | null; phase5: string | null }> {
+  try {
+    const result = await generateAuditReport(projectPath, migrationAudit)
+    const phase5Path = join(result.reportPath.replace(/audit-report-.+\.html$/, ''), 'audit-report-phase-5.html')
+    const html = readFileSync(result.reportPath, 'utf-8')
+    writeFileSync(phase5Path, html, 'utf-8')
+    return { timestamped: result.reportPath, phase5: phase5Path }
+  } catch {
+    return { timestamped: null, phase5: null }
+  }
+}
+
+/**
  * Gera o relatório final de encerramento da migração.
  * Grava o snapshot com timestamp normal (como qualquer outro report) E sobrescreve
  * audit-report-final.html — artefato fixo que marca a conclusão total da migração.

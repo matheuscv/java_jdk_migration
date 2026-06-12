@@ -15,7 +15,7 @@ import {
 } from '../../orchestrator/git-checkpoint.js'
 import { runBuild, runTests } from '../../orchestrator/build-validator.js'
 import { executePhaseTransform } from '../../transform-engine/index.js'
-import { generateAuditReportSilent, generateAuditChecklist } from '../../report-generator/index.js'
+import { generateAuditReportSilent, generateAuditChecklist, generatePhase5Report } from '../../report-generator/index.js'
 import { runMigrationAudit } from '../../static-analysis/migration-audit.js'
 import { computePhaseRoi } from '../../roi-tracker/index.js'
 import type { PhaseNumber } from '../../types.js'
@@ -290,7 +290,17 @@ async function _executePhaseUnlocked(
   }
 
   // ── 13b. Relatório automático de auditoria ────────────────────────────────
-  const autoReportPath = await generateAuditReportSilent(projectPath, migrationAudit ?? undefined)
+  // Fase 5: gera timestamp + audit-report-phase-5.html (nome fixo, simétrico ao phase-0.md)
+  // Demais fases: apenas timestamp
+  let autoReportPath: string | null = null
+  let phase5ReportPath: string | null = null
+  if (phase === 5) {
+    const phase5Result = await generatePhase5Report(projectPath, migrationAudit ?? undefined)
+    autoReportPath = phase5Result.timestamped
+    phase5ReportPath = phase5Result.phase5
+  } else {
+    autoReportPath = await generateAuditReportSilent(projectPath)
+  }
 
   // ── 14. PR (opcional — não falha se gh ausente) ───────────────────────────
   const prUrl = await createPullRequest(
@@ -317,9 +327,10 @@ async function _executePhaseUnlocked(
     testsPassed: testResult.testsPassed,
     diffSummary: transformResult.diffSummary,
     auditReport: autoReportPath ?? null,
+    ...(phase5ReportPath ? { phase5Report: phase5ReportPath } : {}),
     ...(migrationAudit ? { migrationAudit } : {}),
     nextStep: phase === 5
-      ? `Revise o campo migrationAudit acima. Quando satisfeito, execute approve_gate(projectPath, 5, "<seu nome>") para concluir a migração.`
+      ? `Auditoria concluída. Relatório fixo salvo em audit-report-phase-5.html. Revise o campo migrationAudit acima e execute approve_gate(projectPath, 5, "<seu nome>") para concluir a migração.`
       : `Execute approve_gate(projectPath, ${phase}, "<seu nome>") para liberar a Fase ${phase + 1}.`,
   }
 
