@@ -78,9 +78,12 @@ function findFiles(dir: string, match: (name: string) => boolean, maxDepth = 4):
   return results
 }
 
-/** Retorna .java de um único diretório (recursivo). */
+/** Retorna .java de um único diretório (recursivo).
+ *  maxDepth=12 para suportar hierarquias Java profundas (ex: br/com/cielo/brand/service/config/ = 6 níveis).
+ *  O padrão de 4 cortava pacotes como br.com.cielo.brand.service.* que ficam a 5+ níveis de src/main/java.
+ */
 function findJavaFiles(dir: string): string[] {
-  return findFiles(dir, n => n.endsWith('.java'))
+  return findFiles(dir, n => n.endsWith('.java'), 12)
 }
 
 /**
