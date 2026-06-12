@@ -31,7 +31,10 @@ export function readTokensForPhase(
   const projectsDir = join(homedir(), '.claude', 'projects', slug)
   if (!existsSync(projectsDir)) return null
 
-  const start = new Date(startedAt).getTime()
+  // Margem de 5 minutos antes do startedAt: o turno que dispara execute_phase/approve_gate
+  // é gerado pelo modelo ~segundos antes do MCP gravar executedAt/completedAt.
+  const PRE_MARGIN_MS = 5 * 60_000
+  const start = new Date(startedAt).getTime() - PRE_MARGIN_MS
   const end   = completedAt ? new Date(completedAt).getTime() : Date.now()
 
   let inputTokens         = 0
