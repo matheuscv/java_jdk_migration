@@ -198,10 +198,9 @@ describe('request_gate_approval — fase 4', () => {
     expect(body.phase).toBe(4)
   })
 
-  it('detecta SecurityManager em src/main/java se presente', async () => {
+  it('detecta SecurityManager em src/main/java e bloqueia o gate (sem PIN)', async () => {
     const cfg = setPhaseStatus(makeConfig(), 4, 'awaiting_gate')
     writeConfig(dir, cfg)
-    // Cria arquivo java com SecurityManager
     const srcDir = join(dir, 'src', 'main', 'java')
     mkdirSync(srcDir, { recursive: true })
     writeFileSync(join(srcDir, 'MySecMgr.java'), `
@@ -212,52 +211,56 @@ describe('request_gate_approval — fase 4', () => {
 
     const result = await handlers['request_gate_approval']({ projectPath: dir, phaseNumber: 4 })
     const body = jsonText(result) as Record<string, unknown>
-    expect(body.status).toBe('awaiting_human_pin')
-    if (body.pendingHumanDecisions) {
-      const decisions = body.pendingHumanDecisions as Array<{ id: string }>
-      const sm = decisions.find(d => d.id === 'security-manager')
-      expect(sm).toBeDefined()
-      expect(sm?.blocking ?? false).toBe(true)
-    }
+    // SecurityManager é blocking:true — gate deve bloquear sem gerar PIN
+    expect(body.status).toBe('blocked_pending_resolution')
+    expect(body.error).toBe('GATE_BLOCKED')
+    const blocking = body.blockingItems as Array<{ id: string; blocking: boolean }>
+    const sm = blocking.find(d => d.id === 'security-manager')
+    expect(sm).toBeDefined()
+    expect(sm?.blocking).toBe(true)
   })
 })
 
 describe('request_gate_approval — fase 5', () => {
-  it('sempre inclui A6 (runtime evidence) em pendingHumanDecisions', async () => {
+  it('A6 (runtime evidence) é blocking:true — gate retorna blocked_pending_resolution sem PIN', async () => {
     const cfg = setPhaseStatus(makeConfig(), 5, 'awaiting_gate')
     writeConfig(dir, cfg)
 
     const result = await handlers['request_gate_approval']({ projectPath: dir, phaseNumber: 5 })
     const body = jsonText(result) as Record<string, unknown>
-    expect(body.status).toBe('awaiting_human_pin')
-    expect(body.pendingHumanDecisions).toBeDefined()
-    const decisions = body.pendingHumanDecisions as Array<{ id: string; blocking: boolean }>
-    const a6 = decisions.find(d => d.id === 'A6-runtime-evidence')
+    // A6 é blocking:true — deve bloquear sem gerar PIN
+    expect(body.status).toBe('blocked_pending_resolution')
+    expect(body.error).toBe('GATE_BLOCKED')
+    const blocking = body.blockingItems as Array<{ id: string; blocking: boolean }>
+    const a6 = blocking.find(d => d.id === 'A6-runtime-evidence')
     expect(a6).toBeDefined()
     expect(a6?.blocking).toBe(true)
   })
 
-  it('inclui D5 (K8s) quando diretório k8s existe', async () => {
+  it('inclui D5 (K8s) como nonBlockingItem quando diretório k8s existe', async () => {
     const cfg = setPhaseStatus(makeConfig(), 5, 'awaiting_gate')
     writeConfig(dir, cfg)
     mkdirSync(join(dir, 'k8s'), { recursive: true })
 
     const result = await handlers['request_gate_approval']({ projectPath: dir, phaseNumber: 5 })
     const body = jsonText(result) as Record<string, unknown>
-    const decisions = (body.pendingHumanDecisions ?? []) as Array<{ id: string }>
-    const d5 = decisions.find(d => d.id === 'D5-k8s-validation')
+    // Gate ainda bloqueado por A6, mas D5 deve aparecer em nonBlockingItems
+    expect(body.status).toBe('blocked_pending_resolution')
+    const nonBlocking = (body.nonBlockingItems ?? []) as Array<{ id: string }>
+    const d5 = nonBlocking.find(d => d.id === 'D5-k8s-validation')
     expect(d5).toBeDefined()
   })
 
-  it('inclui D5 quando diretório helm existe', async () => {
+  it('inclui D5 como nonBlockingItem quando diretório helm existe', async () => {
     const cfg = setPhaseStatus(makeConfig(), 5, 'awaiting_gate')
     writeConfig(dir, cfg)
     mkdirSync(join(dir, 'helm'), { recursive: true })
 
     const result = await handlers['request_gate_approval']({ projectPath: dir, phaseNumber: 5 })
     const body = jsonText(result) as Record<string, unknown>
-    const decisions = (body.pendingHumanDecisions ?? []) as Array<{ id: string }>
-    const d5 = decisions.find(d => d.id === 'D5-k8s-validation')
+    expect(body.status).toBe('blocked_pending_resolution')
+    const nonBlocking = (body.nonBlockingItems ?? []) as Array<{ id: string }>
+    const d5 = nonBlocking.find(d => d.id === 'D5-k8s-validation')
     expect(d5).toBeDefined()
   })
 })
@@ -546,7 +549,7 @@ describe('generate_report', () => {
 // ─── request_gate_approval — fase 0 com plan e discovery ─────────────────────
 
 describe('request_gate_approval — fase 0 com plano e containerCi findings', () => {
-  it('inclui containerCi findings como pendingHumanDecisions', async () => {
+  it('containerCi blocking:true bloqueia gate da fase 0 sem gerar PIN', async () => {
     const cfg = setPhaseStatus(makeConfig(), 0, 'awaiting_gate')
     writeConfig(dir, cfg)
 
@@ -592,10 +595,20 @@ describe('request_gate_approval — fase 0 com plano e containerCi findings', ()
 
     const result = await handlers['request_gate_approval']({ projectPath: dir, phaseNumber: 0 })
     const body = jsonText(result) as Record<string, unknown>
+    // containerCi findings com requiresHumanDecision:true são blocking — gate deve bloquear
+    expect(body.status).toBe('blocked_pending_resolution')
+    expect(body.error).toBe('GATE_BLOCKED')
+    const blocking = body.blockingItems as Array<{ id: string }>
+    expect(blocking.length).toBeGreaterThan(0)
+  })
+
+  it('gate da fase 0 gera PIN quando não há itens bloqueantes', async () => {
+    const cfg = setPhaseStatus(makeConfig(), 0, 'awaiting_gate')
+    writeConfig(dir, cfg)
+    // sem discovery-report e sem migration-plan — nenhuma pendência
+    const result = await handlers['request_gate_approval']({ projectPath: dir, phaseNumber: 0 })
+    const body = jsonText(result) as Record<string, unknown>
     expect(body.status).toBe('awaiting_human_pin')
-    expect(body.pendingHumanDecisions).toBeDefined()
-    const decisions = body.pendingHumanDecisions as Array<{ id: string }>
-    // Deve ter decisões da fase 0 (plano + containerCi)
-    expect(decisions.length).toBeGreaterThan(0)
+    expect(body.phase).toBe(0)
   })
 })

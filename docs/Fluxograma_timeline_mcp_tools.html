@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JDK Migration MCP — Timeline de Tools</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #181c27;
+    --surface2: #1e2333;
+    --border: #2a3045;
+    --accent: #6c63ff;
+    --accent2: #00d4aa;
+    --auto-color: #6c63ff;
+    --auto-light: rgba(108,99,255,0.12);
+    --manual-color: #f59e0b;
+    --manual-light: rgba(245,158,11,0.12);
+    --gate-color: #ef4444;
+    --gate-light: rgba(239,68,68,0.12);
+    --text: #e2e8f0;
+    --text-muted: #8892a4;
+    --text-dim: #4a5568;
+    --phase0: #06b6d4;
+    --phase1: #8b5cf6;
+    --phase2: #3b82f6;
+    --phase3: #f59e0b;
+    --phase4: #ef4444;
+    --phase5: #10b981;
+    --radius: 12px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: linear-gradient(135deg, #0f1117 0%, #1a1040 50%, #0f1a2e 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 48px 40px 40px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 40% at 20% 50%, rgba(108,99,255,0.15) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 60% at 80% 50%, rgba(0,212,170,0.10) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .header-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(108,99,255,0.15);
+    border: 1px solid rgba(108,99,255,0.3);
+    border-radius: 99px;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #a78bfa;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .header-badge svg { width: 14px; height: 14px; }
+  h1 {
+    font-size: clamp(28px, 4vw, 48px);
+    font-weight: 800;
+    background: linear-gradient(135deg, #fff 0%, #a78bfa 50%, #00d4aa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.02em;
+    margin-bottom: 12px;
+  }
+  .header-sub {
+    color: var(--text-muted);
+    font-size: 16px;
+    max-width: 600px;
+    margin: 0 auto 32px;
+  }
+
+  /* ── LEGEND ── */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+    position: relative;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .legend-pill {
+    display: inline-block;
+    width: 28px; height: 10px;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  main { padding: 48px 24px 80px; max-width: 1400px; margin: 0 auto; }
+
+  /* ── PHASE SECTIONS ── */
+  .phase-section { margin-bottom: 64px; }
+  .phase-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 32px;
+    position: relative;
+  }
+  .phase-number {
+    width: 52px; height: 52px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 900;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .phase-info h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 2px;
+  }
+  .phase-info .phase-meta {
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .criticality {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .crit-low  { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+  .crit-med  { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+  .crit-high { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+  .crit-crit { background: rgba(239,68,68,0.15);  color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+
+  /* ── TIMELINE RAIL ── */
+  .timeline {
+    position: relative;
+    padding-left: 40px;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  /* ── TOOL ENTRY ── */
+  .tool-entry {
+    position: relative;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .tool-dot {
+    position: absolute;
+    left: -32px;
+    top: 14px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--bg);
+    flex-shrink: 0;
+    z-index: 2;
+  }
+
+  /* ── BALLOON CARD ── */
+  .balloon {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    flex: 1;
+    position: relative;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    cursor: default;
+  }
+  .balloon::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 18px;
+    width: 14px; height: 14px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    transform: rotate(45deg);
+    border-radius: 0 0 0 3px;
+  }
+  .balloon:hover {
+    transform: translateX(4px);
+    box-shadow: var(--shadow);
+  }
+
+  .balloon.auto   { border-left: 3px solid var(--auto-color); }
+  .balloon.manual { border-left: 3px solid var(--manual-color); }
+  .balloon.gate   { border-left: 3px solid var(--gate-color); }
+  .balloon.auto::before   { border-left-color: transparent; border-bottom-color: transparent; }
+  .balloon.manual::before { border-left-color: transparent; border-bottom-color: transparent; }
+  .balloon.gate::before   { border-left-color: transparent; border-bottom-color: transparent; }
+
+  .balloon-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .tool-name {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--surface2);
+    padding: 4px 10px;
+    border-radius: 6px;
+    letter-spacing: 0.01em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tool-name svg { width: 13px; height: 13px; opacity: 0.7; }
+  .caller-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .caller-auto   { background: var(--auto-light);   color: #a78bfa; border: 1px solid rgba(108,99,255,0.3); }
+  .caller-manual { background: var(--manual-light);  color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+  .caller-gate   { background: var(--gate-light);    color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+  .caller-badge svg { width: 10px; height: 10px; }
+
+  .balloon-desc {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .balloon-desc strong { color: var(--text); }
+
+  /* ── GATE DIVIDER ── */
+  .gate-divider {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 36px 0 32px;
+  }
+  .gate-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gate-color), transparent);
+    opacity: 0.5;
+  }
+  .gate-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.35);
+    border-radius: 99px;
+    padding: 6px 18px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #f87171;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .gate-pill svg { width: 13px; height: 13px; }
+
+  /* ── PHASE FOOTER ── */
+  .phase-footer {
+    margin-top: 16px;
+    padding: 14px 18px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .phase-footer svg { width: 14px; height: 14px; flex-shrink: 0; color: #6c63ff; }
+
+  /* ── GRID OVERVIEW ── */
+  .overview-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 56px;
+  }
+  .overview-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .overview-title svg { width: 18px; height: 18px; color: var(--accent); }
+  .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .overview-tool {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12.5px;
+  }
+  .ov-name {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    color: #c4b5fd;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .phase-tags {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .ptag {
+    width: 20px; height: 20px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 800;
+    color: #000;
+    flex-shrink: 0;
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    text-align: center;
+    padding: 32px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  footer span { color: var(--text-muted); }
+
+  /* ── AUDIT INTERNAL CALL ── */
+  .balloon.internal {
+    border-left: 3px solid #00d4aa;
+    border-style: dashed solid solid solid;
+    background: linear-gradient(135deg, var(--surface) 0%, rgba(0,212,170,0.04) 100%);
+  }
+  .caller-internal {
+    background: rgba(0,212,170,0.10);
+    color: #34d399;
+    border: 1px dashed rgba(0,212,170,0.4);
+  }
+  .audit-criteria-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 6px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .audit-criterion {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+  .audit-criterion::before {
+    content: '→';
+    color: #34d399;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .internal-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: rgba(0,212,170,0.08);
+    border: 1px dashed rgba(0,212,170,0.35);
+    color: #34d399;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
+  /* ── SCROLL ANIMATION ── */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .phase-section { animation: fadeIn 0.4s ease both; }
+  .phase-section:nth-child(2) { animation-delay: 0.05s; }
+  .phase-section:nth-child(3) { animation-delay: 0.10s; }
+  .phase-section:nth-child(4) { animation-delay: 0.15s; }
+  .phase-section:nth-child(5) { animation-delay: 0.20s; }
+  .phase-section:nth-child(6) { animation-delay: 0.25s; }
+  .phase-section:nth-child(7) { animation-delay: 0.30s; }
+
+  /* phase colour helpers */
+  .p0 { background: var(--phase0); }
+  .p1 { background: var(--phase1); }
+  .p2 { background: var(--phase2); }
+  .p3 { background: var(--phase3); }
+  .p4 { background: var(--phase4); }
+  .p5 { background: var(--phase5); }
+
+  .dot-auto   { background: var(--auto-color); }
+  .dot-manual { background: var(--manual-color); }
+  .dot-gate   { background: var(--gate-color); }
+</style>
+</head>
+<body>
+
+<!-- ══════════ HEADER ══════════ -->
+<header>
+  <div class="header-badge">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+    MCP JDK Migration · Tool Reference
+  </div>
+  <h1>Linha do Tempo das MCP Tools</h1>
+  <p class="header-sub">
+    Quando cada ferramenta é chamada durante o ciclo de migração JDK 6/8 → 21,
+    quem invoca e o que ela faz.
+  </p>
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-pill" style="background: var(--auto-color); opacity:0.8;"></div>
+      Chamada automaticamente pelo MCP / agente
+    </div>
+    <div class="legend-item">
+      <div class="legend-pill" style="background: var(--manual-color); opacity:0.8;"></div>
+      Chamada manualmente pelo agente Claude
+    </div>
+    <div class="legend-item">
+      <div class="legend-pill" style="background: var(--gate-color); opacity:0.8;"></div>
+      Requer ação / interação humana
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ══════════ OVERVIEW GRID ══════════ -->
+<div class="overview-section">
+  <div class="overview-title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+    Visão Geral — todas as tools e em quais fases aparecem
+  </div>
+  <div class="overview-grid">
+    <div class="overview-tool">
+      <span class="ov-name">discover_project</span>
+      <div class="phase-tags">
+        <span class="ptag p0" title="Fase 0">0</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">build_migration_plan</span>
+      <div class="phase-tags">
+        <span class="ptag p0" title="Fase 0">0</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">check_internal_dependencies</span>
+      <div class="phase-tags">
+        <span class="ptag p0" title="Fase 0">0</span>
+        <span class="ptag p1" title="Fase 1">1</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">request_gate_approval</span>
+      <div class="phase-tags">
+        <span class="ptag p0" title="Fase 0">0</span>
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">approve_gate</span>
+      <div class="phase-tags">
+        <span class="ptag p0" title="Fase 0">0</span>
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">execute_phase</span>
+      <div class="phase-tags">
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">update_step_status</span>
+      <div class="phase-tags">
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">record_manual_phase</span>
+      <div class="phase-tags">
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">rollback_phase</span>
+      <div class="phase-tags">
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">update_phase_costs</span>
+      <div class="phase-tags">
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">get_phase_status</span>
+      <div class="phase-tags">
+        <span class="ptag p0" title="Fase 0">0</span>
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+    <div class="overview-tool">
+      <span class="ov-name">generate_report</span>
+      <div class="phase-tags">
+        <span class="ptag p0" title="Fase 0">0</span>
+        <span class="ptag p1" title="Fase 1">1</span>
+        <span class="ptag p2" title="Fase 2">2</span>
+        <span class="ptag p3" title="Fase 3">3</span>
+        <span class="ptag p4" title="Fase 4">4</span>
+        <span class="ptag p5" title="Fase 5">5</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     FASE 0 — DESCOBERTA & BASELINE
+══════════════════════════════════════ -->
+<div class="phase-section">
+  <div class="phase-header">
+    <div class="phase-number p0" style="color:#fff; box-shadow: 0 0 24px rgba(6,182,212,0.4);">0</div>
+    <div class="phase-info">
+      <h2>Fase 0 — Descoberta &amp; Baseline</h2>
+      <div class="phase-meta">
+        <span class="criticality crit-low">● Criticidade Baixa</span>
+        <span>Nenhum código é alterado · Leitura pura</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="timeline">
+
+    <!-- discover_project -->
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            discover_project
+          </div>
+          <span class="caller-badge caller-manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Agente Claude
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Escaneia a aplicação-alvo <strong>sem alterar nada</strong>. Detecta stack, versão do JDK, sistema de build, APIs deprecadas e gera <code>discovery-report.json</code> com inventário completo de riscos. Internamente executa <strong>jdeprscan</strong> e <strong>jdeps</strong>.
+        </div>
+      </div>
+    </div>
+
+    <!-- runMigrationAudit BASELINE — step 8b interno do discover_project -->
+    <div class="tool-entry">
+      <div class="tool-dot" style="background: #00d4aa; border: 2px dashed #00d4aa; background-clip: padding-box;"></div>
+      <div class="balloon internal">
+        <div class="balloon-top">
+          <div class="tool-name" style="color: #34d399;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            runMigrationAudit
+            <span class="internal-badge">⚙ interno · step 8b</span>
+          </div>
+          <span class="caller-badge caller-internal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            Disparado por discover_project · Fase 0
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Chamada interna do <code>discover_project</code>, executada como <strong>step 8b</strong> logo após gravar o <code>discovery-report.json</code>.
+          Roda os mesmos <strong>25 critérios estáticos</strong> sobre o estado <em>atual</em> da aplicação — <strong>antes de qualquer transformação</strong> — e gera
+          <code>audit-report-phase-0.md</code> em <code>.jdk-migration/</code>.
+          Este arquivo é o <strong>checklist baseline</strong>: registra o ponto de partida da migração e serve de referência de comparação com o
+          <code>audit-report-phase-5.md</code> gerado ao final. Não bloqueia a descoberta em caso de erro.
+        </div>
+      </div>
+    </div>
+
+    <!-- check_internal_dependencies -->
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            check_internal_dependencies
+          </div>
+          <span class="caller-badge caller-manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Agente Claude
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Consulta o <strong>Nexus / Artifactory</strong> corporativo para verificar se as bibliotecas internas (não-públicas) já possuem versões compatíveis com Spring Boot 3 e Jakarta. Evita surpresas tardias de dependência proprietária.
+        </div>
+      </div>
+    </div>
+
+    <!-- build_migration_plan -->
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            build_migration_plan
+          </div>
+          <span class="caller-badge caller-manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Agente Claude
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Consolida o relatório de descoberta em um <strong>plano faseado revisável</strong> com estimativas de ROI, gates por fase e recipes a aplicar. Gera <code>migration-plan.json</code>. É o documento que o humano vai aprovar antes de qualquer transformação.
+        </div>
+      </div>
+    </div>
+
+    <!-- get_phase_status -->
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            get_phase_status
+          </div>
+          <span class="caller-badge caller-manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Agente Claude · qualquer momento
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Retorna o <strong>estado atual de todas as fases</strong>: pending, in_progress, done, failed. Pode ser chamada a qualquer momento para inspecionar o progresso. Útil para resumir situação ao usuário.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- GATE 0 -->
+  <div class="gate-divider">
+    <div class="gate-line"></div>
+    <div class="gate-pill">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Gate 0 · Humano aprova plano e confirma cobertura de testes
+    </div>
+    <div class="gate-line"></div>
+  </div>
+
+  <!-- request_gate_approval -->
+  <div class="timeline">
+    <div class="tool-entry">
+      <div class="tool-dot dot-auto"></div>
+      <div class="balloon auto">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.56 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            request_gate_approval
+          </div>
+          <span class="caller-badge caller-auto">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            MCP automático
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Gera um <strong>PIN de 6 dígitos</strong> que expira em 30 minutos e exibe ao responsável humano. Coleta também as <em>pendingHumanDecisions</em> — decisões que precisam de aprovação antes de avançar de fase. O PIN fica em <code>.gate-pins.json</code> (inacessível ao agente).
+        </div>
+      </div>
+    </div>
+    <div class="tool-entry">
+      <div class="tool-dot dot-gate"></div>
+      <div class="balloon gate">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            approve_gate
+          </div>
+          <span class="caller-badge caller-gate">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Humano digita o PIN
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Recebe o PIN digitado <strong>explicitamente pelo humano</strong>, valida e emite um <em>token</em> que desbloqueia a fase seguinte. Rejeita nomes como "bot", "claude" ou "agent" no campo <code>approverName</code>. Só o humano pode desbloquear.
+        </div>
+      </div>
+    </div>
+    <div class="tool-entry">
+      <div class="tool-dot dot-auto"></div>
+      <div class="balloon auto">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            generate_report
+          </div>
+          <span class="caller-badge caller-auto">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            MCP automático · após cada gate
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Gera o relatório HTML de auditoria (<code>audit-report-{ts}.html</code>) com trilha completa de decisões, tokens, ROI e diff de cada fase aprovada. Chamado automaticamente após cada <code>approve_gate</code> e pode ser chamado manualmente a qualquer momento.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-footer">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <span><strong>Nenhum arquivo da aplicação é modificado</strong> nesta fase. Toda saída é escrita em <code>.jdk-migration/</code> na raiz do projeto-alvo.</span>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════
+     FASES 1–5 — BLOCO REPETÍVEL
+══════════════════════════════════════ -->
+
+<!-- ── FASE 1 ── -->
+<div class="phase-section">
+  <div class="phase-header">
+    <div class="phase-number p1" style="color:#fff; box-shadow: 0 0 24px rgba(139,92,246,0.4);">1</div>
+    <div class="phase-info">
+      <h2>Fase 1 — Infraestrutura &amp; Build</h2>
+      <div class="phase-meta">
+        <span class="criticality crit-low">● Criticidade Baixa</span>
+        <span>POM/Gradle, Toolchain JDK 21, Wrapper · Gate: build verde no JDK 21</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="timeline">
+
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            execute_phase
+          </div>
+          <span class="caller-badge caller-manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Agente Claude
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Aplica a fase usando o <strong>token do gate aprovado</strong>. Cria branch Git isolada (<code>jdk-migration/phase-1-…</code>), executa os recipes OpenRewrite/SBM/ET definidos no plano, faz commit e retorna diff. Suporta <code>dryRun: true</code> para simulação sem commit.
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-entry">
+      <div class="tool-dot dot-auto"></div>
+      <div class="balloon auto">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            update_step_status
+          </div>
+          <span class="caller-badge caller-auto">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            MCP automático · durante a fase
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Registra o progresso <strong>granular de cada step</strong> dentro da fase em execução: <em>in_progress → done / failed</em>. Em execução manual (execute_phase falhou), deve ser chamada imediatamente após cada step — nunca retroativamente.
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            record_manual_phase
+          </div>
+          <span class="caller-badge caller-manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Agente Claude · se execute_phase falhar
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Alternativa quando <code>execute_phase</code> falha por problema ambiental (ex: <code>spawn EINVAL</code> no Windows). O agente executa os steps manualmente e chama esta tool para <strong>registrar a fase no estado do MCP</strong>, garantindo trilha de auditoria e possibilidade de rollback.
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+            rollback_phase
+          </div>
+          <span class="caller-badge caller-manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Agente Claude · se build falhar
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Reverte a fase aplicada via <strong>Git</strong> para o estado anterior. Só é chamado quando a fase produziu um estado inconsistente e o build quebrou irrecuperavelmente. Cada fase em branch isolada torna o rollback cirúrgico e seguro.
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-entry">
+      <div class="tool-dot dot-auto"></div>
+      <div class="balloon auto">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            update_phase_costs
+          </div>
+          <span class="caller-badge caller-auto">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            MCP automático · ao concluir fase
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Atualiza os <strong>tokens reais consumidos</strong> na fase e recalcula o ROI: custo real de IA versus esforço humano estimado poupado. Alimenta o dashboard de ROI no relatório final. Se <code>tokenUsage</code> for omitido, recalcula via JSONL de sessão.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="gate-divider">
+    <div class="gate-line"></div>
+    <div class="gate-pill">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Gate 1 · Build verde no JDK 21 · request → PIN → approve
+    </div>
+    <div class="gate-line"></div>
+  </div>
+
+  <div class="timeline">
+    <div class="tool-entry">
+      <div class="tool-dot dot-auto"></div>
+      <div class="balloon auto">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.56 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            request_gate_approval
+          </div>
+          <span class="caller-badge caller-auto">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            MCP automático
+          </span>
+        </div>
+        <div class="balloon-desc">Gera o PIN e apresenta as decisões pendentes antes de liberar a Fase 2.</div>
+      </div>
+    </div>
+    <div class="tool-entry">
+      <div class="tool-dot dot-gate"></div>
+      <div class="balloon gate">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            approve_gate
+          </div>
+          <span class="caller-badge caller-gate">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Humano digita o PIN
+          </span>
+        </div>
+        <div class="balloon-desc">Valida o PIN e emite token que libera a Fase 2. Também dispara <code>generate_report</code> automaticamente.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── FASE 2 ── -->
+<div class="phase-section">
+  <div class="phase-header">
+    <div class="phase-number p2" style="color:#fff; box-shadow: 0 0 24px rgba(59,130,246,0.4);">2</div>
+    <div class="phase-info">
+      <h2>Fase 2 — Modernização de Linguagem</h2>
+      <div class="phase-meta">
+        <span class="criticality crit-med">● Criticidade Média</span>
+        <span>Records, Sealed Classes, var, switch expressions · Gate: diff revisado + testes verdes</span>
+      </div>
+    </div>
+  </div>
+  <div class="timeline">
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            execute_phase
+          </div>
+          <span class="caller-badge caller-manual">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Agente Claude
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Aplica recipes de modernização de linguagem Java: <strong>var, records, sealed classes, switch expressions, text blocks</strong>. Exige <code>dryRun</code> obrigatório antes de stacks de média/alta complexidade.
+        </div>
+      </div>
+    </div>
+    <div class="tool-entry">
+      <div class="tool-dot dot-auto"></div>
+      <div class="balloon auto">
+        <div class="balloon-top">
+          <div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>update_step_status</div>
+          <span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span>
+        </div>
+        <div class="balloon-desc">Registra progresso granular de cada transformação de linguagem aplicada.</div>
+      </div>
+    </div>
+    <div class="tool-entry">
+      <div class="tool-dot dot-auto"></div>
+      <div class="balloon auto">
+        <div class="balloon-top">
+          <div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>update_phase_costs</div>
+          <span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span>
+        </div>
+        <div class="balloon-desc">Recalcula ROI com tokens reais consumidos nesta fase de modernização.</div>
+      </div>
+    </div>
+  </div>
+  <div class="gate-divider">
+    <div class="gate-line"></div>
+    <div class="gate-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Gate 2 · Diff revisado + testes verdes</div>
+    <div class="gate-line"></div>
+  </div>
+  <div class="timeline">
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.56 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>request_gate_approval</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Gera PIN e coleta decisões pendentes (ex: revisar diff manualmente antes de aprovar).</div></div></div>
+    <div class="tool-entry"><div class="tool-dot dot-gate"></div><div class="balloon gate"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>approve_gate</div><span class="caller-badge caller-gate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Humano digita o PIN</span></div><div class="balloon-desc">Valida PIN e libera Fase 3. Relatório de auditoria gerado automaticamente.</div></div></div>
+  </div>
+</div>
+
+
+<!-- ── FASE 3 ── -->
+<div class="phase-section">
+  <div class="phase-header">
+    <div class="phase-number p3" style="color:#fff; box-shadow: 0 0 24px rgba(245,158,11,0.4);">3</div>
+    <div class="phase-info">
+      <h2>Fase 3 — Namespace Jakarta &amp; Frameworks</h2>
+      <div class="phase-meta">
+        <span class="criticality crit-high">● Criticidade Alta</span>
+        <span>javax → jakarta, Spring Boot 3, Spring Batch 5 · Gate: app sobe + smoke tests</span>
+      </div>
+    </div>
+  </div>
+  <div class="timeline">
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>execute_phase</div>
+          <span class="caller-badge caller-manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Agente Claude</span>
+        </div>
+        <div class="balloon-desc">
+          A fase mais densa mecanicamente: converte <strong>javax.* → jakarta.*</strong>, migra Spring Boot 2→3, Spring Batch 4→5 e APIs Servlet. Usa Eclipse Transformer para JARs sem equivalente jakarta. <strong>dryRun obrigatório</strong> antes de executar.
+        </div>
+      </div>
+    </div>
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>update_step_status</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Registra progresso de cada conversão de namespace e migração de framework.</div></div></div>
+    <div class="tool-entry"><div class="tool-dot dot-manual"></div><div class="balloon manual"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>rollback_phase</div><span class="caller-badge caller-manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Agente Claude · se app não subir</span></div><div class="balloon-desc">Se a app não subir após as transformações de namespace, reverte tudo via Git de forma cirúrgica — sem afetar outras fases.</div></div></div>
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>update_phase_costs</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Registra custo real da fase de maior consumo de tokens do ciclo.</div></div></div>
+  </div>
+  <div class="gate-divider">
+    <div class="gate-line"></div>
+    <div class="gate-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Gate 3 · App sobe no servidor + smoke tests passam</div>
+    <div class="gate-line"></div>
+  </div>
+  <div class="timeline">
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.56 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>request_gate_approval</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Gera PIN e apresenta evidências de que a app subiu com sucesso.</div></div></div>
+    <div class="tool-entry"><div class="tool-dot dot-gate"></div><div class="balloon gate"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>approve_gate</div><span class="caller-badge caller-gate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Humano digita o PIN</span></div><div class="balloon-desc">Aprovação crítica — confirma que a app funciona no novo runtime antes da refatoração semântica.</div></div></div>
+  </div>
+</div>
+
+
+<!-- ── FASE 4 ── -->
+<div class="phase-section">
+  <div class="phase-header">
+    <div class="phase-number p4" style="color:#fff; box-shadow: 0 0 24px rgba(239,68,68,0.4);">4</div>
+    <div class="phase-info">
+      <h2>Fase 4 — Refatoração Semântica Assistida</h2>
+      <div class="phase-meta">
+        <span class="criticality crit-crit">● Criticidade CRÍTICA</span>
+        <span>EJB, JTA, JSF, PrimeFaces · Gate: paridade funcional item a item</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="timeline">
+
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>execute_phase</div>
+          <span class="caller-badge caller-manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Agente Claude</span>
+        </div>
+        <div class="balloon-desc">
+          Para stacks EJB/JTA: <strong>apenas sinaliza e organiza a revisão humana</strong> — nunca aplica transformações semânticas automaticamente. Para JSF: converte namespace automaticamente, mas UI é validada manualmente. <strong>dryRun obrigatório.</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>record_manual_phase</div>
+          <span class="caller-badge caller-manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Agente Claude · EJB/JSF manuais</span>
+        </div>
+        <div class="balloon-desc">
+          Fase com maior uso de execução manual. Após o humano concluir refatorações de EJB/JSF, o agente registra cada step no MCP para manter rastreabilidade e possibilidade de rollback.
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>update_step_status</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Registra progresso de cada item da checklist de paridade funcional.</div></div></div>
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>update_phase_costs</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Fase mais cara em esforço humano — ROI calculado reflete o delta de automação assistida vs. puramente manual.</div></div></div>
+    <div class="tool-entry"><div class="tool-dot dot-manual"></div><div class="balloon manual"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>get_phase_status</div><span class="caller-badge caller-manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Agente Claude · sob demanda</span></div><div class="balloon-desc">Consultado frequentemente nesta fase longa para acompanhar quais items da checklist de paridade já foram concluídos.</div></div></div>
+
+  </div>
+
+  <div class="gate-divider">
+    <div class="gate-line"></div>
+    <div class="gate-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Gate 4 · Paridade funcional verificada item a item</div>
+    <div class="gate-line"></div>
+  </div>
+
+  <div class="timeline">
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.56 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>request_gate_approval</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Gera PIN com checklist de paridade funcional completa para revisão humana.</div></div></div>
+    <div class="tool-entry"><div class="tool-dot dot-gate"></div><div class="balloon gate"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>approve_gate</div><span class="caller-badge caller-gate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Humano digita o PIN</span></div><div class="balloon-desc">Gate mais rigoroso do ciclo — confirma paridade funcional completa antes do cutover final.</div></div></div>
+  </div>
+</div>
+
+
+<!-- ── FASE 5 ── -->
+<div class="phase-section">
+  <div class="phase-header">
+    <div class="phase-number p5" style="color:#fff; box-shadow: 0 0 24px rgba(16,185,129,0.4);">5</div>
+    <div class="phase-info">
+      <h2>Fase 5 — Validação Final &amp; Cutover</h2>
+      <div class="phase-meta">
+        <span class="criticality crit-med">● Criticidade Média</span>
+        <span>Performance, segurança, cutover · Gate: sign-off liderança técnica e funcional</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="timeline">
+
+    <div class="tool-entry">
+      <div class="tool-dot dot-manual"></div>
+      <div class="balloon manual">
+        <div class="balloon-top">
+          <div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>execute_phase</div>
+          <span class="caller-badge caller-manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Agente Claude</span>
+        </div>
+        <div class="balloon-desc">
+          Executa testes finais de performance, segurança e regressão. Consolida evidências para o sign-off. Gera o checklist de resultado pós-migração (<code>audit-report-phase-5.md</code>).
+        </div>
+      </div>
+    </div>
+
+    <div class="tool-entry"><div class="tool-dot dot-manual"></div><div class="balloon manual"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>get_phase_status</div><span class="caller-badge caller-manual"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Agente Claude</span></div><div class="balloon-desc">Verifica que todas as 5 fases anteriores estão com status <em>done</em> antes de apresentar ao responsável técnico.</div></div></div>
+
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>update_phase_costs</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Consolida custo total do projeto e ROI acumulado de todas as fases para o relatório final.</div></div></div>
+
+  </div>
+
+  <!-- GATE FINAL -->
+  <div class="gate-divider">
+    <div class="gate-line"></div>
+    <div class="gate-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Gate 5 · Sign-off liderança técnica e funcional → CUTOVER</div>
+    <div class="gate-line"></div>
+  </div>
+
+  <div class="timeline">
+    <div class="tool-entry"><div class="tool-dot dot-auto"></div><div class="balloon auto"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.56 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>request_gate_approval</div><span class="caller-badge caller-auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático</span></div><div class="balloon-desc">Gera o PIN final. Apresenta sumário completo: ROI total, todas as fases concluídas, evidências de paridade. Requer dois approverNames distintos (tech lead + funcional).</div></div></div>
+
+    <div class="tool-entry"><div class="tool-dot dot-gate"></div><div class="balloon gate"><div class="balloon-top"><div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>approve_gate</div><span class="caller-badge caller-gate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Humano · sign-off final</span></div><div class="balloon-desc">Aprovação final. Marca a migração como <strong>concluída</strong>. Desbloqueia o cutover para produção e aciona a geração do relatório final definitivo.</div></div></div>
+
+    <!-- runMigrationAudit — chamada interna disparada por generate_report na Fase 5 -->
+    <div class="tool-entry">
+      <div class="tool-dot" style="background: #00d4aa; border: 2px dashed #00d4aa; background-clip: padding-box;"></div>
+      <div class="balloon internal">
+        <div class="balloon-top">
+          <div class="tool-name" style="color: #34d399;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            runMigrationAudit
+            <span class="internal-badge">⚙ interno</span>
+          </div>
+          <span class="caller-badge caller-internal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+            Disparado por generate_report · Fase 5
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Função interna de <code>src/static-analysis/migration-audit.ts</code> — <strong>não é uma MCP tool</strong>, mas é o coração da análise final.
+          Executada automaticamente por <code>generate_report</code> quando a Fase 5 está <em>in_progress</em>, <em>awaiting_gate</em>, <em>approved</em> ou <em>completed</em>.
+          Roda <strong>25 critérios estáticos</strong> sobre o projeto-alvo e retorna um <code>MigrationAuditResult</code> com status <em>ok / warning / fail</em> por critério,
+          além de um <strong>veredicto fundamentado</strong> (approved · conditionally_approved · rejected) que aparece como banner no relatório HTML.
+          <div class="audit-criteria-grid">
+            <div class="audit-criterion">Versão do compilador (maven.compiler.* / Gradle)</div>
+            <div class="audit-criterion">Imports <code>javax.*</code> (EE APIs) remanescentes</div>
+            <div class="audit-criterion">Versão do Spring Boot</div>
+            <div class="audit-criterion">Dependências internas não-validadas para JDK 21</div>
+            <div class="audit-criterion">Evidências de runtime (app subiu em JDK 21?)</div>
+            <div class="audit-criterion">Propriedades JVM obsoletas no POM/Gradle</div>
+            <div class="audit-criterion">Bytecode de saída (<code>-target</code> / <code>--release</code>)</div>
+            <div class="audit-criterion">Versão real de bytecode nos <code>.class</code></div>
+            <div class="audit-criterion">Imports <code>sun.*</code> / internals do JDK</div>
+            <div class="audit-criterion">Uso de <code>SecurityManager</code> (removido no JDK 17+)</div>
+            <div class="audit-criterion">Flags JVM removidas no JDK 21</div>
+            <div class="audit-criterion">Uso de Nashorn (removido no JDK 15)</div>
+            <div class="audit-criterion">Flags <code>--add-opens</code> / <code>--add-exports</code></div>
+            <div class="audit-criterion">Versões de annotation processors (Lombok, MapStruct…)</div>
+            <div class="audit-criterion">Overrides de <code>finalize()</code> (deprecated)</div>
+            <div class="audit-criterion"><code>.mvn/jvm.config</code> — flags JVM do Maven</div>
+            <div class="audit-criterion">Risco de serialização (<code>serialVersionUID</code>)</div>
+            <div class="audit-criterion">Uso de <code>javax.script</code> / ScriptEngine</div>
+            <div class="audit-criterion">Acesso reflexivo a internals via <code>setAccessible</code></div>
+            <div class="audit-criterion">APIs removidas do JDK (jdeprscan output)</div>
+            <div class="audit-criterion">Libs de manipulação de bytecode (ASM, Javassist, CGLIB)</div>
+            <div class="audit-criterion">Versões de plugins Maven incompatíveis com JDK 21</div>
+            <div class="audit-criterion">Perfis Maven condicionados por versão de JDK</div>
+            <div class="audit-criterion">Manifests Kubernetes — imagem base do container</div>
+            <div class="audit-criterion">Containers e CI (Dockerfile, GitHub Actions, Jenkins)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- generate_report FINAL -->
+    <div class="tool-entry">
+      <div class="tool-dot dot-auto"></div>
+      <div class="balloon auto" style="border-left-color: var(--accent2); background: linear-gradient(135deg, var(--surface) 0%, rgba(0,212,170,0.05) 100%);">
+        <div class="balloon-top">
+          <div class="tool-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>generate_report</div>
+          <span class="caller-badge caller-auto" style="background: rgba(0,212,170,0.12); color: #34d399; border-color: rgba(0,212,170,0.3);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>MCP automático · relatório FINAL
+          </span>
+        </div>
+        <div class="balloon-desc">
+          Gera o <strong>audit-report-final.html</strong> — relatório consolidado com trilha completa de auditoria, ROI de todas as fases, diff acumulado e timeline de gates.
+          Na Fase 5, incorpora automaticamente o resultado dos <strong>25 critérios do <code>runMigrationAudit</code></strong> (chamada acima) e o <strong>veredicto fundamentado</strong>
+          (aprovado / aprovado condicionalmente / rejeitado) como banner de destaque no topo do documento. O artefato definitivo da migração concluída.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="phase-footer" style="background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.2);">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #10b981;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    <span><strong style="color: #34d399;">Migração concluída!</strong> A aplicação está rodando em JDK 21. Todos os artefatos de auditoria estão em <code>.jdk-migration/</code> e prontos para compliance.</span>
+  </div>
+</div>
+
+</main>
+
+<!-- ══════════ FOOTER ══════════ -->
+<footer>
+  <span>JDK Migration MCP · Linha do Tempo das Tools</span> &nbsp;·&nbsp;
+  Gerado em <span>2026-06-12</span> &nbsp;·&nbsp;
+  <span>JDK 6/8 → 21 Migration Orchestrator</span>
+</footer>
+
+</body>
+</html>

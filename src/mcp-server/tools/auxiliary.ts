@@ -99,14 +99,14 @@ export function registerAuxiliaryTools(server: McpServer): void {
     {
       title: 'Request Gate Approval',
       description:
-        'Solicita a aprovação humana para uma fase. Gera um PIN de 6 dígitos que é ' +
-        'exibido ao responsável técnico. O PIN deve ser informado de volta pelo humano ' +
-        'na chamada de approve_gate. SEMPRE chame esta tool ANTES de approve_gate e ' +
-        'AGUARDE o humano fornecer o PIN — nunca tente adivinhar ou reutilizar PINs anteriores. ' +
-        'IMPORTANTE — fase 0: se o retorno incluir o campo pendingHumanDecisions, você DEVE ' +
-        'apresentar CADA pergunta listada ao usuário e registrar as respostas ANTES de revelar ' +
-        'o PIN. Só mostre o PIN após coletar todas as respostas ou após o usuário decidir ' +
-        'explicitamente seguir sem respondê-las.',
+        'Solicita a aprovação humana para uma fase. Verifica todos os itens bloqueantes ' +
+        'ANTES de gerar o PIN — se houver pendências críticas não resolvidas, retorna ' +
+        'status:"blocked_pending_resolution" SEM PIN e lista os itens que impedem o avanço. ' +
+        'Nesse caso, apresente cada item bloqueante ao usuário, colete a resolução/confirmação ' +
+        'e chame esta tool novamente. Só quando não há bloqueantes o PIN é gerado e retornado. ' +
+        'NUNCA tente adivinhar ou reutilizar PINs — o PIN deve vir explicitamente do humano. ' +
+        'Se o retorno incluir nonBlockingItems, apresente-os ao usuário antes de revelar o PIN ' +
+        '(são itens de atenção que não impedem o gate mas devem ser registrados).',
       inputSchema: {
         projectPath: z.string().describe('Caminho absoluto da raiz do projeto Java'),
         phaseNumber: z.number().int().min(0).max(5).describe('Número da fase a aprovar (0–5)'),
@@ -130,28 +130,82 @@ export function registerAuxiliaryTools(server: McpServer): void {
         }
       }
 
-      const pin = String(randomInt(100000, 999999))
-      const expiresAt = new Date(Date.now() + PIN_VALIDITY_MS).toISOString()
+      // PIN é gerado SOMENTE após toda a coleta de pendingHumanDecisions.
+      // Se houver itens com blocking:true, o PIN não é gerado e a tool retorna
+      // status:'blocked_pending_resolution' — o agente DEVE resolver os itens
+      // e chamar request_gate_approval novamente antes de prosseguir.
 
-      // Salva o PIN em disco — Claude não tem acesso a este arquivo
-      const pinStore = readPinStore(projectPath)
-      pinStore[phase] = { pin, expiresAt, phaseNumber: phase }
-      writePinStore(projectPath, pinStore)
-
-      // ── Fase 0: coletar perguntas abertas com requiresHumanDecision ───────────
-      // Lê o plano de migração para identificar todos os itens que precisam de
-      // informação humana antes que as fases seguintes possam executar com sucesso.
-      // O campo pendingHumanDecisions instrui o agente a apresentar cada pergunta
-      // ao usuário ANTES de revelar o PIN (ver description da tool).
-      let pendingHumanDecisions: Array<{
+      type PendingDecision = {
         id: string
         phase: number
         category: string
         title: string
         question: string
         files: string[]
-        blocking: boolean  // true = bloqueia execução da fase sem resposta
-      }> | undefined
+        blocking: boolean
+      }
+      let pendingHumanDecisions: PendingDecision[] | undefined
+
+      // ── helper: lê discovery-report e surfacia critérios de auditoria bloqueantes ──
+      // Permite que gates 1-4 detectem problemas mesmo quando execute_phase não rodou
+      // e runnerDetails está vazio. Mapeamento: criterionId → fase mínima onde deve estar ok.
+      const AUDIT_CRITERION_PHASE: Record<string, { minPhase: number; blocking: boolean; category: string }> = {
+        'compiler-version':        { minPhase: 1, blocking: true,  category: 'build' },
+        'output-bytecode':         { minPhase: 1, blocking: true,  category: 'build' },
+        'actual-bytecode':         { minPhase: 1, blocking: false, category: 'build' },
+        'removed-jvm-flags':       { minPhase: 1, blocking: true,  category: 'jvm-flags' },
+        'mvn-jvm-config':          { minPhase: 1, blocking: false, category: 'jvm-flags' },
+        'maven-plugins':           { minPhase: 1, blocking: false, category: 'build' },
+        'maven-jdk-profiles':      { minPhase: 1, blocking: false, category: 'build' },
+        'bytecode-manipulation':   { minPhase: 1, blocking: false, category: 'dependencies' },
+        'internal-deps':           { minPhase: 1, blocking: false, category: 'dependencies' },
+        'container-ci':            { minPhase: 1, blocking: true,  category: 'infrastructure' },
+        'sun-internal':            { minPhase: 2, blocking: true,  category: 'jvm-internals' },
+        'removed-apis':            { minPhase: 2, blocking: true,  category: 'jvm-internals' },
+        'reflective-internal':     { minPhase: 2, blocking: false, category: 'jvm-internals' },
+        'add-opens':               { minPhase: 2, blocking: false, category: 'jvm-flags' },
+        'javax-imports':           { minPhase: 3, blocking: true,  category: 'jakarta' },
+        'spring-boot-version':     { minPhase: 3, blocking: true,  category: 'frameworks' },
+        'annotation-processors':   { minPhase: 3, blocking: false, category: 'build' },
+        'security-manager':        { minPhase: 4, blocking: true,  category: 'removed-apis' },
+        'nashorn':                 { minPhase: 4, blocking: true,  category: 'removed-apis' },
+        'javax-script':            { minPhase: 4, blocking: false, category: 'removed-apis' },
+        'serialization-risk':      { minPhase: 4, blocking: false, category: 'compatibility' },
+        'finalize-overrides':      { minPhase: 4, blocking: false, category: 'compatibility' },
+        'runtime-evidence':        { minPhase: 5, blocking: true,  category: 'runtime' },
+        'k8s-manifests':           { minPhase: 5, blocking: false, category: 'infrastructure' },
+      }
+
+      function auditCriteriaDecisions(projectPath: string, gatePhase: number): PendingDecision[] {
+        const discoveryPath = join(projectPath, '.jdk-migration', 'discovery-report.json')
+        if (!existsSync(discoveryPath)) return []
+        try {
+          const discovery = JSON.parse(readFileSync(discoveryPath, 'utf-8'))
+          const criteria: Array<{ id: string; label: string; status: string; detail: string; files?: string[]; action?: string }> =
+            discovery?.migrationAudit?.criteria ?? []
+          const decisions: PendingDecision[] = []
+          for (const c of criteria) {
+            if (c.status !== 'fail' && c.status !== 'warning') continue
+            const mapping = AUDIT_CRITERION_PHASE[c.id]
+            if (!mapping) continue
+            if (mapping.minPhase !== gatePhase) continue
+            // só sobe como blocking se for fail; warning é sempre informativo
+            const isBlocking = c.status === 'fail' && mapping.blocking
+            decisions.push({
+              id: `audit-${c.id}`,
+              phase: gatePhase,
+              category: mapping.category,
+              title: `[Auditoria] ${c.label}`,
+              question: c.detail + (c.action ? `\n→ Ação recomendada: ${c.action}` : ''),
+              files: c.files ?? [],
+              blocking: isBlocking,
+            })
+          }
+          return decisions
+        } catch {
+          return []
+        }
+      }
 
       if (phase === 0) {
         const migDir = join(projectPath, '.jdk-migration')
@@ -212,7 +266,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
       // Infra: arquivos com Helm templates não editáveis automaticamente
       if (phase === 1) {
         try {
-          const decisions: typeof pendingHumanDecisions = []
+          const decisions: PendingDecision[] = []
           const phase1Details = (config.phases[1] as any)?.runnerDetails?.['infrastructure-transformer'] as any
 
           // A4 — dependências internas: varre pom.xml em busca de groupIds não-públicos
@@ -311,16 +365,69 @@ export function registerAuxiliaryTools(server: McpServer): void {
             })
           }
 
+          // D6 — imagens privadas corporativas sem substituto resolvido automaticamente.
+          // Lê o discovery-report.json e sobe como blocking qualquer ContainerFinding com
+          // requiresHumanDecision:true e severity critical|high que ainda não tenha
+          // suggestedReplacement preenchido. Isso garante o bloqueio mesmo quando
+          // execute_phase (Fase 1) não rodou ainda e humanConfirmationNeeded está vazio.
+          const discoveryPath = join(projectPath, '.jdk-migration', 'discovery-report.json')
+          if (existsSync(discoveryPath)) {
+            try {
+              const discovery = JSON.parse(readFileSync(discoveryPath, 'utf-8'))
+              const containerFindings: any[] = discovery?.containerCi?.findings ?? []
+              const unresolved = containerFindings.filter(
+                (f: any) =>
+                  f.requiresHumanDecision === true &&
+                  (f.severity === 'critical' || f.severity === 'high') &&
+                  !f.suggestedReplacement,
+              )
+              if (unresolved.length > 0) {
+                const byFile = unresolved.reduce((acc: Record<string, any[]>, f: any) => {
+                  if (!acc[f.file]) acc[f.file] = []
+                  acc[f.file].push(f)
+                  return acc
+                }, {})
+                for (const [file, findings] of Object.entries(byFile)) {
+                  const images = findings.map((f: any) => f.detectedImage ?? '(imagem não identificada)').join(', ')
+                  // Evita duplicata se D5 já cobriu este arquivo via humanConfirmationNeeded
+                  if (helmItems.includes(file)) continue
+                  decisions.push({
+                    id: `D6-private-image-${file.replace(/[^a-z0-9]/gi, '-')}`,
+                    phase: 1,
+                    category: 'infrastructure',
+                    title: `Imagem Docker privada corporativa sem substituto JDK 21 resolvido — ${file}`,
+                    question:
+                      `O arquivo '${file}' referencia ${findings.length > 1 ? 'imagens privadas' : 'uma imagem privada'} ` +
+                      `corporativa(s) incompatível(is) com JDK 21: ${images}. ` +
+                      `O MCP não consegue atualizar automaticamente porque a tag JDK 21 equivalente ` +
+                      `no seu registry corporativo não foi encontrada. ` +
+                      `Informe qual é a imagem JDK 21 correta (ex: nexus-release-corp.ccorp.local:50002/jre-java-21:1.0.0) ` +
+                      `e atualize o arquivo manualmente antes de avançar. ` +
+                      `Consulte o time de infraestrutura caso não saiba a tag correta.`,
+                    files: [file],
+                    blocking: true,
+                  })
+                }
+              }
+            } catch { /* discovery corrompido — não bloqueia, mas será visível no audit */ }
+          }
+
+          // Rede de segurança: critérios de auditoria do discovery-report relevantes à Fase 1
+          for (const d of auditCriteriaDecisions(projectPath, 1)) {
+            // evita duplicar itens já cobertos explicitamente acima
+            if (!decisions.some(existing => existing.id === d.id || existing.files.some(f => d.files.includes(f)))) {
+              decisions.push(d)
+            }
+          }
+
           if (decisions.length > 0) pendingHumanDecisions = decisions
         } catch { /* não bloqueia */ }
       }
 
       // ── Gate 2: perguntas após Fase 2 (Language Modernization) ───────────────
-      // D1: Thread.stop/destroy/countStackFrames — bloqueante, requer refatoração manual
-      // C12: acesso reflexivo a internos — warning, requer revisão
       if (phase === 2) {
         try {
-          const decisions: typeof pendingHumanDecisions = []
+          const decisions: PendingDecision[] = []
           const phase2Details = (config.phases[2] as any)?.runnerDetails?.['source-cleaner'] as any
           const humanDecisions: any[] = phase2Details?.humanDecisionsNeeded ?? []
 
@@ -383,16 +490,19 @@ export function registerAuxiliaryTools(server: McpServer): void {
             })
           }
 
+          // Rede de segurança: critérios de auditoria relevantes à Fase 2
+          for (const d of auditCriteriaDecisions(projectPath, 2)) {
+            if (!decisions.some(existing => existing.id === d.id)) decisions.push(d)
+          }
+
           if (decisions.length > 0) pendingHumanDecisions = decisions
         } catch { /* não bloqueia */ }
       }
 
       // ── Gate 3: perguntas após Fase 3 (Jakarta + Frameworks) ─────────────────
-      // A2: dependências Jakarta injetadas — confirmar runtime smoke test
-      // C1: versão Spring Boot validada (se stack spring-boot)
       if (phase === 3) {
         try {
-          const decisions: typeof pendingHumanDecisions = []
+          const decisions: PendingDecision[] = []
           const phase3Details = (config.phases[3] as any)?.runnerDetails?.['jakarta-deps'] as any
           const injected: any[] = phase3Details?.injected ?? []
           const alreadyPresent: any[] = phase3Details?.alreadyPresent ?? []
@@ -440,18 +550,19 @@ export function registerAuxiliaryTools(server: McpServer): void {
             })
           }
 
+          // Rede de segurança: critérios de auditoria relevantes à Fase 3
+          for (const d of auditCriteriaDecisions(projectPath, 3)) {
+            if (!decisions.some(existing => existing.id === d.id)) decisions.push(d)
+          }
+
           if (decisions.length > 0) pendingHumanDecisions = decisions
         } catch { /* não bloqueia */ }
       }
 
       // ── Gate 4: perguntas antes da revisão semântica (Fase 4) ────────────────
-      // C3: SecurityManager (bloqueante — não pode ficar sem resolução)
-      // C8: finalize() override (warning)
-      // C5/C11: Nashorn/ScriptEngine (info — dep já injetada)
-      // sun.* problemáticos: sun.misc.Unsafe, sun.misc.Signal, com.sun.image.codec (bloqueantes)
       if (phase === 4) {
         try {
-          const decisions: typeof pendingHumanDecisions = []
+          const decisions: PendingDecision[] = []
           // Source-cleaner findings são do phase 2
           const phase2SourceCleaner = (config.phases[2] as any)?.runnerDetails?.['source-cleaner'] as any
           const humanDecisions: any[] = phase2SourceCleaner?.humanDecisionsNeeded ?? []
@@ -529,16 +640,19 @@ export function registerAuxiliaryTools(server: McpServer): void {
             }
           }
 
+          // Rede de segurança: critérios de auditoria relevantes à Fase 4
+          for (const d of auditCriteriaDecisions(projectPath, 4)) {
+            if (!decisions.some(existing => existing.id === d.id)) decisions.push(d)
+          }
+
           if (decisions.length > 0) pendingHumanDecisions = decisions
         } catch { /* não bloqueia */ }
       }
 
       // ── Gate 5: perguntas antes do sign-off final ─────────────────────────────
-      // A6: evidência de runtime — confirmar que a aplicação iniciou com JDK 21
-      // K8s: confirmar que manifests atualizados foram validados
       if (phase === 5) {
         try {
-          const decisions: typeof pendingHumanDecisions = []
+          const decisions: PendingDecision[] = []
 
           // A6 — runtime evidence: sempre obrigatório no gate final
           decisions.push({
@@ -574,7 +688,44 @@ export function registerAuxiliaryTools(server: McpServer): void {
         } catch { /* não bloqueia */ }
       }
 
-      const blockingCount = pendingHumanDecisions?.filter(d => d.blocking).length ?? 0
+      // ── Hard-block: itens bloqueantes impedem geração do PIN ─────────────────
+      // PIN só é gerado quando não há nenhum item com blocking:true pendente.
+      // O agente DEVE apresentar cada item ao usuário, coletar a resolução,
+      // e chamar request_gate_approval novamente — sem atalhos.
+      const blockingItems = pendingHumanDecisions?.filter(d => d.blocking) ?? []
+      const nonBlockingItems = pendingHumanDecisions?.filter(d => !d.blocking) ?? []
+
+      if (blockingItems.length > 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              status: 'blocked_pending_resolution',
+              phase,
+              error: 'GATE_BLOCKED',
+              message:
+                `🚫 PIN NÃO GERADO — Gate da Fase ${phase} bloqueado por ${blockingItems.length} item(ns) crítico(s) não resolvido(s). ` +
+                `Apresente cada item abaixo ao usuário, colete a resolução/confirmação, ` +
+                `e chame request_gate_approval novamente. ` +
+                `Avançar de fase sem resolver estes itens resultará em falha de build, ` +
+                `erro de runtime ou não-conformidade no relatório final.`,
+              blockingItems,
+              ...(nonBlockingItems.length > 0 ? {
+                nonBlockingItems,
+                nonBlockingNote: `${nonBlockingItems.length} item(ns) de atenção (não bloqueantes) — apresente ao usuário mas não impedem o gate.`,
+              } : {}),
+              nextStep: `Resolva todos os ${blockingItems.length} item(ns) bloqueantes acima e chame request_gate_approval(phase=${phase}) novamente.`,
+            }, null, 2),
+          }],
+        }
+      }
+
+      // Sem bloqueantes — gera e persiste o PIN
+      const pin = String(randomInt(100000, 999999))
+      const expiresAt = new Date(Date.now() + PIN_VALIDITY_MS).toISOString()
+      const pinStore = readPinStore(projectPath)
+      pinStore[phase] = { pin, expiresAt, phaseNumber: phase }
+      writePinStore(projectPath, pinStore)
 
       return {
         content: [{
@@ -583,12 +734,11 @@ export function registerAuxiliaryTools(server: McpServer): void {
             status: 'awaiting_human_pin',
             phase,
             pinExpiresAt: expiresAt,
-            ...(pendingHumanDecisions && pendingHumanDecisions.length > 0 ? {
-              pendingHumanDecisions,
+            ...(nonBlockingItems.length > 0 ? {
+              pendingHumanDecisions: nonBlockingItems,
               pendingHumanDecisionsNote:
-                `⚠️ ${pendingHumanDecisions.length} item(ns) requerem informação humana antes que as fases seguintes executem com sucesso` +
-                (blockingCount > 0 ? ` (${blockingCount} bloqueante(s) — fases falharão sem resposta)` : '') +
-                '. Apresente cada pergunta ao usuário e registre as respostas ANTES de revelar o PIN abaixo.',
+                `ℹ️ ${nonBlockingItems.length} item(ns) de atenção (não bloqueantes). ` +
+                `Apresente ao usuário antes de revelar o PIN — não impedem o gate mas devem ser registrados.`,
             } : {}),
             instructions: [
               '══════════════════════════════════════════════════',
