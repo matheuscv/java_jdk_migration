@@ -1,4 +1,4 @@
-import { runJdeprscan, findJavaHome, findCompiledClasses } from './jdeprscan-runner.js'
+import { runJdeprscan, findJavaHome, findAllCompiledClasses } from './jdeprscan-runner.js'
 import { runJdeps, type JdepsResult } from './jdeps-runner.js'
 import { scanSourceFiles } from './source-scanner.js'
 import { scanContainersAndCi, type ContainerCiScanResult } from './container-ci-scanner.js'
@@ -38,7 +38,7 @@ export async function runStaticAnalysis(
 ): Promise<StaticAnalysisResult> {
   const timestamp = new Date().toISOString()
   const javaHome = findJavaHome()
-  const compiledDir = javaHome ? findCompiledClasses(projectPath, buildSystem) : null
+  const compiledDirs = javaHome ? findAllCompiledClasses(projectPath, buildSystem) : []
 
   // Source-level scan — always runs regardless of JDK installation
   const entries = getEntriesForJdk(Number(sourceJdk), 21)
@@ -47,15 +47,22 @@ export async function runStaticAnalysis(
   let jdeprscanItems: DeprecatedApiItem[] = []
   let jdepsResult: JdepsResult = { violations: [], splitPackages: [], runtimeWarnings: [] }
 
-  if (javaHome && compiledDir) {
-    jdeprscanItems = await runJdeprscan({
-      javaHome,
-      projectPath,
-      classesDir: compiledDir,
-      classpathFile: null,
-      release: 21,
-    })
-    jdepsResult = await runJdeps(javaHome, projectPath, compiledDir)
+  if (javaHome && compiledDirs.length > 0) {
+    const allJdeprscan = await Promise.all(
+      compiledDirs.map(classesDir =>
+        runJdeprscan({ javaHome, projectPath, classesDir, classpathFile: null, release: 21 }),
+      ),
+    )
+    jdeprscanItems = allJdeprscan.flat()
+
+    const allJdeps = await Promise.all(
+      compiledDirs.map(classesDir => runJdeps(javaHome, projectPath, classesDir)),
+    )
+    jdepsResult = {
+      violations: allJdeps.flatMap(r => r.violations),
+      splitPackages: [...new Set(allJdeps.flatMap(r => r.splitPackages))],
+      runtimeWarnings: [...new Set(allJdeps.flatMap(r => r.runtimeWarnings))],
+    }
   }
 
   // Container & CI scan — always runs, não requer JDK instalado
@@ -70,7 +77,7 @@ export async function runStaticAnalysis(
     splitPackages: jdepsResult.splitPackages,
     runtimeWarnings: jdepsResult.runtimeWarnings,
     javaHomeUsed: javaHome,
-    compiledClassesFound: compiledDir !== null,
+    compiledClassesFound: compiledDirs.length > 0,
     analysisTimestamp: timestamp,
     containerCi,
   }

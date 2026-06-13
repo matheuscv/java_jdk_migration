@@ -24,6 +24,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, extname } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import { scanContainersAndCi } from './container-ci-scanner.js'
+import { findAllCompiledClasses } from './jdeprscan-runner.js'
 
 // ─── tipos públicos ────────────────────────────────────────────────────────────
 
@@ -555,20 +556,15 @@ function checkOutputBytecode(projectPath: string, targetJdk: string): AuditCrite
 // ─── C1 — versão real do bytecode nas .class files ───────────────────────────
 
 function checkActualBytecodeVersion(projectPath: string, targetJdk: string): AuditCriterion {
-  const classesDir = join(projectPath, 'target', 'classes')
-  if (!existsSync(classesDir)) {
-    // Tenta multi-módulo
-    const subDirs = existsSync(join(projectPath, 'target'))
-      ? [] : findFiles(projectPath, n => n === 'classes', 3).filter(p => p.includes('target'))
-    if (subDirs.length === 0) {
-      return { id: 'actual-bytecode', label: 'Versão real do bytecode (.class files)', status: 'warning',
-        detail: 'target/classes não encontrado — classes não compiladas.',
-        action: 'Execute mvn compile para gerar as classes.' }
-    }
+  const classesDirs = findAllCompiledClasses(projectPath, 'maven')
+  if (classesDirs.length === 0) {
+    return { id: 'actual-bytecode', label: 'Versão real do bytecode (.class files)', status: 'warning',
+      detail: 'target/classes não encontrado — classes não compiladas.',
+      action: 'Execute mvn compile para gerar as classes.' }
   }
 
   const targetMajor = parseInt(targetJdk, 10) + 44  // JDK 21 → major 65
-  const classFiles = findFiles(classesDir, n => n.endsWith('.class'), 6)
+  const classFiles = classesDirs.flatMap(dir => findFiles(dir, n => n.endsWith('.class'), 6))
 
   if (classFiles.length === 0) {
     return { id: 'actual-bytecode', label: 'Versão real do bytecode (.class files)', status: 'warning',

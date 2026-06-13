@@ -13,7 +13,7 @@ import { detectTools, buildMissingToolsMessage, serializeTools, extractSourceJdk
 import { runSourceBuild } from '../../orchestrator/build-validator.js'
 import { runMigrationAudit } from '../../static-analysis/migration-audit.js'
 import { generateAuditChecklist } from '../../report-generator/index.js'
-import { findCompiledClasses } from '../../static-analysis/jdeprscan-runner.js'
+import { findAllCompiledClasses } from '../../static-analysis/jdeprscan-runner.js'
 import { enrichContainerFindings } from '../../static-analysis/container-registry-enricher.js'
 import type { ProfilerReport } from '../../profilers/types.js'
 import type { StackType, RiskSeverity } from '../../types.js'
@@ -208,8 +208,8 @@ async function discoverProject(
   const sourceBuildResult = await (async () => {
     if (!sourceJdkHome) return null
     if (buildSystem === 'ant') return null  // ant não tem suporte a build automático
-    const compiledDir = findCompiledClasses(projectPath, buildSystem)
-    if (compiledDir) return null  // classes já existem — skip
+    const compiledDirs = findAllCompiledClasses(projectPath, buildSystem)
+    if (compiledDirs.length > 0) return null  // classes já existem — skip
 
     const existingConfig = configExists(projectPath) ? readConfig(projectPath) : null
     return runSourceBuild(projectPath, buildSystem as 'maven' | 'gradle', {

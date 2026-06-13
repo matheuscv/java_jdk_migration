@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { runProcess } from '../lib/process-runner.js'
 import type { DeprecatedApiItem } from './index.js'
@@ -101,15 +101,39 @@ export function findJavaHome(): string | null {
   return null
 }
 
-export function findCompiledClasses(projectPath: string, buildSystem: string): string | null {
+export function findAllCompiledClasses(projectPath: string, buildSystem: string): string[] {
   const candidates =
     buildSystem === 'gradle'
       ? ['build/classes/java/main', 'build/classes/kotlin/main']
       : ['target/classes']
 
+  const found: string[] = []
+
   for (const rel of candidates) {
     const full = join(projectPath, rel)
-    if (existsSync(full)) return full
+    if (existsSync(full)) found.push(full)
   }
-  return null
+
+  if (found.length > 0) return found
+
+  // Multi-module project: scan one level of subdirectories
+  try {
+    const entries = readdirSync(projectPath, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      for (const rel of candidates) {
+        const full = join(projectPath, entry.name, rel)
+        if (existsSync(full)) found.push(full)
+      }
+    }
+  } catch {
+    // ignore read errors
+  }
+
+  return found
+}
+
+export function findCompiledClasses(projectPath: string, buildSystem: string): string | null {
+  const all = findAllCompiledClasses(projectPath, buildSystem)
+  return all.length > 0 ? all[0] : null
 }
