@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plano de Migração — jdk-migration-mcp para versão Cloud</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2029; --panel2:#222b36; --ink:#e6edf3; --muted:#9aa7b4;
+    --accent:#4f9cf9; --green:#3fb950; --amber:#d29922; --red:#f85149; --line:#2d3743;
+    --code:#0d1117; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:48px 28px 120px}
+  header.cover{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:40px}
+  .badge{display:inline-block;background:var(--purple);color:#1a0b2e;font-weight:700;
+    font-size:12px;letter-spacing:.5px;padding:4px 10px;border-radius:6px;text-transform:uppercase}
+  h1{font-size:30px;margin:18px 0 6px;line-height:1.25}
+  h2{font-size:22px;margin:46px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:17px;margin:26px 0 10px;color:#cdd9e5}
+  p{margin:12px 0}
+  .sub{color:var(--muted);font-size:14px}
+  .meta{display:flex;gap:24px;flex-wrap:wrap;margin-top:18px;font-size:13px;color:var(--muted)}
+  .meta b{color:var(--ink)}
+  table{border-collapse:collapse;width:100%;margin:18px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd9e5;font-weight:600}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:12.5px;
+    font-family:"SF Mono",Consolas,Monaco,monospace;color:#a5d6ff}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:16px 18px;
+    overflow-x:auto;font-size:12.5px;line-height:1.55;font-family:"SF Mono",Consolas,Monaco,monospace;color:#c9d1d9}
+  .callout{border-left:4px solid var(--accent);background:var(--panel);padding:14px 18px;border-radius:0 8px 8px 0;margin:18px 0}
+  .callout.crit{border-color:var(--red)} .callout.warn{border-color:var(--amber)} .callout.ok{border-color:var(--green)}
+  .callout .t{font-weight:700;margin-bottom:4px} .crit .t{color:var(--red)} .warn .t{color:var(--amber)} .ok .t{color:var(--green)}
+  ul,ol{margin:10px 0 10px 4px;padding-left:22px} li{margin:5px 0}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px}
+  .p-alta{background:rgba(63,185,80,.15);color:var(--green)}
+  .p-media{background:rgba(210,153,34,.15);color:var(--amber)}
+  .p-baixa{background:rgba(248,81,73,.15);color:var(--red)}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 24px;margin:24px 0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .phase{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0;margin:26px 0;overflow:hidden}
+  .phase .head{display:flex;align-items:center;gap:16px;padding:18px 22px;background:var(--panel2);border-bottom:1px solid var(--line)}
+  .phase .num{width:42px;height:42px;flex:0 0 42px;border-radius:10px;background:var(--accent);color:#04101f;
+    font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center}
+  .phase .num.f0{background:var(--muted)} .phase .num.f1{background:var(--accent)}
+  .phase .num.f2{background:var(--green)} .phase .num.f3{background:var(--amber)}
+  .phase .num.f4{background:var(--purple)} .phase .num.f5{background:var(--red)}
+  .phase .ttl{font-size:17px;font-weight:700} .phase .ttl small{display:block;font-weight:400;color:var(--muted);font-size:12.5px;margin-top:2px}
+  .phase .body{padding:18px 22px}
+  .tag{margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:rgba(79,156,249,.15);color:var(--accent)}
+  .gate{background:rgba(248,81,73,.08);border:1px dashed var(--red);border-radius:8px;padding:12px 16px;margin-top:14px}
+  .gate b{color:var(--red)}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap;margin:20px 0}
+  .kpi .b{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;flex:1;min-width:140px}
+  .kpi .n{font-size:24px;font-weight:800;color:var(--purple)} .kpi .l{font-size:12px;color:var(--muted);margin-top:2px}
+  .check li{list-style:none;position:relative;padding-left:26px}
+  .check li:before{content:"☐";position:absolute;left:0;color:var(--accent);font-size:15px}
+  footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+  .timeline{display:flex;gap:6px;margin:20px 0;flex-wrap:wrap}
+  .timeline .seg{flex:1;min-width:90px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:12px}
+  .timeline .seg b{display:block;color:var(--accent);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="cover">
+  <span class="badge">Plano de Migração · Proposta</span>
+  <h1>Migração do <em>jdk-migration-mcp</em> para versão Cloud<br>operada por Squad Agêntica</h1>
+  <p class="sub">Plano faseado, de baixo risco, para transformar o servidor MCP local em serviço remoto no Render, exposto via MCP Connector da Anthropic Console, com estado persistido na branch de trabalho do GitHub — preservando 100% das funcionalidades e mantendo os testes unitários verdes em cada fase.</p>
+  <div class="meta">
+    <span><b>Projeto:</b> jdk-migration-mcp v0.3.48</span>
+    <span><b>Data:</b> 30/06/2026</span>
+    <span><b>Doc. base:</b> Discovery_Migration_JDK_Cloud_version.html</span>
+    <span><b>Estratégia:</b> Strangler / adapter incremental</span>
+  </div>
+</header>
+
+<div class="kpi">
+  <div class="b"><div class="n">6</div><div class="l">fases de migração</div></div>
+  <div class="b"><div class="n">~3 sem</div><div class="l">esforço estimado</div></div>
+  <div class="b"><div class="n">56</div><div class="l">testes a manter verdes</div></div>
+  <div class="b"><div class="n">0</div><div class="l">regressões aceitas</div></div>
+</div>
+
+<div class="toc">
+  <strong>Conteúdo</strong>
+  <ol>
+    <li><a href="#principios">Princípios da migração</a></li>
+    <li><a href="#estrategia">Estratégia: Strangler + porta Storage</a></li>
+    <li><a href="#fases">Fases M0 a M5</a></li>
+    <li><a href="#testes">Estratégia de testes (anti-regressão)</a></li>
+    <li><a href="#rollback">Critérios de rollback por fase</a></li>
+    <li><a href="#cronograma">Cronograma</a></li>
+    <li><a href="#passoapasso">Passo a passo prático de implantação</a></li>
+    <li><a href="#linhadotempo">Linha do tempo detalhada</a></li>
+    <li><a href="#checklist-final">Checklist de go-live</a></li>
+  </ol>
+</div>
+
+<h2 id="principios">1. Princípios da migração</h2>
+<ul>
+  <li><b>Zero regressão funcional:</b> nenhuma fase é concluída com teste vermelho. <code>npm test</code> (56 arquivos) roda no fim de cada fase.</li>
+  <li><b>Incremental e reversível:</b> cada fase é uma branch isolada; o <code>stdio</code> local continua funcionando até a última fase (paridade dupla).</li>
+  <li><b>Refatoração por adapter, não por reescrita:</b> introduzir portas (Storage, Git, Transport) e plugar implementações cloud — o núcleo de negócio (profilers, transform-engine, knowledge-base) não muda.</li>
+  <li><b>Segurança primeiro:</b> o PIN store server-side é tratado na fase de gates, com teste explícito de que o PIN nunca aparece em estado versionado nem em retorno de tool.</li>
+  <li><b>Build pesado por último:</b> validar orquestração no Render Free antes de habilitar Maven/OpenRewrite em instância paga.</li>
+</ul>
+
+<h2 id="estrategia">2. Estratégia: Strangler + porta Storage</h2>
+<p>O coração da migração é isolar os dois pontos de acoplamento ao ambiente local — <b>persistência de estado</b> (<code>src/lib/config.ts</code>) e <b>operações Git</b> (<code>src/orchestrator/git-checkpoint.ts</code>) — atrás de interfaces, com duas implementações cada:</p>
+<table>
+  <tr><th>Porta</th><th>Implementação local (atual)</th><th>Implementação cloud (nova)</th></tr>
+  <tr><td><code>MigrationStorage</code></td><td><code>LocalFsStorage</code> (fs)</td><td><code>GitWorkspaceStorage</code> (clone + commit/push)</td></tr>
+  <tr><td><code>GitGateway</code></td><td><code>LocalGitCli</code> (git CLI)</td><td><code>GitHubApiGateway</code> (octokit)</td></tr>
+  <tr><td><code>Transport</code></td><td><code>StdioServerTransport</code></td><td><code>StreamableHttpTransport</code></td></tr>
+  <tr><td><code>SecretStore</code> (PINs)</td><td>arquivo local <code>.gate-pins.json</code></td><td>store server-side (disco efêmero/KV) — <b>nunca na branch</b></td></tr>
+</table>
+<div class="callout ok">
+  <div class="t">✔ Por que isso garante baixo risco</div>
+  Os 56 testes continuam rodando contra as implementações locais/in-memory. A versão cloud é selecionada por configuração de runtime. Em nenhum momento o comportamento local é removido — ele vira o baseline de teste.
+</div>
+
+<h2 id="fases">3. Fases da migração</h2>
+<div class="timeline">
+  <div class="seg"><b>M0</b> Fundação & portas</div>
+  <div class="seg"><b>M1</b> Transporte HTTP</div>
+  <div class="seg"><b>M2</b> Estado na branch</div>
+  <div class="seg"><b>M3</b> Git via API + PR</div>
+  <div class="seg"><b>M4</b> Gates server-side</div>
+  <div class="seg"><b>M5</b> Build async & deploy</div>
+</div>
+
+<!-- M0 -->
+<div class="phase">
+  <div class="head">
+    <div class="num f0">M0</div>
+    <div class="ttl">Fundação: portas e abstrações <small>Sem mudar comportamento — só introduzir interfaces</small></div>
+    <div class="tag">Risco baixo</div>
+  </div>
+  <div class="body">
+    <p><b>Objetivo:</b> criar as interfaces (<code>MigrationStorage</code>, <code>GitGateway</code>, <code>SecretStore</code>) e fazer o código atual delegar a elas via implementações locais — refatoração pura, comportamento idêntico.</p>
+    <h3>Tarefas</h3>
+    <ul class="check">
+      <li>Definir <code>src/ports/storage.ts</code>, <code>src/ports/git-gateway.ts</code>, <code>src/ports/secret-store.ts</code></li>
+      <li>Implementar <code>LocalFsStorage</code> extraindo a lógica atual de <code>config.ts</code></li>
+      <li>Implementar <code>LocalGitCli</code> envolvendo <code>git-checkpoint.ts</code></li>
+      <li>Implementar <code>LocalSecretStore</code> envolvendo o PIN store atual</li>
+      <li>Injetar as portas via factory (já é o padrão do projeto: <code>createXxx(...)</code>)</li>
+      <li>Adicionar <code>InMemoryStorage</code> e <code>InMemorySecretStore</code> para testes</li>
+    </ul>
+    <h3>Critério de saída</h3>
+    <p><code>npm test</code> e <code>npm run typecheck</code> verdes; <b>diff não altera nenhum comportamento observável</b>. MCP local via <code>stdio</code> continua idêntico.</p>
+    <div class="gate"><b>Gate M0:</b> 100% dos 56 testes passando + revisão de que nenhuma regra de negócio foi movida, apenas encapsulada.</div>
+  </div>
+</div>
+
+<!-- M1 -->
+<div class="phase">
+  <div class="head">
+    <div class="num f1">M1</div>
+    <div class="ttl">Transporte HTTP/SSE (dual stdio + HTTP) <small>Mesmo servidor, dois transportes selecionáveis</small></div>
+    <div class="tag">Risco baixo</div>
+  </div>
+  <div class="body">
+    <p><b>Objetivo:</b> permitir que o MCP rode tanto via <code>stdio</code> (local, atual) quanto via <code>Streamable HTTP</code> (cloud), selecionado por flag/env.</p>
+    <h3>Tarefas</h3>
+    <ul class="check">
+      <li>Adicionar <code>StreamableHTTPServerTransport</code> do SDK MCP em <code>src/mcp-server/index.ts</code></li>
+      <li>Selecionar transporte por <code>--transport=stdio|http</code> ou <code>env MCP_TRANSPORT</code></li>
+      <li>Adicionar autenticação Bearer no endpoint HTTP (token via env)</li>
+      <li>Healthcheck <code>GET /health</code> para o Render</li>
+      <li>Teste de integração: as 12 tools respondem por HTTP idêntico ao stdio</li>
+    </ul>
+    <h3>Critério de saída</h3>
+    <p>As 12 tools funcionam por HTTP local (<code>localhost:3000/mcp</code>) com resultados idênticos aos do stdio. Testes existentes intactos.</p>
+    <div class="gate"><b>Gate M1:</b> paridade stdio↔HTTP comprovada por teste; auth Bearer rejeitando requisição sem token.</div>
+  </div>
+</div>
+
+<!-- M2 -->
+<div class="phase">
+  <div class="head">
+    <div class="num f2">M2</div>
+    <div class="ttl">Estado na branch do GitHub <small>GitWorkspaceStorage: clone + commit/push do estado</small></div>
+    <div class="tag">Risco médio</div>
+  </div>
+  <div class="body">
+    <p><b>Objetivo:</b> implementar a sua premissa central — todo arquivo de estado (<code>jdk-migration.config.json</code>, <code>discovery-report.json</code>, <code>migration-plan.json</code>, relatórios) passa a ser persistido na branch de trabalho do GitHub.</p>
+    <h3>Tarefas</h3>
+    <ul class="check">
+      <li>Implementar <code>GitWorkspaceStorage</code>: <code>git clone</code> da branch p/ disco efêmero; <code>read/write</code> no clone; <code>commitState()</code> = commit + push</li>
+      <li>Restauração em cold-start: detectar workspace ausente e re-clonar a branch</li>
+      <li>Mensagens de commit padronizadas (<code>chore(jdk-migration): state checkpoint [skip ci]</code>)</li>
+      <li>Sessão isolada por <code>{owner}/{repo}/{runId}</code> (multitenância)</li>
+      <li><b>Excluir explicitamente o PIN store</b> do que é commitado (vai para M4, server-side)</li>
+      <li>Teste: ciclo write → commit → re-clone → read recupera o estado idêntico</li>
+    </ul>
+    <h3>Critério de saída</h3>
+    <p>Uma migração simulada persiste e restaura todo o estado pela branch, sobrevivendo a um restart de container. Nenhum PIN é commitado.</p>
+    <div class="gate"><b>Gate M2:</b> teste de durabilidade (kill + re-clone) verde; auditoria confirma ausência de <code>.gate-pins.json</code> na branch.</div>
+  </div>
+</div>
+
+<!-- M3 -->
+<div class="phase">
+  <div class="head">
+    <div class="num f3">M3</div>
+    <div class="ttl">Git via GitHub API + Pull Requests <small>GitHubApiGateway: branches, PRs, comentários, rollback</small></div>
+    <div class="tag">Risco médio</div>
+  </div>
+  <div class="body">
+    <p><b>Objetivo:</b> mover as operações Git de metadado para a GitHub API e materializar a revisão humana como Pull Request.</p>
+    <h3>Tarefas</h3>
+    <ul class="check">
+      <li>Implementar <code>GitHubApiGateway</code> (octokit): criar branch (<code>POST /git/refs</code>), abrir Draft PR, comentar, deletar ref (rollback)</li>
+      <li>Configurar GitHub App com escopo mínimo: <code>contents:write</code>, <code>pull_requests:write</code>, <code>issues:write</code></li>
+      <li>Cada <code>execute_phase</code> abre/atualiza um Draft PR da fase</li>
+      <li><code>generate_report</code> publica o relatório como comentário do PR (e/ou artifact)</li>
+      <li><code>rollback_phase</code> via API + preservação da branch para forense</li>
+      <li>Teste de integração contra repositório sandbox (ou mock octokit)</li>
+    </ul>
+    <h3>Critério de saída</h3>
+    <p>Fluxo discover→plan→execute gera branch + Draft PR + relatório no PR em repositório de teste real.</p>
+    <div class="gate"><b>Gate M3:</b> PR criado e relatório visível no GitHub; rollback remove a branch de fase sem afetar a base.</div>
+  </div>
+</div>
+
+<!-- M4 -->
+<div class="phase">
+  <div class="head">
+    <div class="num f4">M4</div>
+    <div class="ttl">Gates via PIN por Teams + E-mail (segurança crítica) <small>Mecanismo único e uniforme para as 6 fases</small></div>
+    <div class="tag">Risco alto · crítico</div>
+  </div>
+  <div class="body">
+    <p><b>Objetivo:</b> garantir que o human-in-the-loop continue tecnicamente real na nuvem. A Squad opera em board de estados (análogo a um board de sprint) e o agente lê todo o chat/board — não há UI de aprovação própria. Confirmado (30/06/2026) que a Squad <b>não tem nenhuma integração de leitura</b> com Teams ou e-mail corporativo (Microsoft 365, presente em toda a rede corporativa) — apenas pode disparar envio via API/SMTP. Isso restaura um canal de entrega genuinamente opaco ao agente. Com esse canal confirmado, a decisão foi por um <b>modelo único de PIN via Teams + e-mail</b>, aplicado uniformemente às 6 fases — substituindo o modelo híbrido (soft/out-of-band) avaliado anteriormente.</p>
+
+    <h3>Fluxo decidido</h3>
+    <ol>
+      <li><code>request_gate_approval(fase)</code> é chamado pelo agente ao concluir a fase</li>
+      <li>Servidor MCP gera o PIN, grava no <code>CloudSecretStore</code> (server-side, isolado da branch) e <b>dispara</b> Teams DM + e-mail ao aprovador via Microsoft Graph API — o agente não participa desse envio nem o lê</li>
+      <li>Humano lê o PIN em Teams/e-mail (sistemas fora do alcance da Squad)</li>
+      <li>Humano digita o PIN de volta no chat/board da Squad para confirmar a aprovação</li>
+      <li><code>approve_gate(fase, pin)</code> valida contra o <code>CloudSecretStore</code> (expiração, HMAC, bloqueio de nomes automatizados) e libera a fase</li>
+    </ol>
+
+    <h3>Tarefas</h3>
+    <ul class="check">
+      <li>Implementar <code>CloudSecretStore</code> (disco efêmero do Render ou KV/Redis) — isolado do <code>GitWorkspaceStorage</code>, nunca commitado, nunca em retorno de tool</li>
+      <li>Integração de envio via <b>Microsoft Graph API</b>: Teams chat message (1:1) + e-mail (Outlook/Graph <code>sendMail</code>) ao aprovador configurado por fase/projeto</li>
+      <li>Manter validação HMAC do gate token e bloqueio de nomes (<code>bot/claude/ai/agent/...</code>) — já existem, reaproveitados de <code>gate-validator.ts</code></li>
+      <li>Expiração do PIN (30 min, igual ao modelo local) e invalidação em <code>rollback_phase</code></li>
+      <li>Aplicar o mesmo mecanismo nas 6 fases (0–5) — sem diferenciação de implementação por criticidade</li>
+      <li><b>Teste de segurança dedicado:</b> simular leitura de Teams/e-mail pelo agente (mock) e comprovar que nenhuma tool, estado de branch ou log expõe o PIN antes da digitação humana</li>
+      <li>Registrar no <code>CLAUDE.md</code>/runbook a premissa crítica: a Squad <b>nunca</b> deve ganhar integração de leitura sobre o canal de Teams/e-mail usado para os PINs — qualquer mudança futura nesse sentido exige revalidação do modelo de gate</li>
+    </ul>
+
+    <div class="callout crit">
+      <div class="t">🔴 Condição inegociável</div>
+      Se um teste demonstrar que a Squad consegue obter o PIN por qualquer caminho — tool, estado da branch, log, ou leitura futura de Teams/e-mail — a fase é reprovada. Toda a garantia de governança do produto depende da Squad permanecer sem acesso de leitura a esses canais.
+    </div>
+    <div class="gate"><b>Gate M4:</b> suíte de segurança comprova isolamento total do PIN; envio via Graph API testado ponta a ponta (Teams + e-mail); aprovação só ocorre com PIN digitado pelo humano após leitura fora do chat.</div>
+  </div>
+</div>
+
+<!-- M5 -->
+<div class="phase">
+  <div class="head">
+    <div class="num f5">M5</div>
+    <div class="ttl">Execução assíncrona, deploy no Render & Connector <small>Builds longos + integração ponta a ponta com a Squad</small></div>
+    <div class="tag">Risco médio</div>
+  </div>
+  <div class="body">
+    <p><b>Objetivo:</b> habilitar os builds pesados (Maven/OpenRewrite) sem estourar o timeout síncrono do connector, e fechar a integração com a Anthropic Console e a Squad.</p>
+    <h3>Tarefas</h3>
+    <ul class="check">
+      <li>Tornar <code>execute_phase</code> assíncrono: retorna <code>{ jobId, status:"running" }</code>; job roda em background</li>
+      <li><code>get_phase_status(jobId)</code> reporta progresso até <code>done/failed</code> (a Squad faz polling)</li>
+      <li>Dockerfile multi-stage com JDK 8 + JDK 21 + Maven + Node + git (imagem slim)</li>
+      <li>Deploy no Render: instância paga (≥ 2 GB RAM) para os builds; secrets configurados</li>
+      <li>Registrar o MCP como connector na Anthropic Console (URL + Bearer)</li>
+      <li>Teste end-to-end: Squad chama Messages API → migra repositório sandbox JDK 8→21 completo</li>
+      <li>Validar ROI tracker recebendo tokens via <code>update_phase_costs</code> (sem JSONL local)</li>
+    </ul>
+    <h3>Critério de saída</h3>
+    <p>Migração completa de um repositório de teste, ponta a ponta, disparada pela Squad via Anthropic Console, com gates humanos e relatórios no PR.</p>
+    <div class="gate"><b>Gate M5:</b> E2E verde em repo sandbox; nenhum timeout; paridade funcional com a versão local comprovada.</div>
+  </div>
+</div>
+
+<h2 id="testes">4. Estratégia de testes (anti-regressão)</h2>
+<table>
+  <tr><th>Nível</th><th>O que cobre</th><th>Quando roda</th></tr>
+  <tr><td>Unit (56 arquivos atuais)</td><td>Lógica de negócio contra <code>InMemoryStorage</code>/<code>LocalFs</code></td><td>Fim de cada fase M0–M5 — <b>devem ficar 100% verdes</b></td></tr>
+  <tr><td>Contrato de portas</td><td>Mesma suíte rodada contra Local e Cloud adapters (testes parametrizados)</td><td>A partir de M2</td></tr>
+  <tr><td>Integração HTTP</td><td>Paridade stdio↔HTTP das 12 tools</td><td>M1 em diante</td></tr>
+  <tr><td>Segurança de gate</td><td>PIN inacessível por tool/branch/log</td><td>M4 (bloqueante)</td></tr>
+  <tr><td>E2E sandbox</td><td>Migração real JDK 8→21 via Squad</td><td>M5</td></tr>
+</table>
+<div class="callout warn">
+  <div class="t">⚠ Regra dura de regressão</div>
+  Nenhuma fase avança com teste vermelho. Onde um comportamento mudar legitimamente (ex.: estado agora na branch), o teste é <b>adaptado conscientemente</b> com justificativa no PR — nunca removido para "passar".
+</div>
+
+<h2 id="rollback">5. Critérios de rollback por fase</h2>
+<table>
+  <tr><th>Fase</th><th>Sinal de falha</th><th>Ação</th></tr>
+  <tr><td>M0</td><td>Qualquer teste vermelho ou mudança de comportamento</td><td>Reverter branch; portas são puro encapsulamento</td></tr>
+  <tr><td>M1</td><td>Divergência stdio↔HTTP</td><td>Manter só stdio; HTTP fica atrás de flag desligada</td></tr>
+  <tr><td>M2</td><td>Estado não restaura após restart</td><td>Reverter para LocalFsStorage (config de runtime)</td></tr>
+  <tr><td>M3</td><td>PR/branch inconsistente no GitHub</td><td>Reverter para LocalGitCli</td></tr>
+  <tr><td>M4</td><td>PIN (qualquer fase) vazável por tool, branch, log, ou leitura futura de Teams/e-mail pela Squad</td><td><b>Bloqueio total</b> — não prosseguir até isolamento comprovado</td></tr>
+  <tr><td>M5</td><td>Timeout ou OOM em build</td><td>Subir RAM / ajustar heap OpenRewrite; manter async</td></tr>
+</table>
+
+<h2 id="cronograma">6. Cronograma estimado</h2>
+<table>
+  <tr><th>Fase</th><th>Esforço</th><th>Dependências</th><th>Pode validar no Render Free?</th></tr>
+  <tr><td>M0 — Portas</td><td>2–3 dias</td><td>—</td><td>n/a (local)</td></tr>
+  <tr><td>M1 — Transporte HTTP</td><td>2 dias</td><td>M0</td><td>Sim</td></tr>
+  <tr><td>M2 — Estado na branch</td><td>3 dias</td><td>M0</td><td>Sim</td></tr>
+  <tr><td>M3 — Git via API + PR</td><td>3–4 dias</td><td>M2</td><td>Sim</td></tr>
+  <tr><td>M4 — Gates server-side</td><td>2 dias</td><td>M2</td><td>Sim</td></tr>
+  <tr><td>M5 — Build async + deploy</td><td>3–4 dias</td><td>M1–M4</td><td>Não (RAM) — instância paga</td></tr>
+  <tr><td colspan="2"><b>Total: ~2,5–3 semanas</b></td><td colspan="2">Builds pesados só na instância paga (M5)</td></tr>
+</table>
+
+<div class="callout ok">
+  <div class="t">✔ Sequência de validação recomendada</div>
+  M0→M4 podem ser inteiramente validadas no <b>Render Free</b> (orquestração, estado na branch, gates, PRs). Só M5 — que roda Maven/OpenRewrite reais — exige instância paga (≥ 2 GB). Assim você valida o projeto com custo zero antes de abri-lo a muitos times.
+</div>
+
+<h2 id="passoapasso">7. Passo a passo prático de implantação</h2>
+<p>Esta seção traduz as fases M0–M5 em <b>ações executáveis</b>: o que mexer no código, como testar, como subir no Render e como configurar o MCP Connector na Anthropic Console. Cada bloco indica arquivos/diretórios concretos do projeto atual.</p>
+
+<h3>7.1 — Preparação do repositório (antes de M0)</h3>
+<ul class="check">
+  <li>Criar branch de trabalho isolada: <code>git checkout -b feature/cloud-migration-m0</code></li>
+  <li>Confirmar baseline verde: <code>npm run typecheck && npm run lint && npm test</code></li>
+  <li>Criar pasta <code>src/ports/</code> para as novas interfaces (Storage, GitGateway, SecretStore)</li>
+  <li>Criar pasta <code>src/adapters/local/</code> e <code>src/adapters/cloud/</code> para as implementações</li>
+</ul>
+
+<h3>7.2 — M0: Portas e abstrações (código)</h3>
+<pre>src/ports/storage.ts          // interface MigrationStorage { read, write, commitState }
+src/ports/git-gateway.ts      // interface GitGateway { createBranch, commit, openPR, ... }
+src/ports/secret-store.ts     // interface SecretStore { put, get, delete, isExpired }
+
+src/adapters/local/local-fs-storage.ts     // extrai lógica atual de lib/config.ts
+src/adapters/local/local-git-cli.ts        // envolve orchestrator/git-checkpoint.ts
+src/adapters/local/local-secret-store.ts   // envolve o .gate-pins.json atual
+
+src/adapters/memory/in-memory-storage.ts       // para testes
+src/adapters/memory/in-memory-secret-store.ts  // para testes</pre>
+<ol>
+  <li>Mover a lógica de <code>readConfig</code>/<code>writeConfig</code> (<code>src/lib/config.ts</code>) para dentro de <code>LocalFsStorage</code>, mantendo a assinatura pública intacta para não quebrar os tools</li>
+  <li>Repetir os 56 testes existentes — devem passar <b>sem nenhuma alteração de expectativa</b></li>
+  <li>Rodar <code>npm run typecheck</code> e <code>npm run build</code> a cada arquivo extraído</li>
+  <li>Commit incremental por porta extraída (não um commit gigante): <code>git commit -m "refactor(ports): extrai MigrationStorage de lib/config.ts"</code></li>
+</ol>
+<div class="gate"><b>Critério para avançar:</b> <code>npm test</code> 100% verde, <code>git diff</code> mostra apenas movimentação de código, nenhuma tool MCP mudou de comportamento observável.</div>
+
+<h3>7.3 — M1: Transporte HTTP (código)</h3>
+<pre>// src/mcp-server/index.ts
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+
+const mode = process.env.MCP_TRANSPORT ?? 'stdio'
+const transport = mode === 'http'
+  ? new StreamableHTTPServerTransport({ port: Number(process.env.PORT ?? 3000) })
+  : new StdioServerTransport()
+
+await server.connect(transport)</pre>
+<ol>
+  <li>Adicionar middleware de autenticação Bearer (validar <code>Authorization: Bearer &lt;MCP_AUTH_TOKEN&gt;</code> contra env var)</li>
+  <li>Adicionar rota <code>GET /health</code> retornando <code>200 ok</code> (usada pelo Render para healthcheck)</li>
+  <li>Testar localmente: <code>MCP_TRANSPORT=http PORT=3000 MCP_AUTH_TOKEN=teste123 npm run dev</code></li>
+  <li>Validar com client de teste (ex: <code>curl</code> ou Inspector MCP) que as 12 tools respondem via HTTP igual ao stdio</li>
+</ol>
+<div class="gate"><b>Critério para avançar:</b> mesma tool chamada por stdio e por HTTP devolve resultado idêntico; requisição sem Bearer token é rejeitada com 401.</div>
+
+<h3>7.4 — M2: Estado na branch do GitHub (código)</h3>
+<pre>src/adapters/cloud/git-workspace-storage.ts
+// implementa MigrationStorage:
+//  - constructor(repoUrl, branch, workDir)
+//  - init(): git clone --depth=1 --branch={branch} {repoUrl} {workDir}
+//  - read(path): fs.readFileSync(join(workDir, path))
+//  - write(path): fs.writeFileSync(join(workDir, path))
+//  - commitState(msg): git add &lt;arquivos-de-estado&gt; && git commit -m {msg} && git push
+//  - EXCLUI explicitamente .jdk-migration/.gate-pins.json do commit (vai para SecretStore)</pre>
+<ol>
+  <li>Implementar clone raso por sessão: <code>/tmp/workspaces/{owner}-{repo}-{runId}/</code></li>
+  <li>Lista de exclusão de commit (hardcoded, não <code>.gitignore</code>): <code>['.jdk-migration/.gate-pins.json']</code></li>
+  <li>Implementar restauração: se o workspace não existir no disco (cold start), re-clonar a branch antes de qualquer <code>read</code></li>
+  <li>Teste de durabilidade: escrever estado → matar processo → novo processo → ler estado → deve ser idêntico</li>
+</ol>
+<div class="gate"><b>Critério para avançar:</b> teste de durabilidade verde; PIN store auditado como ausente em <code>git log</code> da branch de teste.</div>
+
+<h3>7.5 — M3: Git via GitHub API + PRs (código + config GitHub)</h3>
+<ol>
+  <li><b>Criar GitHub App</b> (Settings → Developer settings → GitHub Apps) com permissões: <code>Contents: Read & write</code>, <code>Pull requests: Read & write</code>, <code>Issues: Read & write</code>, <code>Metadata: Read-only</code></li>
+  <li>Instalar o App no(s) repositório(s) que serão migrados</li>
+  <li>Gerar private key do App, guardar como secret (não commitar)</li>
+  <li>Implementar <code>src/adapters/cloud/github-api-gateway.ts</code> usando <code>@octokit/rest</code> + <code>@octokit/auth-app</code></li>
+  <li>Mapear: <code>createPhaseBranch</code> → <code>POST /repos/{owner}/{repo}/git/refs</code>; <code>openDraftPr</code> → <code>POST /pulls</code> (<code>draft:true</code>); <code>commentReport</code> → <code>POST /issues/{pr}/comments</code>; <code>rollback</code> → <code>DELETE /git/refs/{ref}</code></li>
+  <li>Testar contra repositório sandbox real (criar <code>jdk-migration-sandbox</code> de testes)</li>
+</ol>
+<div class="gate"><b>Critério para avançar:</b> execução de fase no sandbox cria branch + Draft PR + comentário de relatório visíveis no GitHub real.</div>
+
+<h3>7.6 — M4: Gate via PIN + Teams/E-mail (código + config Microsoft 365)</h3>
+<ol>
+  <li><b>Registrar app no Azure AD / Entra ID</b> (portal.azure.com → App registrations) com permissões Graph API: <code>Mail.Send</code> (Application) e <code>Chat.Create</code> + <code>ChatMessage.Send</code> (Application, para Teams)</li>
+  <li>Conceder consentimento de admin para as permissões (precisa de um admin do tenant)</li>
+  <li>Gerar client secret do app registrado, guardar como secret no Render</li>
+  <li>Implementar <code>src/adapters/cloud/cloud-secret-store.ts</code> (PIN em disco efêmero do Render, fora do workspace clonado)</li>
+  <li>Implementar <code>src/adapters/cloud/graph-notifier.ts</code>: <code>sendTeamsMessage(userEmail, pin)</code> via <code>POST /chats/{chatId}/messages</code>, <code>sendEmail(userEmail, pin)</code> via <code>POST /users/{id}/sendMail</code></li>
+  <li>Adaptar <code>request_gate_approval</code> para chamar o notifier após gerar o PIN</li>
+  <li>Reaproveitar validação HMAC e bloqueio de nomes já existentes em <code>src/orchestrator/gate-validator.ts</code></li>
+  <li><b>Teste de segurança dedicado:</b> simular agente tentando ler PIN via toda tool, via estado da branch e via mock de Teams/e-mail — todos devem falhar</li>
+</ol>
+<div class="gate"><b>Critério para avançar:</b> PIN chega de fato no Teams e no e-mail de um usuário de teste; suíte de segurança 100% verde.</div>
+
+<h3>7.7 — M5: Execução assíncrona (código)</h3>
+<pre>// execute_phase passa a retornar imediatamente:
+{ jobId: "job_8f2a...", status: "running", phase: 3 }
+
+// job roda em background (worker thread ou fila simples in-process)
+// get_phase_status(jobId) consulta o estado do job:
+{ jobId, status: "done" | "running" | "failed", logs: [...], durationMs }</pre>
+<ol>
+  <li>Introduzir fila de jobs simples (in-memory + persistência do status no <code>MigrationStorage</code>)</li>
+  <li>Mover a execução pesada (clone, OpenRewrite, Maven) para rodar de forma não bloqueante</li>
+  <li>Adaptar a Squad (do lado dela) para fazer polling de <code>get_phase_status</code> a cada 15–30s</li>
+</ol>
+<div class="gate"><b>Critério para avançar:</b> execute_phase retorna em &lt;2s mesmo quando o build real leva 10+ minutos; polling reflete progresso real.</div>
+
+<h3>7.8 — Containerização e deploy no Render</h3>
+<pre>FROM eclipse-temurin:21-jdk-alpine AS base
+RUN apk add --no-cache nodejs npm maven git bash
+
+# JDK 8 para jdeprscan/jdeps de referência (build do código-fonte legado)
+COPY --from=eclipse-temurin:8-jdk-alpine /opt/java/openjdk /opt/jdk8
+ENV SOURCE_JAVA_HOME=/opt/jdk8
+ENV JAVA_HOME=/opt/java/openjdk
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY dist/ dist/
+COPY config/ config/
+
+ENV MCP_TRANSPORT=http
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", "dist/mcp-server/index.js"]</pre>
+<ol>
+  <li><code>npm run build</code> localmente para validar que a imagem compila antes do push</li>
+  <li>Criar repositório/branch dedicada para o Dockerfile (ou na raiz do projeto)</li>
+  <li><b>No Render:</b> New → Web Service → conectar o repositório GitHub → Environment: Docker</li>
+  <li>Configurar variáveis de ambiente no Render (Settings → Environment):
+    <table>
+      <tr><th>Variável</th><th>Valor</th></tr>
+      <tr><td><code>MCP_AUTH_TOKEN</code></td><td>token Bearer gerado (ex: <code>openssl rand -hex 32</code>)</td></tr>
+      <tr><td><code>GITHUB_APP_ID</code></td><td>ID do GitHub App criado em 7.5</td></tr>
+      <tr><td><code>GITHUB_APP_PRIVATE_KEY</code></td><td>private key do GitHub App (PEM)</td></tr>
+      <tr><td><code>GRAPH_TENANT_ID</code></td><td>tenant ID do Azure AD</td></tr>
+      <tr><td><code>GRAPH_CLIENT_ID</code></td><td>client ID do app registrado em 7.6</td></tr>
+      <tr><td><code>GRAPH_CLIENT_SECRET</code></td><td>client secret do app registrado</td></tr>
+      <tr><td><code>GATE_PIN_TTL_MIN</code></td><td><code>30</code></td></tr>
+    </table>
+  </li>
+  <li>Definir <b>Health Check Path</b>: <code>/health</code></li>
+  <li>Plano inicial: <b>Free</b> (validação M0–M4); upgrade para <b>Standard (2GB+)</b> ao chegar em M5</li>
+  <li>Deploy automático a cada push na branch configurada (CI/CD nativo do Render)</li>
+</ol>
+
+<h3>7.9 — Configuração do MCP Connector na Anthropic Console</h3>
+<ol>
+  <li>Acessar <a href="#">console.anthropic.com</a> → seção de API/Organization settings</li>
+  <li>Localizar a configuração de <b>MCP Connectors</b> (conectores remotos para a Messages API)</li>
+  <li>Registrar novo connector:
+    <table>
+      <tr><th>Campo</th><th>Valor</th></tr>
+      <tr><td>Nome</td><td><code>jdk-migration</code></td></tr>
+      <tr><td>URL</td><td><code>https://jdk-migration-mcp.onrender.com/mcp</code></td></tr>
+      <tr><td>Tipo de transporte</td><td>Streamable HTTP</td></tr>
+      <tr><td>Autorização</td><td>Bearer token (mesmo valor de <code>MCP_AUTH_TOKEN</code> no Render)</td></tr>
+    </table>
+  </li>
+  <li>Testar a partir do Workbench/Console: enviar uma mensagem simples invocando <code>discover_project</code> contra o repositório sandbox</li>
+  <li>Confirmar que as 12 tools aparecem automaticamente na resposta de tool-discovery da API</li>
+  <li>Configurar a Squad para usar esse connector no parâmetro <code>mcp_servers</code> de cada chamada à Messages API</li>
+</ol>
+<div class="callout warn">
+  <div class="t">⚠ Atenção a builds longos no teste do Connector</div>
+  Ao testar <code>execute_phase</code> pela Console, lembrar que M5 (assíncrono) precisa estar implementado — senão a primeira tentativa de build real vai estourar timeout da chamada síncrona.
+</div>
+
+<h2 id="linhadotempo">8. Linha do tempo detalhada</h2>
+<table>
+  <tr><th>Semana</th><th>Dias</th><th>Atividades</th><th>Marco</th></tr>
+  <tr><td rowspan="2"><b>Semana 1</b></td><td>Dia 1–3</td><td>M0 — portas, adapters locais, migração de <code>config.ts</code> e <code>git-checkpoint.ts</code> para as interfaces</td><td>56 testes verdes, zero mudança de comportamento</td></tr>
+  <tr><td>Dia 4–5</td><td>M1 — transporte HTTP dual (stdio+HTTP), auth Bearer, healthcheck</td><td>Paridade stdio↔HTTP comprovada localmente</td></tr>
+  <tr><td rowspan="3"><b>Semana 2</b></td><td>Dia 6–8</td><td>M2 — GitWorkspaceStorage (clone, write, commit/push, restauração)</td><td>Teste de durabilidade (kill + re-clone) verde</td></tr>
+  <tr><td>Dia 9–11</td><td>M3 — GitHub App criado, GitHubApiGateway, Draft PRs, comentários de relatório</td><td>Fluxo completo no repositório sandbox</td></tr>
+  <tr><td>Dia 12–13</td><td>M4 (início) — Azure AD app, CloudSecretStore, GraphNotifier (envio Teams+e-mail)</td><td>PIN chega de fato no Teams/e-mail de teste</td></tr>
+  <tr><td rowspan="3"><b>Semana 3</b></td><td>Dia 14–15</td><td>M4 (fim) — suíte de segurança dedicada, reaproveitar HMAC/bloqueio de nomes</td><td>Suíte de segurança 100% verde</td></tr>
+  <tr><td>Dia 16–18</td><td>M5 — execução assíncrona (jobId + polling), Dockerfile, deploy no Render Free</td><td>execute_phase responde &lt;2s; deploy acessível via URL pública</td></tr>
+  <tr><td>Dia 19</td><td>Configuração do MCP Connector na Anthropic Console + teste ponta a ponta com Squad sandbox</td><td>Migração completa de repo de teste via Squad real</td></tr>
+  <tr><td><b>Semana 4 (buffer)</b></td><td>Dia 20–21</td><td>Ajustes finos, upgrade Render para Standard (2GB+), validação de build real com OpenRewrite/Maven</td><td><b>Go-live da POC</b></td></tr>
+</table>
+<div class="callout ok">
+  <div class="t">✔ Por que essa ordem minimiza risco</div>
+  Cada marco é validável <b>antes</b> de avançar para o próximo. Os primeiros 13 dias (M0–M4 início) rodam inteiramente no Render Free, sem custo. Só nos últimos dias entra a instância paga, quando já se sabe que orquestração, estado e segurança funcionam.
+</div>
+
+<h2 id="checklist-final">9. Checklist de go-live</h2>
+<ul class="check">
+  <li>56 testes unitários + testes novos de adapters cloud, 100% verdes</li>
+  <li><code>npm run typecheck</code> e <code>npm run lint</code> sem erros</li>
+  <li>GitHub App instalado no(s) repositório(s)-alvo com escopo mínimo necessário</li>
+  <li>Azure AD app com consentimento de admin concedido para Graph API (Mail.Send, Chat)</li>
+  <li>Variáveis de ambiente configuradas no Render (nenhum secret hardcoded no código)</li>
+  <li>Healthcheck <code>/health</code> respondendo 200 no Render</li>
+  <li>MCP Connector registrado e testado na Anthropic Console</li>
+  <li>Suíte de segurança do PIN (M4) comprovando isolamento total</li>
+  <li>Teste E2E: migração de repositório sandbox JDK 8→21 completa via Squad, com aprovação real recebida por Teams/e-mail</li>
+  <li>Runbook/CLAUDE.md atualizado com a premissa inegociável: Squad nunca deve ganhar acesso de leitura a Teams/e-mail do canal de PIN</li>
+  <li>Decisão registrada sobre upgrade do Render (Free → Standard) antes de abrir a múltiplos times</li>
+</ul>
+
+<footer>
+  Proposta de plano de migração para a versão Cloud do jdk-migration-mcp · Squad Agêntica.<br>
+  Documento de planejamento técnico; não substitui aprovação de gate. Toda decisão de migração permanece human-in-the-loop.
+</footer>
+
+</div>
+</body>
+</html>

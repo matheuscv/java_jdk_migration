@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Discovery — Migração do MCP JDK para versão Cloud (Squad Agêntica)</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2029; --panel2:#222b36; --ink:#e6edf3; --muted:#9aa7b4;
+    --accent:#4f9cf9; --green:#3fb950; --amber:#d29922; --red:#f85149; --line:#2d3743;
+    --code:#0d1117;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6;font-size:15px}
+  .wrap{max-width:1080px;margin:0 auto;padding:48px 28px 120px}
+  header.cover{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:40px}
+  .badge{display:inline-block;background:var(--accent);color:#04101f;font-weight:700;
+    font-size:12px;letter-spacing:.5px;padding:4px 10px;border-radius:6px;text-transform:uppercase}
+  h1{font-size:30px;margin:18px 0 6px;line-height:1.25}
+  h2{font-size:22px;margin:48px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:17px;margin:28px 0 10px;color:#cdd9e5}
+  p{margin:12px 0;color:var(--ink)}
+  .sub{color:var(--muted);font-size:14px}
+  .meta{display:flex;gap:24px;flex-wrap:wrap;margin-top:18px;font-size:13px;color:var(--muted)}
+  .meta b{color:var(--ink)}
+  table{border-collapse:collapse;width:100%;margin:18px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd9e5;font-weight:600}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-size:12.5px;
+    font-family:"SF Mono",Consolas,Monaco,monospace;color:#a5d6ff}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:16px 18px;
+    overflow-x:auto;font-size:12.5px;line-height:1.55;font-family:"SF Mono",Consolas,Monaco,monospace;color:#c9d1d9}
+  .callout{border-left:4px solid var(--accent);background:var(--panel);padding:14px 18px;border-radius:0 8px 8px 0;margin:18px 0}
+  .callout.crit{border-color:var(--red)}
+  .callout.warn{border-color:var(--amber)}
+  .callout.ok{border-color:var(--green)}
+  .callout .t{font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .crit .t{color:var(--red)} .warn .t{color:var(--amber)} .ok .t{color:var(--green)}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px}
+  .p-alta{background:rgba(63,185,80,.15);color:var(--green)}
+  .p-media{background:rgba(210,153,34,.15);color:var(--amber)}
+  .p-baixa{background:rgba(248,81,73,.15);color:var(--red)}
+  .p-crit{background:rgba(248,81,73,.2);color:var(--red);border:1px solid var(--red)}
+  ul,ol{margin:10px 0 10px 4px;padding-left:22px}
+  li{margin:5px 0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+  .card h4{margin:0 0 8px;font-size:15px;color:#cdd9e5}
+  .diagram{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:22px;
+    font-family:"SF Mono",Consolas,monospace;font-size:12px;line-height:1.5;color:#c9d1d9;white-space:pre;overflow-x:auto}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 24px;margin:24px 0}
+  .toc a{color:var(--accent);text-decoration:none}
+  .toc ol{columns:2;column-gap:40px}
+  footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+  .verdict{background:linear-gradient(135deg,#16202b,#1a2733);border:1px solid var(--accent);
+    border-radius:12px;padding:24px 28px;margin:24px 0}
+  .verdict h3{margin-top:0;color:var(--accent)}
+  .kpi{display:flex;gap:14px;flex-wrap:wrap;margin:20px 0}
+  .kpi .b{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;flex:1;min-width:160px}
+  .kpi .n{font-size:26px;font-weight:800;color:var(--accent)}
+  .kpi .l{font-size:12px;color:var(--muted);margin-top:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="cover">
+  <span class="badge">Discovery · Arquitetura</span>
+  <h1>Migração do MCP <em>JDK 6/8 → 21</em> para versão Cloud<br>operada por Squad Agêntica integrada ao GitHub</h1>
+  <p class="sub">Análise de viabilidade, riscos e racional arquitetural para transformar o servidor MCP local (filesystem) em um serviço remoto hospedado no Render, exposto via MCP Connector da Anthropic Console e consumido por uma Squad 100% agêntica.</p>
+  <div class="meta">
+    <span><b>Projeto:</b> jdk-migration-mcp v0.3.48</span>
+    <span><b>Data:</b> 30/06/2026</span>
+    <span><b>Autor:</b> Matheus Castro</span>
+    <span><b>Base de código:</b> ~13.500 LoC · 50 arquivos TS · 56 testes</span>
+  </div>
+</header>
+
+<div class="toc">
+  <strong>Conteúdo</strong>
+  <ol>
+    <li><a href="#contexto">Contexto e objetivo</a></li>
+    <li><a href="#estado-atual">Arquitetura atual (local)</a></li>
+    <li><a href="#alvo">Arquitetura-alvo (cloud)</a></li>
+    <li><a href="#estado-branch">Estado na branch do GitHub</a></li>
+    <li><a href="#connector">Render + Anthropic Console</a></li>
+    <li><a href="#git">Git local → GitHub API</a></li>
+    <li><a href="#riscos">Matriz de riscos</a></li>
+    <li><a href="#funcionalidades">Funcionalidade a funcionalidade</a></li>
+    <li><a href="#seguranca">Segurança dos gates</a></li>
+    <li><a href="#veredito">Veredito</a></li>
+  </ol>
+</div>
+
+<h2 id="contexto">1. Contexto e objetivo</h2>
+<p>O projeto é um <b>servidor MCP (Model Context Protocol)</b> que orquestra a migração de aplicações Java legadas de JDK 6/8 para JDK 21. Ele não reimplementa transformações: orquestra ferramentas maduras (OpenRewrite, Spring Boot Migrator, Eclipse Transformer, jdeprscan/jdeps) e impõe <b>governança human-in-the-loop</b> com gates obrigatórios entre 6 fases (0 a 5).</p>
+<p>Hoje o MCP roda <b>localmente</b> via transporte <code>stdio</code>, operando sobre o filesystem da máquina do desenvolvedor. O objetivo é torná-lo <b>100% remoto</b>, acionado por uma <b>Squad Agêntica em cloud</b> que recebe como parâmetro um repositório do GitHub e conduz a migração de ponta a ponta — criando branches no próprio GitHub, sem nada local.</p>
+
+<div class="kpi">
+  <div class="b"><div class="n">12</div><div class="l">MCP tools expostas</div></div>
+  <div class="b"><div class="n">6</div><div class="l">fases com gate</div></div>
+  <div class="b"><div class="n">~25</div><div class="l">arquivos com I/O de filesystem</div></div>
+  <div class="b"><div class="n">56</div><div class="l">arquivos de teste a preservar</div></div>
+</div>
+
+<h2 id="estado-atual">2. Arquitetura atual (local)</h2>
+<p>Todo o estado da migração vive em arquivos no diretório da aplicação-alvo. O ponto único de persistência é <code>src/lib/config.ts</code> (<code>readConfig</code>/<code>writeConfig</code>), e o I/O está espalhado por ~25 módulos.</p>
+<div class="diagram">  Claude Code (local)
+       │ stdio
+       ▼
+  MCP Server (processo local)
+       │
+       ├─ src/lib/config.ts ──► jdk-migration.config.json   (estado central)
+       ├─ discover-project   ──► .jdk-migration/discovery-report.json
+       ├─ build-plan         ──► .jdk-migration/migration-plan.json
+       ├─ gate-validator     ──► .jdk-migration/.gate-pins.json   (PIN — isolado do agente)
+       ├─ report-generator   ──► .jdk-migration/audit-report-*.html
+       │
+       └─ runProcess() ──► jdeps · jdeprscan · javac · mvn · gradle · git (CLI local)</div>
+
+<table>
+  <tr><th>Camada</th><th>Módulos</th><th>Dependência de filesystem / processo local</th></tr>
+  <tr><td>Persistência de estado</td><td><code>lib/config.ts</code></td><td>Lê/escreve <code>jdk-migration.config.json</code> via <code>fs</code></td></tr>
+  <tr><td>Static Analysis</td><td><code>jdeps-runner</code>, <code>jdeprscan-runner</code>, <code>source-scanner</code>, <code>container-ci-scanner</code>, <code>migration-audit</code></td><td>Executam binários do JDK sobre arquivos locais</td></tr>
+  <tr><td>Transform Engine</td><td><code>openrewrite-runner</code>, <code>sbm-runner</code>, <code>build-updater</code>, <code>jakarta-deps-injector</code>, <code>source-cleaner</code>, <code>infrastructure-transformer</code></td><td>Rodam Maven/Gradle/Transformer sobre a árvore de código</td></tr>
+  <tr><td>Orchestrator</td><td><code>state-machine</code>, <code>gate-validator</code>, <code>git-checkpoint</code></td><td>git CLI + PIN store em arquivo</td></tr>
+  <tr><td>Reports / ROI</td><td><code>report-generator</code>, <code>roi-tracker/session-reader</code></td><td>Escreve HTML local; lê JSONL de sessão do Claude Code</td></tr>
+</table>
+
+<h2 id="alvo">3. Arquitetura-alvo (cloud)</h2>
+<p>A arquitetura proposta tem três peças: a <b>Squad Agêntica</b> (orquestrador fino), a <b>Anthropic Console / Messages API</b> como gateway (MCP Connector), e o <b>MCP Server no Render</b> que clona o repositório, transforma e faz push.</p>
+
+<div class="diagram">  ┌─────────────────────┐   recebe repoUrl + branch
+  │   SQUAD AGÊNTICA    │◄─────────────────────────── usuário/trigger
+  │   (cloud)           │
+  └──────────┬──────────┘
+             │ POST /v1/messages  { mcp_servers:[ url do Render ] }
+             ▼
+  ┌─────────────────────┐
+  │  ANTHROPIC API      │   MCP Connector = proxy/gateway
+  │  (Console)          │   expõe as 12 tools ao Claude automaticamente
+  └──────────┬──────────┘
+             │ Streamable HTTP (Bearer token)
+             ▼
+  ┌──────────────────────────────────────────────┐
+  │  MCP SERVER  (Render)                          │
+  │  ┌────────────────────────────────────────┐   │
+  │  │ workspace efêmero: git clone da branch │   │  ◄── árvore real em disco
+  │  │  → roda jdeps/mvn/OpenRewrite aqui      │   │
+  │  └────────────────────────────────────────┘   │
+  │  estado (config/discovery/plan/report)         │  ──► COMMIT+PUSH p/ branch GitHub
+  │  PIN store ............ server-side, NÃO na branch │
+  └──────────────────────────┬───────────────────┘
+                             │ GitHub API + git push
+                             ▼
+                    ┌─────────────────┐
+                    │     GITHUB      │  branch de trabalho + PRs + Issues (gates)
+                    └─────────────────┘</div>
+
+<div class="callout ok">
+  <div class="t">✔ Por que esse modelo resolve o problema de "filesystem split"</div>
+  No modelo local remoto ingênuo, o código está numa máquina e o MCP em outra. Aqui não há split: o container <b>clona, transforma e faz push</b> — todo o ciclo é server-side. O desenvolvedor revisa o resultado como <b>Pull Request</b> no GitHub.
+</div>
+
+<h2 id="estado-branch">4. Estado na branch do GitHub (a sua premissa)</h2>
+<p>Sua diretriz é: <i>"tudo que se faz em filesystem passe a ser feito na branch de trabalho do GitHub"</i>. O objetivo é correto, mas há uma nuance técnica decisiva.</p>
+
+<div class="callout warn">
+  <div class="t">⚠ OpenRewrite e Maven exigem árvore de trabalho real em disco</div>
+  Não é possível rodar <code>mvn rewrite:run</code> contra "arquivos abstratos numa branch". As transformações operam sobre arquivos físicos. Portanto o caminho de <b>menor risco</b> não é reescrever todo o I/O para a GitHub Contents API — é manter o I/O em disco (no clone) e adicionar um <b>checkpoint de commit+push</b> a cada mutação de estado.
+</div>
+
+<h3>Duas interpretações possíveis</h3>
+<table>
+  <tr><th>Abordagem</th><th>Como funciona</th><th>Risco</th><th>Impacto nos testes</th></tr>
+  <tr>
+    <td><b>A) Working-tree + push</b> <span class="pill p-alta">Recomendada</span></td>
+    <td>Clona a branch para o disco efêmero; <code>readFileSync</code>/<code>writeFileSync</code> continuam iguais; após cada mutação de estado, <code>commit + push</code> para a branch. Em cold-start, re-clona e restaura estado da branch.</td>
+    <td>Baixo</td>
+    <td>Mínimo — fs continua, testes verdes</td>
+  </tr>
+  <tr>
+    <td>B) Reescrever I/O para GitHub API</td>
+    <td>Todo <code>readFile/writeFile</code> vira chamada à GitHub Contents/Git Data API contra a branch.</td>
+    <td>Alto</td>
+    <td>Reescrita de ~25 módulos + mocks novos</td>
+  </tr>
+</table>
+
+<p>A recomendação é a <b>(A)</b>, introduzindo uma <b>porta de armazenamento</b> (<code>Storage</code> port, padrão hexagonal) com duas implementações: <code>LocalFsStorage</code> (atual, mantém testes) e <code>GitWorkspaceStorage</code> (clone + commit/push). Assim os 56 testes continuam rodando contra a implementação em memória/fs, e o comportamento cloud é um adapter plugável.</p>
+
+<pre>// Porta única — todo estado passa por aqui
+interface MigrationStorage {
+  read(relPath: string): Promise&lt;string | null&gt;
+  write(relPath: string, content: string): Promise&lt;void&gt;
+  commitState(message: string): Promise&lt;void&gt;   // no LocalFs = no-op
+}
+// readConfig/writeConfig passam a delegar para storage.read/write</pre>
+
+<div class="callout crit">
+  <div class="t">🔴 CRÍTICO — o PIN store NÃO pode ir para a branch</div>
+  <p style="margin:6px 0">O arquivo <code>.gate-pins.json</code> hoje é deliberadamente isolado do agente. Se ele for commitado na branch de trabalho, a <b>própria Squad</b> — que tem acesso de leitura ao repositório via GitHub API — poderá ler o PIN e <b>auto-aprovar os gates</b>. Isso destrói por completo o modelo human-in-the-loop, que é o coração da governança deste projeto.</p>
+  <p style="margin:6px 0"><b>Regra inviolável:</b> o PIN store fica <b>server-side</b> (disco efêmero do Render, ou Redis/KV pequeno), nunca na branch, nunca no retorno de nenhuma tool.</p>
+</div>
+
+<div class="callout warn">
+  <div class="t">⚠ Esclarecido — Squad em board de estados (Jira-like), 100% chat, sem UI de aprovação própria</div>
+  <p style="margin:6px 0">A Squad opera num board análogo a um board de sprint (Jira), e o agente <b>lê todo o conteúdo do chat/board</b>. Não existe nenhuma UI de aprovação separada do agente <b>dentro da Squad</b>. Isso significa que um PIN exibido apenas no chat seria inútil como segredo.</p>
+  <p style="margin:6px 0"><b>Porém:</b> confirmado que os usuários são todos funcionários de uma rede corporativa com Microsoft 365 (Teams + e-mail), e a Squad <b>não possui nenhuma integração de leitura</b> com Teams ou e-mail (apenas poderia disparar envio via API/SMTP). Isso restaura exatamente o canal opaco que faltava: o servidor MCP envia o PIN por <b>Teams + e-mail corporativo</b>, sistemas inteiramente fora do contexto do agente; o humano lê o PIN ali e o digita de volta no chat/board para aprovar.</p>
+  <p style="margin:6px 0">Com esse canal confirmado, a decisão foi <b>simplificar o modelo de gate para PIN único e uniforme nas 6 fases</b> (substituindo a versão híbrida soft/out-of-band avaliada anteriormente). Detalhes na seção <a href="#seguranca">9</a> e na fase M4 do plano de migração.</p>
+</div>
+
+<h3>Custos da abordagem A</h3>
+<ul>
+  <li><b>Ruído de commits:</b> cada <code>writeConfig</code> vira um commit. Mitigar com mensagens padronizadas (<code>chore(jdk-migration): state checkpoint</code>) e <code>[skip ci]</code>, ou agrupando state num único commit por step.</li>
+  <li><b>Latência:</b> commit+push ≈ 200–500 ms vs. ~1 ms em disco. Aceitável na granularidade de orquestração.</li>
+  <li><b>Concorrência:</b> 1 migração = 1 branch = 1 sessão → escrita essencialmente serial. Multitenância isola por <code>{owner}/{repo}/{runId}</code>.</li>
+</ul>
+
+<h2 id="connector">5. Render + MCP Connector da Anthropic Console</h2>
+<p>A Anthropic Console expõe MCP servers remotos via o parâmetro <code>mcp_servers</code> da Messages API (<b>MCP Connector</b>). A Squad faz uma chamada normal à API; a Anthropic atua como <b>proxy</b> e expõe as 12 tools do seu MCP ao Claude automaticamente — a Squad não precisa implementar um cliente MCP.</p>
+
+<div class="callout">
+  <div class="t">Ponto essencial: a Console NÃO hospeda o servidor</div>
+  A Anthropic Console é <b>gateway</b>, não hosting. Você continua precisando hospedar o MCP em uma URL pública (o Render). A Console apenas conecta o Claude da Squad ao seu servidor.
+</div>
+
+<pre>// chamada típica da Squad
+POST https://api.anthropic.com/v1/messages
+{
+  "model": "claude-opus-4-8",
+  "mcp_servers": [{
+    "type": "url",
+    "url": "https://jdk-migration.onrender.com/mcp",
+    "name": "jdk-migration",
+    "authorization_token": "Bearer &lt;token&gt;"
+  }],
+  "messages": [{ "role":"user",
+    "content":"Migre o repositório acme/billing-service de JDK 8 para 21" }]
+}</pre>
+
+<h3>Ressalvas do Render</h3>
+<table>
+  <tr><th>Tema</th><th>Situação</th><th>Implicação</th></tr>
+  <tr>
+    <td>RAM no Free tier</td>
+    <td>512 MB · spin-down após 15 min</td>
+    <td><span class="pill p-baixa">Bloqueante p/ builds</span> OpenRewrite quer 2 GB+ de heap. Free só valida orquestração (discovery/plano/gate/estado).</td>
+  </tr>
+  <tr>
+    <td>Builds reais (execute_phase)</td>
+    <td>Maven + OpenRewrite</td>
+    <td>Exige instância paga (Standard 2 GB+, ~US$ 25/mês) ou offload de build.</td>
+  </tr>
+  <tr>
+    <td>Timeout síncrono do connector</td>
+    <td>Tool call é síncrona no turno da API</td>
+    <td><span class="pill p-media">Atenção</span> <code>mvn</code> de 10–15 min estoura limites HTTP → precisa de padrão assíncrono (jobId + polling).</td>
+  </tr>
+  <tr>
+    <td>Disco efêmero</td>
+    <td>Workspace some no restart/spin-down</td>
+    <td>OK — estado é restaurado da branch (abordagem A). Workspace é re-clonado.</td>
+  </tr>
+  <tr>
+    <td>Cold start</td>
+    <td>Free dorme; acordar + warmup JDK</td>
+    <td>Latência inicial de ~30–60 s na primeira chamada após inatividade.</td>
+  </tr>
+</table>
+
+<div class="callout warn">
+  <div class="t">⚠ Builds longos → tornar <code>execute_phase</code> assíncrono</div>
+  Em vez de bloquear o turno da API por 15 min, <code>execute_phase</code> deve iniciar um job e retornar <code>{ jobId, status:"running" }</code> imediatamente. A Squad faz polling com <code>get_phase_status(jobId)</code> até <code>done</code>/<code>failed</code>. Isso é compatível com o loop agêntico e elimina o risco de timeout.
+</div>
+
+<h2 id="git">6. Git local → GitHub API</h2>
+<p>As operações Git hoje via CLI (<code>git-checkpoint.ts</code>) passam a usar a GitHub API (octokit) para o que é metadado, mantendo o git CLI apenas para o que precisa de árvore de trabalho (push do resultado das transformações).</p>
+<table>
+  <tr><th>Operação</th><th>Hoje (git CLI local)</th><th>Cloud (GitHub API)</th><th>Ganho</th></tr>
+  <tr><td>Criar branch de fase</td><td><code>git checkout -b</code> (exige workdir limpo)</td><td><code>POST /git/refs</code></td><td>Atômico, sem workdir</td></tr>
+  <tr><td>Commit do estado</td><td><code>git commit</code> local</td><td><code>PUT /contents</code> ou Git Data API</td><td>Sem poluir histórico de código</td></tr>
+  <tr><td>Abrir revisão</td><td>—</td><td><code>POST /pulls</code> (Draft PR)</td><td>Review nativo, diff, approvals</td></tr>
+  <tr><td>Verificar conflitos</td><td><code>git merge --no-commit</code></td><td><code>GET /pulls/{id}</code> → <code>mergeable</code></td><td>Nativo, confiável</td></tr>
+  <tr><td>Rollback de fase</td><td><code>git revert/reset</code></td><td><code>DELETE /git/refs</code> + reset da branch</td><td>Limpo, sem conflito</td></tr>
+  <tr><td>Trilha de auditoria</td><td><code>git log</code> local</td><td>GitHub Events + PR timeline</td><td>Permanente, visível ao time</td></tr>
+  <tr><td>Publicar relatório</td><td>HTML em <code>.jdk-migration/</code></td><td>Comentário no PR / artifact / Pages</td><td>Visibilidade sem clonar</td></tr>
+</table>
+
+<h2 id="riscos">7. Matriz de riscos</h2>
+<table>
+  <tr><th>#</th><th>Risco</th><th>Severidade</th><th>Mitigação</th></tr>
+  <tr><td>R1</td><td>Squad é 100% chat/board (sem UI de aprovação própria) → um PIN exibido só no chat seria lido pelo próprio agente</td><td><span class="pill p-crit">Crítico</span></td><td><b>Decidido (30/06):</b> PIN único nas 6 fases, entregue via <b>Teams + e-mail corporativo</b> (canal confirmado como opaco ao agente — sem integração de leitura). Humano lê o PIN fora do chat e o digita de volta para aprovar. CloudSecretStore isolado da branch e do retorno de tools</td></tr>
+  <tr><td>R2</td><td>Render Free sem RAM para Maven/OpenRewrite</td><td><span class="pill p-baixa">Alto</span></td><td>Free só p/ POC de orquestração; instância paga 2 GB+ para execute_phase</td></tr>
+  <tr><td>R3</td><td>Build longo estoura timeout do connector</td><td><span class="pill p-media">Médio</span></td><td>execute_phase assíncrono (jobId) + polling via get_phase_status</td></tr>
+  <tr><td>R4</td><td>Perda de estado em cold-start/restart</td><td><span class="pill p-media">Médio</span></td><td>Estado sempre commitado na branch; re-clone restaura</td></tr>
+  <tr><td>R5</td><td>Quebra de testes unitários na refatoração de I/O</td><td><span class="pill p-media">Médio</span></td><td>Porta Storage + adapter; testes rodam contra LocalFs/in-memory</td></tr>
+  <tr><td>R6</td><td>ROI tracker lê JSONL local do Claude Code (inexistente na cloud)</td><td><span class="pill p-baixa">Baixo</span></td><td>Squad informa tokens explicitamente via update_phase_costs (caminho já existe)</td></tr>
+  <tr><td>R7</td><td>Credenciais GitHub no container (push/PR)</td><td><span class="pill p-media">Médio</span></td><td>GitHub App com escopo mínimo (contents/PR/issues write); secrets no Render</td></tr>
+  <tr><td>R8</td><td>Concorrência entre múltiplas migrações</td><td><span class="pill p-baixa">Baixo</span></td><td>Workspace isolado por runId; serializar no Free</td></tr>
+  <tr><td>R9</td><td>Atomicidade de execute_phase (clone→transform→build→push)</td><td><span class="pill p-media">Médio</span></td><td>Branch isolada por fase + rollback automático em falha de build (já existe)</td></tr>
+</table>
+
+<h2 id="funcionalidades">8. Análise funcionalidade a funcionalidade</h2>
+<table>
+  <tr><th>Funcionalidade</th><th>Viabilidade cloud</th><th>Mudança necessária</th></tr>
+  <tr><td>discover_project (jdeps/jdeprscan/javac)</td><td><span class="pill p-alta">Alta</span></td><td>Roda no container (JDK 8+21 na imagem); workspace = clone</td></tr>
+  <tr><td>build_migration_plan</td><td><span class="pill p-alta">Alta</span></td><td>Apenas lê/escreve estado via Storage port</td></tr>
+  <tr><td>execute_phase (OpenRewrite/Maven)</td><td><span class="pill p-media">Média</span></td><td>Tornar assíncrono (jobId) + RAM 2 GB+; lógica intacta</td></tr>
+  <tr><td>request_gate_approval</td><td><span class="pill p-alta">Alta</span></td><td>PIN server-side; publicar aviso no PR/Issue</td></tr>
+  <tr><td>approve_gate</td><td><span class="pill p-alta">Alta</span></td><td>Valida PIN do store server-side; lógica HMAC intacta</td></tr>
+  <tr><td>rollback_phase</td><td><span class="pill p-alta">Alta</span></td><td>git CLI no clone ou GitHub API</td></tr>
+  <tr><td>generate_report</td><td><span class="pill p-alta">Alta</span></td><td>Publicar como comentário/artifact no PR</td></tr>
+  <tr><td>update_step_status / record_manual_phase</td><td><span class="pill p-alta">Alta</span></td><td>Estado via Storage port</td></tr>
+  <tr><td>update_phase_costs</td><td><span class="pill p-alta">Alta</span></td><td>Squad informa tokens (sem JSONL local)</td></tr>
+  <tr><td>check_internal_dependencies</td><td><span class="pill p-alta">Alta</span></td><td>HTTP a Nexus/Artifactory — já é rede</td></tr>
+  <tr><td>ROI: session-reader (JSONL local)</td><td><span class="pill p-baixa">Substituir</span></td><td>Trocar leitura de JSONL por parâmetro explícito</td></tr>
+</table>
+
+<h2 id="seguranca">9. Segurança dos gates: melhora ou piora?</h2>
+<div class="grid">
+  <div class="card">
+    <h4>Hoje (local)</h4>
+    <p>PIN em arquivo local, isolado do agente apenas por convenção de "não retornar em tool". Quem roda o Claude Code na máquina tem acesso ao filesystem inteiro.</p>
+  </div>
+  <div class="card">
+    <h4>Cloud (decisão final)</h4>
+    <p>PIN gerado server-side e entregue ao humano via <b>Teams + e-mail corporativo</b> — canais que a Squad não lê. Isolamento por sistema, não por convenção. <b>Mais forte</b> que o modelo local.</p>
+  </div>
+</div>
+
+<div class="callout ok">
+  <div class="t">✔ Canal corporativo confirmado — Teams + e-mail são opacos ao agente</div>
+  <p style="margin:6px 0">Confirmado com o responsável do produto: a Squad <b>não possui nenhuma integração de leitura</b> com Teams ou e-mail corporativo (nem bot de canal, nem caixa monitorada, nem Graph API de leitura) — apenas poderia disparar o envio via API/SMTP, nunca ler a resposta. Como todos os usuários da rede corporativa têm Microsoft 365, isso restaura um canal de entrega genuinamente opaco ao agente, mesmo a Squad sendo 100% chat/board no front.</p>
+  <p style="margin:6px 0">Com esse canal disponível, <b>o modelo híbrido (soft vs. out-of-band) avaliado anteriormente foi descartado em favor de um PIN único e uniforme para as 6 fases</b> — mais simples de operar e auditar, sem abrir mão de garantia técnica em nenhuma fase.</p>
+</div>
+
+<h3>Modelo de gate por PIN via Teams + E-mail (decisão final — 30/06/2026)</h3>
+<table>
+  <tr><th>Etapa</th><th>O que acontece</th><th>Quem executa</th></tr>
+  <tr><td>1</td><td><code>request_gate_approval(fase)</code> é chamado pelo agente ao concluir a fase</td><td>Squad (agente)</td></tr>
+  <tr><td>2</td><td>Servidor MCP gera PIN de 6 dígitos, grava no <code>CloudSecretStore</code> (server-side, fora da branch) e <b>dispara</b> Teams DM + e-mail ao aprovador responsável (via Graph API / SMTP)</td><td>Servidor MCP — agente não participa desse envio</td></tr>
+  <tr><td>3</td><td>Humano abre Teams ou e-mail (sistemas que a Squad não lê) e vê o PIN</td><td>Humano aprovador</td></tr>
+  <tr><td>4</td><td>Humano digita o PIN no chat/board da Squad para confirmar a aprovação</td><td>Humano (canal lido pelo agente — sem problema aqui, a decisão já foi tomada)</td></tr>
+  <tr><td>5</td><td><code>approve_gate(fase, pin)</code> valida o PIN contra o <code>CloudSecretStore</code> (expiração, HMAC, nome de approver não pode ser <code>bot/claude/ai/agent</code>) e libera a fase</td><td>Servidor MCP</td></tr>
+</table>
+
+<p>Aplica-se uniformemente às 6 fases (0 a 5) — sem diferenciação de mecanismo por criticidade. A diferenciação de rigor entre fases, se necessária, fica a critério de política operacional (ex.: exigir dois aprovadores nas fases 4/5), não do mecanismo de gate em si.</p>
+
+<div class="callout crit">
+  <div class="t">🔴 Condição inegociável (mantida)</div>
+  <p style="margin:6px 0">O PIN <b>nunca</b> pode trafegar pelo chat/board antes de o humano o digitar de volta, <b>nunca</b> é commitado na branch, e <b>nunca</b> aparece no retorno de nenhuma tool MCP. O <code>CloudSecretStore</code> vive isolado do <code>GitWorkspaceStorage</code> (que persiste o estado na branch).</p>
+  <p style="margin:6px 0">Essa garantia depende inteiramente de uma premissa operacional: <b>a Squad nunca deve ganhar, no futuro, nenhuma integração de leitura com o canal de Teams/e-mail usado para envio dos PINs</b> (nem bot de monitoramento geral, nem caixa compartilhada). Qualquer mudança nesse sentido deve revalidar o modelo de gate antes de entrar em produção.</p>
+</div>
+
+<h2 id="veredito">10. Veredito</h2>
+<div class="verdict">
+  <h3>A arquitetura é viável e recomendada — com 3 condições inegociáveis</h3>
+  <p>A combinação <b>Squad → Anthropic Console (MCP Connector) → MCP no Render → GitHub</b> faz sentido técnico e é o desenho correto para operar múltiplos repositórios de forma agêntica. A maior parte do código (profilers, static analysis, transform engine, reports, ROI) é preservada; a refatoração concentra-se em <b>transporte</b>, <b>porta de armazenamento</b> e <b>operações Git</b>.</p>
+  <ol>
+    <li><b>PIN server-side, nunca na branch (R1)</b> — condição de existência da governança.</li>
+    <li><b>execute_phase assíncrono (R3)</b> — para sobreviver ao timeout síncrono do connector.</li>
+    <li><b>Render pago (2 GB+) para builds (R2)</b> — o Free valida orquestração; não roda Maven/OpenRewrite reais.</li>
+  </ol>
+  <p style="margin-bottom:0">Estratégia de menor risco para o estado: <b>working-tree + commit/push</b> via uma <b>porta Storage</b>, mantendo os 56 testes verdes. Não reescrever todo o I/O para a GitHub API.</p>
+</div>
+
+<p><b>Recomendação de faseamento (resumo):</b> validar primeiro a camada de orquestração no Render Free (transporte HTTP + estado na branch + gates), e só então habilitar os builds pesados em instância paga. O plano detalhado está no documento <code>Migration_Project_cloud_version_proposal.html</code>.</p>
+
+<footer>
+  Documento de Discovery gerado para o projeto jdk-migration-mcp · versão Cloud / Squad Agêntica.<br>
+  Este documento descreve racional arquitetural e não constitui aprovação de gate. Decisões de migração permanecem human-in-the-loop.
+</footer>
+
+</div>
+</body>
+</html>

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { readConfig, writeConfig } from '../../lib/config.js'
+import { readConfigFromStorage, writeConfigToStorage } from '../../lib/config-storage.js'
 import { MigrationError } from '../../lib/errors.js'
 import { canExecutePhase, updatePhaseStatus } from '../../orchestrator/state-machine.js'
 import { validateGateToken } from '../../orchestrator/gate-validator.js'
@@ -13,6 +14,10 @@ import {
   rollbackPhase,
   createPullRequest,
 } from '../../orchestrator/git-checkpoint.js'
+import { createLocalFsStorage } from '../../adapters/local/local-fs-storage.js'
+import { createLocalGitCli } from '../../adapters/local/local-git-cli.js'
+import type { MigrationStorage } from '../../ports/storage.js'
+import type { GitGateway } from '../../ports/git-gateway.js'
 import { runBuild, runTests } from '../../orchestrator/build-validator.js'
 import { executePhaseTransform } from '../../transform-engine/index.js'
 import { generateAuditReportSilent, generateAuditChecklist, generatePhase5Report } from '../../report-generator/index.js'
@@ -20,7 +25,14 @@ import { runMigrationAudit } from '../../static-analysis/migration-audit.js'
 import { computePhaseRoi } from '../../roi-tracker/index.js'
 import type { PhaseNumber } from '../../types.js'
 
-export function registerExecutePhase(server: McpServer): void {
+export interface ExecutePhaseAdapters {
+  /** Storage usado para ler/escrever jdk-migration.config.json e demais arquivos de estado. */
+  storage: MigrationStorage
+  /** Gateway Git — branch, commit, PR, rollback. */
+  git: GitGateway
+}
+
+export function registerExecutePhase(server: McpServer, adapters?: ExecutePhaseAdapters): void {
   server.registerTool(
     'execute_phase',
     {
@@ -73,8 +85,15 @@ export function registerExecutePhase(server: McpServer): void {
       },
     },
     async ({ projectPath, phaseNumber, gateToken = '', dryRun = false, tokenUsage }) => {
+      // Defaults locais mantêm comportamento idêntico ao pré-M5 quando adapters
+      // não são injetados (modo local / stdio). Cloud mode injeta GitWorkspaceStorage
+      // + GitHubApiGateway via createCloudMcpServer() em create-server.ts.
+      const resolvedAdapters: ExecutePhaseAdapters = adapters ?? {
+        storage: createLocalFsStorage(projectPath),
+        git: createLocalGitCli(),
+      }
       try {
-        const result = await executePhase(projectPath, phaseNumber as PhaseNumber, gateToken, dryRun, tokenUsage)
+        const result = await executePhase(projectPath, phaseNumber as PhaseNumber, gateToken, dryRun, tokenUsage, resolvedAdapters)
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
       } catch (err) {
         if (err instanceof MigrationError) {
@@ -99,6 +118,7 @@ async function executePhase(
   gateToken: string,
   dryRun: boolean,
   tokenUsage?: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number },
+  adapters?: ExecutePhaseAdapters,
 ) {
   // ── 1. Lock ────────────────────────────────────────────────────────────────
   const lockPath = join(projectPath, '.jdk-migration', 'lock')
@@ -112,7 +132,7 @@ async function executePhase(
   writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }))
 
   try {
-    return await _executePhaseUnlocked(projectPath, phase, gateToken, dryRun, tokenUsage)
+    return await _executePhaseUnlocked(projectPath, phase, gateToken, dryRun, tokenUsage, adapters)
   } finally {
     try { rmSync(lockPath) } catch { /* ignore */ }
   }
@@ -124,15 +144,21 @@ async function _executePhaseUnlocked(
   gateToken: string,
   dryRun: boolean,
   tokenUsage?: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number },
+  adapters?: ExecutePhaseAdapters,
 ) {
+  // Adapters resolvidos: quando não injetados, usa implementações locais idênticas
+  // ao comportamento pré-M5. Cloud mode fornece GitWorkspaceStorage + GitHubApiGateway.
+  const storage = adapters?.storage ?? createLocalFsStorage(projectPath)
+  const git = adapters?.git ?? createLocalGitCli()
+
   // ── 2. Ler config ─────────────────────────────────────────────────────────
-  let config = readConfig(projectPath)
+  let config = await readConfigFromStorage(storage)
 
   // ── 3a. Se a fase está 'failed', o git já foi revertido automaticamente.
   //        Resetar para 'pending' para permitir retry sem edição manual do config.
   if (config.phases[phase].status === 'failed') {
     config = updatePhaseStatus(config, phase, 'pending')
-    writeConfig(projectPath, config)
+    await writeConfigToStorage(storage, config)
   }
 
   // ── 3. Verificar se pode executar esta fase ───────────────────────────────
@@ -173,7 +199,7 @@ async function _executePhaseUnlocked(
   }
 
   // ── 6. Verificar workdir limpo ─────────────────────────────────────────────
-  if (!await isWorkdirClean(projectPath)) {
+  if (!await git.isWorkdirClean(projectPath)) {
     throw new MigrationError(
       'GIT_DIRTY_WORKDIR',
       'O working directory possui alterações não commitadas. Faça commit ou stash antes de executar uma fase.',
@@ -181,7 +207,7 @@ async function _executePhaseUnlocked(
   }
 
   // ── 7. Criar branch isolada ────────────────────────────────────────────────
-  const checkpoint = await createPhaseBranch(projectPath, phase)
+  const checkpoint = await git.createPhaseBranch(projectPath, phase)
 
   // ── 8. Marcar fase como in_progress ────────────────────────────────────────
   config = updatePhaseStatus(config, phase, 'in_progress', {
@@ -190,7 +216,7 @@ async function _executePhaseUnlocked(
     baseBranch: checkpoint.baseBranch,
     baseCommit: checkpoint.baseCommit,
   })
-  writeConfig(projectPath, config)
+  await writeConfigToStorage(storage, config)
 
   // ── 9. Aplicar transformação ───────────────────────────────────────────────
   let transformResult
@@ -198,8 +224,8 @@ async function _executePhaseUnlocked(
     transformResult = await executePhaseTransform(phase, config, projectPath, false)
   } catch (err) {
     config = updatePhaseStatus(config, phase, 'failed')
-    writeConfig(projectPath, config)
-    await rollbackPhase(projectPath, checkpoint)
+    await writeConfigToStorage(storage, config)
+    await git.rollbackPhase(projectPath, checkpoint)
     throw err
   }
 
@@ -217,8 +243,8 @@ async function _executePhaseUnlocked(
   const buildResult = await runBuild(projectPath, config.buildSystem as 'maven' | 'gradle', buildToolOptions)
   if (!buildResult.success) {
     config = updatePhaseStatus(config, phase, 'failed')
-    writeConfig(projectPath, config)
-    await rollbackPhase(projectPath, checkpoint)
+    await writeConfigToStorage(storage, config)
+    await git.rollbackPhase(projectPath, checkpoint)
 
     if (buildResult.failureReason === 'missing_artifact') {
       throw new MigrationError(
@@ -248,8 +274,8 @@ async function _executePhaseUnlocked(
   const testResult = await runTests(projectPath, config.buildSystem as 'maven' | 'gradle', buildToolOptions)
   if (!testResult.success) {
     config = updatePhaseStatus(config, phase, 'failed')
-    writeConfig(projectPath, config)
-    await rollbackPhase(projectPath, checkpoint)
+    await writeConfigToStorage(storage, config)
+    await git.rollbackPhase(projectPath, checkpoint)
     throw new MigrationError(
       'BUILD_FAILED',
       `Testes falharam na fase ${phase}. Rollback aplicado automaticamente.`,
@@ -258,7 +284,7 @@ async function _executePhaseUnlocked(
   }
 
   // ── 12. Commit ────────────────────────────────────────────────────────────
-  const phaseCommit = await commitPhaseChanges(
+  const phaseCommit = await git.commitPhaseChanges(
     projectPath,
     phase,
     transformResult.recipesApplied.join(', '),
@@ -271,7 +297,7 @@ async function _executePhaseUnlocked(
     // Persiste detalhes dos runners customizados para uso nas gate questions
     ...(transformResult.runnerDetails ? { runnerDetails: transformResult.runnerDetails } : {}),
   })
-  writeConfig(projectPath, config)
+  await writeConfigToStorage(storage, config)
 
   // ── 13a. Auditoria final de migração (apenas fase 5) ─────────────────────
   let migrationAudit = null
@@ -302,8 +328,8 @@ async function _executePhaseUnlocked(
     autoReportPath = await generateAuditReportSilent(projectPath)
   }
 
-  // ── 14. PR (opcional — não falha se gh ausente) ───────────────────────────
-  const prUrl = await createPullRequest(
+  // ── 14. PR (opcional — não falha se API/gh ausente) ───────────────────────
+  const prUrl = await git.createPullRequest(
     projectPath,
     phase,
     checkpoint,
@@ -311,7 +337,7 @@ async function _executePhaseUnlocked(
   )
   if (prUrl) {
     config = { ...config, phases: { ...config.phases, [phase]: { ...config.phases[phase], prUrl } } }
-    writeConfig(projectPath, config)
+    await writeConfigToStorage(storage, config)
   }
 
   // ── 15. Calcular e persistir ROI desta fase ───────────────────────────────
