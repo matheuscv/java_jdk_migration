@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
 
+# ── JDK 8 stage (fonte para COPY — sem curl, sem URL frágil) ─────────────────
+FROM eclipse-temurin:8-jdk-jammy AS jdk8
+
 # ── Build stage ──────────────────────────────────────────────────────────────
 FROM node:20-alpine AS build
 WORKDIR /app
@@ -23,14 +26,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# JDK 8 — usado pela Fase 0 (jdeprscan/jdeps) para compilar a aplicação-alvo
-# com o JDK de origem antes da análise estática. Variável separada de JAVA_HOME
-# (que permanece no JDK 21, runtime do próprio MCP server).
-RUN mkdir -p /opt/jdk8 \
-    && curl -fsSL -o /tmp/jdk8.tar.gz \
-        "https://github.com/adoptium/temurin8-binaries/releases/latest/download/OpenJDK8U-jdk_x64_linux_hotspot.tar.gz" \
-    && tar -xzf /tmp/jdk8.tar.gz -C /opt/jdk8 --strip-components=1 \
-    && rm /tmp/jdk8.tar.gz
+# JDK 8 — copiado diretamente da imagem oficial (sem curl, sem URL frágil).
+COPY --from=jdk8 /opt/java/openjdk /opt/jdk8
 ENV SOURCE_JAVA_HOME=/opt/jdk8
 
 WORKDIR /app
