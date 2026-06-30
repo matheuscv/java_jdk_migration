@@ -62,7 +62,9 @@ export function createCloudMcpServer(opts: CloudServerOptions = {}): McpServer {
   }
   registerGateToolsCloud(server, secretStore, gateOpts)
   // Restante de auxiliary (get_phase_status, rollback, report, etc.) permanece local.
-  registerAuxiliaryTools(server)
+  // skipGateTools=true evita registro duplicado de request_gate_approval/approve_gate
+  // que já foram registrados por registerGateToolsCloud acima.
+  registerAuxiliaryTools(server, { skipGateTools: true })
   registerCheckDependencies(server)
 
   return server

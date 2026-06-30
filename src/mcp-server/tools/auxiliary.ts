@@ -23,7 +23,9 @@ const FORBIDDEN_APPROVER_NAMES = new Set([
 
 const PIN_VALIDITY_MS = 30 * 60 * 1000 // 30 minutos
 
-export function registerAuxiliaryTools(server: McpServer): void {
+export function registerAuxiliaryTools(server: McpServer, opts?: { skipGateTools?: boolean }): void {
+  const skipGateTools = opts?.skipGateTools ?? false
+
   server.registerTool(
     'get_phase_status',
     {
@@ -94,7 +96,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
     },
   )
 
-  server.registerTool(
+  if (!skipGateTools) server.registerTool(
     'request_gate_approval',
     {
       title: 'Request Gate Approval',
@@ -756,7 +758,7 @@ export function registerAuxiliaryTools(server: McpServer): void {
     },
   )
 
-  server.registerTool(
+  if (!skipGateTools) server.registerTool(
     'approve_gate',
     {
       title: 'Approve Gate',
