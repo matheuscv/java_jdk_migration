@@ -2,7 +2,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { createMcpServer, createCloudMcpServer, type CloudServerOptions } from './create-server.js'
 import { createHttpServer } from './http-transport.js'
-import { createGitHubAppOctokit } from '../adapters/cloud/github-app-auth.js'
+import { createGitHubAppOctokit, createGitHubPatOctokit } from '../adapters/cloud/github-app-auth.js'
 import { createGitHubApiGateway } from '../adapters/cloud/github-api-gateway.js'
 import { createGraphNotifier } from '../adapters/cloud/graph-notifier.js'
 
@@ -44,20 +44,26 @@ if (transportMode === 'http') {
   const ghAppId = process.env['GITHUB_APP_ID']
   const ghPrivateKey = process.env['GITHUB_APP_PRIVATE_KEY']
   const ghInstallationId = process.env['GITHUB_APP_INSTALLATION_ID']
+  const ghPat = process.env['GITHUB_PAT']
   const ghOwner = process.env['GITHUB_OWNER']
   const ghRepo = process.env['GITHUB_REPO']
 
   if (ghAppId && ghPrivateKey && ghInstallationId && ghOwner && ghRepo) {
+    // Produção: GitHub App (Cielo ou org corporativa)
     const octokit = createGitHubAppOctokit({
       appId: ghAppId,
-      privateKey: ghPrivateKey.replace(/\\n/g, '\n'), // Render armazena PEM com \n literal
+      privateKey: ghPrivateKey.replace(/\\n/g, '\n'),
       installationId: ghInstallationId,
     })
-    // Octokit disponível para futuras extensões (ex: comentário no PR após fase)
     void createGitHubApiGateway({ owner: ghOwner, repo: ghRepo, octokit })
     console.error(`[jdk-migration] GitHub App configurado: owner=${ghOwner} repo=${ghRepo}`)
+  } else if (ghPat && ghOwner && ghRepo) {
+    // Fallback: PAT pessoal (teste/POC — nunca usar em produção corporativa)
+    const octokit = createGitHubPatOctokit(ghPat)
+    void createGitHubApiGateway({ owner: ghOwner, repo: ghRepo, octokit })
+    console.error(`[jdk-migration] GitHub PAT configurado (modo teste): owner=${ghOwner} repo=${ghRepo}`)
   } else {
-    console.error('[jdk-migration] INFO: env vars do GitHub App não configuradas — git CLI local será usado.')
+    console.error('[jdk-migration] INFO: env vars do GitHub não configuradas — git CLI local será usado.')
   }
 
   // ── Microsoft Graph (GraphNotifier) ───────────────────────────────────────

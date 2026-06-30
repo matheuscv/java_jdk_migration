@@ -2,8 +2,8 @@ import { Octokit } from '@octokit/rest'
 import { createAppAuth } from '@octokit/auth-app'
 
 /**
- * Credenciais do GitHub App (ver plano de migração, fase M3): App com escopo
- * mínimo — Contents: Read & write, Pull requests: Read & write, Issues: Read & write.
+ * Credenciais do GitHub App (produção — Cielo ou qualquer org corporativa).
+ * Escopo mínimo: Contents R/W, Pull requests R/W, Issues R/W.
  */
 export interface GitHubAppCredentials {
   appId: string | number
@@ -12,9 +12,8 @@ export interface GitHubAppCredentials {
 }
 
 /**
- * Cria um cliente Octokit autenticado como instalação de GitHub App.
- * A autenticação é resolvida sob demanda (lazy) na primeira requisição —
- * esta função não faz nenhuma chamada de rede.
+ * Cria Octokit autenticado como instalação de GitHub App.
+ * Autenticação lazy — nenhuma chamada de rede nesta função.
  */
 export function createGitHubAppOctokit(credentials: GitHubAppCredentials): Octokit {
   return new Octokit({
@@ -25,4 +24,13 @@ export function createGitHubAppOctokit(credentials: GitHubAppCredentials): Octok
       installationId: credentials.installationId,
     },
   })
+}
+
+/**
+ * Cria Octokit autenticado via Personal Access Token (PAT).
+ * Usar apenas em ambiente de teste/POC pessoal.
+ * Em produção corporativa, sempre preferir createGitHubAppOctokit.
+ */
+export function createGitHubPatOctokit(pat: string): Octokit {
+  return new Octokit({ auth: pat })
 }
