@@ -167,6 +167,49 @@ describe('approve_gate (cloud) — valida via SecretStore, bloqueia automação'
   })
 })
 
+describe('request_gate_approval (cloud) — GATE_BYPASS mode', () => {
+  let dir: string
+
+  beforeEach(() => { dir = makeTmpDir(); writeConfig(dir) })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('bypass mode auto-aprova a fase e retorna gateToken sem precisar de PIN ou notifier', async () => {
+    const store = createInMemorySecretStore()
+    const { server, getHandler } = createMockServer()
+    registerGateToolsCloud(server, store, { bypassMode: true })
+
+    const result = await getHandler('request_gate_approval')({ projectPath: dir, phaseNumber: 3, approverEmail: 'dev@empresa.com' })
+    const body = JSON.parse(result.content[0].text)
+
+    expect(body.status).toBe('approved')
+    expect(body.gateToken).toMatch(/^jdkm\./)
+    expect(body.bypassModeActive).toBe(true)
+    expect(body.approvedBy).toBe('bypass-mode')
+  })
+
+  it('bypass mode não armazena PIN no SecretStore (aprovação é automática)', async () => {
+    const store = createInMemorySecretStore()
+    const { server, getHandler } = createMockServer()
+    registerGateToolsCloud(server, store, { bypassMode: true })
+
+    await getHandler('request_gate_approval')({ projectPath: dir, phaseNumber: 3, approverEmail: 'dev@empresa.com' })
+    expect(await store.getPin(3)).toBeNull()
+  })
+
+  it('com bypass mode false (padrão), fluxo normal de PIN é mantido', async () => {
+    const store = createInMemorySecretStore()
+    const { server, getHandler } = createMockServer()
+    registerGateToolsCloud(server, store, { bypassMode: false })
+
+    const result = await getHandler('request_gate_approval')({ projectPath: dir, phaseNumber: 3, approverEmail: 'dev@empresa.com' })
+    const body = JSON.parse(result.content[0].text)
+
+    expect(body.status).toBe('awaiting_human_pin')
+    expect(body).not.toHaveProperty('gateToken')
+    expect(await store.getPin(3)).not.toBeNull()
+  })
+})
+
 describe('createCloudMcpServer — registra tools cloud e tools locais corretas', () => {
   it('registra request_gate_approval e approve_gate em modo cloud (sem PIN no retorno)', async () => {
     const { createCloudMcpServer } = await import('../../src/mcp-server/create-server.js')

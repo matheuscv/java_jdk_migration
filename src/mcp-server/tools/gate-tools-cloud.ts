@@ -37,23 +37,45 @@ function isForbiddenApprover(name: string): boolean {
  * Essas tools substituem request_gate_approval e approve_gate do registerAuxiliaryTools
  * quando o servidor roda em modo cloud (MCP_TRANSPORT=http).
  */
+export interface GateToolsCloudOptions {
+  notifier?: GraphNotifier
+  /**
+   * Modo bypass: auto-aprova o gate sem PIN, sem Teams/e-mail.
+   * Ativar via env var GATE_BYPASS=true no Render durante POC, enquanto as
+   * integrações do Microsoft Graph não estiverem disponíveis.
+   * NUNCA usar em produção com migrações reais — remove a garantia human-in-the-loop.
+   */
+  bypassMode?: boolean
+}
+
 export function registerGateToolsCloud(
   server: McpServer,
   secretStore: SecretStore,
-  notifier?: GraphNotifier,
+  optsOrNotifier?: GraphNotifier | GateToolsCloudOptions,
 ): void {
+  // Suporte a duas assinaturas: (server, store, notifier) e (server, store, opts)
+  const opts: GateToolsCloudOptions =
+    optsOrNotifier && 'sendGatePin' in optsOrNotifier
+      ? { notifier: optsOrNotifier }
+      : (optsOrNotifier as GateToolsCloudOptions | undefined) ?? {}
+
+  const { notifier, bypassMode = false } = opts
+
   server.registerTool(
     'request_gate_approval',
     {
-      title: 'Request Gate Approval (Cloud)',
-      description:
-        'Solicita aprovação humana para o gate de uma fase. Em modo cloud, o PIN é enviado ' +
-        'diretamente ao aprovador via Microsoft Teams + e-mail corporativo — NUNCA retornado ' +
-        'nesta resposta. O agente deve aguardar o humano digitar o PIN no chat para prosseguir.',
+      title: bypassMode ? 'Request Gate Approval (Cloud — Bypass Mode)' : 'Request Gate Approval (Cloud)',
+      description: bypassMode
+        ? 'BYPASS MODE ATIVO: auto-aprova o gate imediatamente sem PIN. ' +
+          'Ativar GATE_BYPASS=false no Render para reativar o fluxo de aprovação humana real.'
+        : 'Solicita aprovação humana para o gate de uma fase. Em modo cloud, o PIN é enviado ' +
+          'diretamente ao aprovador via Microsoft Teams + e-mail corporativo — NUNCA retornado ' +
+          'nesta resposta. O agente deve aguardar o humano digitar o PIN no chat para prosseguir.',
       inputSchema: {
         projectPath: z.string().describe('Caminho absoluto da raiz do projeto Java'),
         phaseNumber: z.number().int().min(0).max(5).describe('Número da fase aguardando aprovação'),
-        approverEmail: z.string().email().describe('E-mail corporativo do aprovador humano — receberá o PIN via Teams e e-mail'),
+        approverEmail: z.string().email().optional().default('bypass@localhost')
+          .describe('E-mail do aprovador (ignorado em bypass mode)'),
       },
     },
     async ({ projectPath, phaseNumber: phase, approverEmail }) => {
@@ -72,21 +94,54 @@ export function registerGateToolsCloud(
           }
         }
 
+        // ── Bypass mode: auto-aprova sem PIN ──────────────────────────────────
+        if (bypassMode) {
+          const approvedAt = new Date().toISOString()
+          const gateToken = generateGateToken(projectPath, phase as PhaseNumber)
+          const updatedConfig = {
+            ...config,
+            phases: {
+              ...config.phases,
+              [phase]: {
+                ...config.phases[phase as PhaseNumber],
+                status: 'approved' as const,
+                gateToken,
+                approvedBy: 'bypass-mode',
+                approvedAt,
+                completedAt: approvedAt,
+              },
+            },
+          }
+          writeConfig(projectPath, updatedConfig)
+          const autoReport = await generateAuditReportSilent(projectPath)
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                status: 'approved',
+                phase,
+                gateToken,
+                approvedBy: 'bypass-mode',
+                approvedAt,
+                bypassModeActive: true,
+                auditReport: autoReport,
+                warning: 'GATE_BYPASS ativo — aprovação automática sem PIN. ' +
+                  'Remova GATE_BYPASS do Render para reativar o fluxo de aprovação humana real.',
+                nextStep: `Execute execute_phase(projectPath, ${phase + 1}, "${gateToken}") para iniciar a Fase ${phase + 1}.`,
+              }, null, 2),
+            }],
+          }
+        }
+
+        // ── Fluxo normal com PIN ───────────────────────────────────────────────
         const pin = String(randomInt(100000, 999999))
         const expiresAt = new Date(Date.now() + PIN_VALIDITY_MS).toISOString()
-
-        // Armazena o PIN no CloudSecretStore (servidor, fora do workdir clonado —
-        // nunca commitado na branch, nunca acessível pela Squad via GitHub API).
         await secretStore.putPin(phase, { pin, expiresAt, phaseNumber: phase })
 
-        // Dispara notificação ao humano via Teams + e-mail. Se o notifier não
-        // estiver configurado (ex: ambiente de dev local), apenas persiste o PIN.
         if (notifier) {
           try {
-            await notifier.sendGatePin(approverEmail, phase, pin, expiresAt)
+            await notifier.sendGatePin(approverEmail ?? '', phase, pin, expiresAt)
           } catch (notifErr) {
-            // Falha de notificação não cancela o gate — o PIN foi armazenado.
-            // O responsável pode requisitar um novo PIN se não receber.
             const errMsg = notifErr instanceof Error ? notifErr.message : String(notifErr)
             return {
               content: [{

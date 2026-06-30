@@ -78,6 +78,14 @@ if (transportMode === 'http') {
     console.error('[jdk-migration] AVISO: env vars do Microsoft Graph ausentes — PINs armazenados mas NÃO enviados por Teams/e-mail.')
   }
 
+  // GATE_BYPASS=true: auto-aprova gates sem PIN (POC sem Microsoft Graph configurado).
+  // Remover esta env var no Render quando o Azure AD estiver disponível.
+  const gateBypass = process.env['GATE_BYPASS'] === 'true'
+  if (gateBypass) {
+    console.error('[jdk-migration] ⚠️  GATE_BYPASS ativo — gates serão auto-aprovados SEM PIN. Remover em produção real.')
+  }
+  cloudOpts.gateBypass = gateBypass
+
   const httpServer = createHttpServer({ authToken, serverFactory: () => createCloudMcpServer(cloudOpts) })
   httpServer.listen(port, () => {
     console.error(`[jdk-migration] MCP server (HTTP) ouvindo na porta ${port}`)

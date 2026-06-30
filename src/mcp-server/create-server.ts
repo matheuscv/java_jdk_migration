@@ -4,7 +4,7 @@ import { registerBuildMigrationPlan } from './tools/build-migration-plan.js'
 import { registerExecutePhase, type ExecutePhaseAdapters } from './tools/execute-phase.js'
 import { registerAuxiliaryTools } from './tools/auxiliary.js'
 import { registerCheckDependencies } from './tools/check-dependencies.js'
-import { registerGateToolsCloud } from './tools/gate-tools-cloud.js'
+import { registerGateToolsCloud, type GateToolsCloudOptions } from './tools/gate-tools-cloud.js'
 import { createCloudSecretStore } from '../adapters/cloud/cloud-secret-store.js'
 import type { GraphNotifier } from '../adapters/cloud/graph-notifier.js'
 
@@ -33,6 +33,12 @@ export interface CloudServerOptions {
   executePhaseAdapters?: ExecutePhaseAdapters
   /** Notificador Microsoft Graph (Teams + e-mail). Quando ausente, PIN é armazenado mas não enviado. */
   graphNotifier?: GraphNotifier
+  /**
+   * Bypass mode: auto-aprova todos os gates sem PIN.
+   * Ativar via GATE_BYPASS=true enquanto Microsoft Graph não está disponível (POC).
+   * Reverter removendo a env var quando o Azure AD estiver configurado.
+   */
+  gateBypass?: boolean
 }
 
 /**
@@ -50,7 +56,11 @@ export function createCloudMcpServer(opts: CloudServerOptions = {}): McpServer {
   registerBuildMigrationPlan(server)
   registerExecutePhase(server, opts.executePhaseAdapters)
   // Em modo cloud, as gate tools cloud substituem as locais de auxiliary.ts:
-  registerGateToolsCloud(server, secretStore, opts.graphNotifier)
+  const gateOpts: GateToolsCloudOptions = {
+    notifier: opts.graphNotifier,
+    bypassMode: opts.gateBypass ?? false,
+  }
+  registerGateToolsCloud(server, secretStore, gateOpts)
   // Restante de auxiliary (get_phase_status, rollback, report, etc.) permanece local.
   registerAuxiliaryTools(server)
   registerCheckDependencies(server)
