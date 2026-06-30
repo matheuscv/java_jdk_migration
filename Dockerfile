@@ -4,7 +4,9 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# --ignore-scripts evita que o hook prepare→npm run build→tsc execute antes
+# de src/ e tsconfig.json serem copiados para a imagem.
+RUN npm ci --ignore-scripts
 COPY tsconfig.json ./
 COPY src/ src/
 RUN npm run build
@@ -33,7 +35,8 @@ ENV SOURCE_JAVA_HOME=/opt/jdk8
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+# --ignore-scripts: no runtime stage não há tsconfig/src, então prepare→tsc falharia.
+RUN npm ci --omit=dev --ignore-scripts
 COPY --from=build /app/dist/ dist/
 COPY config/ config/
 
