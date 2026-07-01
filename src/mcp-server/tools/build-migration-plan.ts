@@ -94,7 +94,7 @@ export function registerBuildMigrationPlan(server: McpServer, adapters?: BuildMi
       inputSchema: {
         projectPath: z
           .string()
-          .describe('Caminho absoluto da raiz do projeto Java'),
+          .describe('Caminho absoluto da raiz do projeto Java, ou referência GitHub ("owner/repo") em modo cloud'),
         reportMode: z
           .enum(['phase-gate', 'phase-gate-step'])
           .optional()
@@ -104,12 +104,20 @@ export function registerBuildMigrationPlan(server: McpServer, adapters?: BuildMi
             '"phase-gate-step": gerado a cada Step individual (padrão). ' +
             '"phase-gate": apenas ao término de cada Fase e Gate.',
           ),
+        githubToken: z
+          .string()
+          .optional()
+          .describe(
+            'PAT do GitHub do próprio usuário (multi-tenant) — mesma semântica do ' +
+            'parâmetro homônimo em discover_project. Necessário aqui também porque o ' +
+            'clone efêmero pode não existir mais (ex: restart do servidor).',
+          ),
       },
     },
-    async ({ projectPath, reportMode = 'phase-gate-step' }) => {
+    async ({ projectPath, reportMode = 'phase-gate-step', githubToken }) => {
       try {
         const resolved = adapters?.projectPathResolver
-          ? await adapters.projectPathResolver(projectPath)
+          ? await adapters.projectPathResolver(projectPath, githubToken)
           : { path: projectPath, repoUrl: null }
 
         const plan = await buildMigrationPlan(resolved.path, reportMode)

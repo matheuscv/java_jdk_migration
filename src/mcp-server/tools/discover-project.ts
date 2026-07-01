@@ -105,7 +105,7 @@ export function registerDiscoverProject(server: McpServer, adapters?: DiscoverPr
       inputSchema: {
         projectPath: z
           .string()
-          .describe('Caminho absoluto da raiz do projeto Java a ser analisado'),
+          .describe('Caminho absoluto da raiz do projeto Java a ser analisado, ou referência GitHub ("owner/repo") em modo cloud'),
         toolOverrides: z
           .record(z.string())
           .optional()
@@ -118,15 +118,25 @@ export function registerDiscoverProject(server: McpServer, adapters?: DiscoverPr
             'MAVEN_HOME, M2_HOME, GRADLE_HOME, GIT_EXEC_PATH. ' +
             'Exemplo para projeto JDK 8: { "SOURCE_JAVA_HOME": "C:\\\\Program Files\\\\Zulu\\\\zulu-8", "JAVA_HOME_21": "C:\\\\Program Files\\\\Zulu\\\\zulu-21" }',
           ),
+        githubToken: z
+          .string()
+          .optional()
+          .describe(
+            'PAT (Personal Access Token) do GitHub do próprio usuário, usado apenas quando ' +
+            'projectPath for uma referência GitHub em modo cloud (owner/repo ou URL). Tem ' +
+            'prioridade sobre a credencial fixa do servidor — permite que múltiplos usuários ' +
+            'usem o mesmo servidor MCP, cada um só com acesso ao(s) repositório(s) do seu ' +
+            'próprio token. Nunca é persistido em disco nem incluído em nenhuma resposta.',
+          ),
       },
     },
-    async ({ projectPath, toolOverrides = {} }) => {
+    async ({ projectPath, toolOverrides = {}, githubToken }) => {
       // ── Modo assíncrono (cloud, jobRunner injetado): retorna jobId na hora ──
       if (adapters?.jobRunner) {
         const jobId = createJobId()
         adapters.jobRunner.startJob(jobId, async () => {
           try {
-            return await runDiscovery(projectPath, toolOverrides, adapters)
+            return await runDiscovery(projectPath, toolOverrides, adapters, githubToken)
           } catch (err) {
             // JobRunner só guarda err.message (string) — preserva o código
             // estruturado de MigrationError prefixando-o na mensagem.
@@ -153,7 +163,7 @@ export function registerDiscoverProject(server: McpServer, adapters?: DiscoverPr
 
       // ── Modo síncrono (local/stdio) — comportamento original, sem mudanças ──
       try {
-        const report = await runDiscovery(projectPath, toolOverrides, adapters)
+        const report = await runDiscovery(projectPath, toolOverrides, adapters, githubToken)
         return {
           content: [{ type: 'text', text: JSON.stringify(report, null, 2) }],
         }
@@ -185,9 +195,10 @@ async function runDiscovery(
   projectPath: string,
   toolOverrides: Record<string, string>,
   adapters?: DiscoverProjectAdapters,
+  githubToken?: string,
 ): Promise<DiscoveryReport> {
   const resolved = adapters?.projectPathResolver
-    ? await adapters.projectPathResolver(projectPath)
+    ? await adapters.projectPathResolver(projectPath, githubToken)
     : { path: projectPath, repoUrl: null }
 
   const report = await discoverProject(resolved.path, toolOverrides)

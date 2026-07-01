@@ -9,6 +9,7 @@ import { createGitWorkspaceStorage } from '../adapters/cloud/git-workspace-stora
 import type { StorageFactory, ProjectPathResolver, RepoUrlProvider } from '../ports/storage.js'
 import { resolveProjectPath } from '../lib/project-path-resolver.js'
 import { createJobRunner } from '../orchestrator/async-job-runner.js'
+import { MigrationError } from '../lib/errors.js'
 
 /**
  * Seleção de transporte por variável de ambiente:
@@ -27,6 +28,11 @@ import { createJobRunner } from '../orchestrator/async-job-runner.js'
  *                              tenha acesso a todos eles.
  *   (GITHUB_OWNER/GITHUB_REPO NÃO são mais usados — o owner/repo vem do projectPath
  *    de cada chamada de tool, ex: discover_project({ projectPath: "acme/billing-service" }))
+ *   Multi-tenant: cada chamada de discover_project/build_migration_plan pode enviar
+ *    o parâmetro opcional "githubToken" com o PAT do próprio usuário, que passa a ter
+ *    prioridade sobre GITHUB_PAT/GITHUB_APP_* — permite múltiplos usuários/squads
+ *    usando a mesma instância do servidor, cada um só com acesso ao(s) repo(s) que
+ *    seu token cobre. Sem githubToken na chamada, cai para a credencial fixa acima.
  *   MAVEN_LOCAL_REPO       — (opcional) path de um disco persistente montado no Render
  *                            para cache do repositório local do Maven entre chamadas
  *                            (ex: "/var/data/m2-repo"). Sem isso, cada discover_project/
@@ -51,10 +57,13 @@ if (transportMode === 'http') {
 
   const cloudOpts: CloudServerOptions = {}
 
-  // ── GitHub App / PAT (autenticação por requisição — suporta múltiplos repos) ──
-  // repoUrlProvider constrói a URL autenticada POR owner/repo recebido em cada
-  // chamada (não fixo), permitindo que a Squad migre vários repositórios
-  // simultaneamente na mesma instância do servidor.
+  // ── GitHub App / PAT / token por usuário (multi-tenant) ────────────────────
+  // repoUrlProvider constrói a URL autenticada POR owner/repo E por requisição —
+  // prioriza o token que o PRÓPRIO USUÁRIO envia na chamada da tool (githubToken),
+  // permitindo que múltiplos usuários usem a mesma instância do servidor, cada
+  // um com acesso apenas ao(s) repositório(s) que seu token cobre. Sem token do
+  // usuário, cai para a credencial fixa do servidor (App > PAT), mantendo
+  // compatibilidade com o fluxo atual de um único operador/POC.
   //
   // GitWorkspaceStorage + GitHubApiGateway para execute_phase ainda requerem
   // construção por sessão de migração, o que exige refatoração adicional do
@@ -66,49 +75,59 @@ if (transportMode === 'http') {
   const ghInstallationId = process.env['GITHUB_APP_INSTALLATION_ID']
   const ghPat = process.env['GITHUB_PAT']
 
-  let repoUrlProvider: RepoUrlProvider | null = null
+  const appOctokit = (ghAppId && ghPrivateKey && ghInstallationId)
+    ? createGitHubAppOctokit({
+        appId: ghAppId,
+        privateKey: ghPrivateKey.replace(/\\n/g, '\n'),
+        installationId: ghInstallationId,
+      })
+    : null
 
-  if (ghAppId && ghPrivateKey && ghInstallationId) {
-    // Produção: GitHub App (Cielo ou org corporativa).
-    // Uma única instalação pode cobrir múltiplos repositórios da org — o token
-    // de instalação obtido aqui é válido para qualquer um deles, então owner/repo
-    // não precisam ser fixos por env var.
-    const octokit = createGitHubAppOctokit({
-      appId: ghAppId,
-      privateKey: ghPrivateKey.replace(/\\n/g, '\n'),
-      installationId: ghInstallationId,
-    })
-    repoUrlProvider = async (owner, repo) => {
-      void createGitHubApiGateway({ owner, repo, octokit })
-      const auth = await octokit.auth({ type: 'installation' }) as { token: string }
+  if (appOctokit) {
+    console.error('[jdk-migration] GitHub App configurado — usado como fallback quando a chamada não traz githubToken próprio.')
+  }
+  if (ghPat) {
+    console.error('[jdk-migration] GitHub PAT configurado — usado como fallback (teste/POC) quando a chamada não traz githubToken próprio.')
+  }
+  if (!appOctokit && !ghPat) {
+    console.error('[jdk-migration] INFO: nenhuma credencial GitHub fixa configurada — cada chamada precisará enviar githubToken.')
+  }
+
+  // Nunca loga o valor do token (nem o do usuário, nem o fixo do servidor) —
+  // apenas metadados (owner/repo, qual fonte de credencial foi usada).
+  const repoUrlProvider: RepoUrlProvider = async (owner, repo, userToken) => {
+    if (userToken) {
+      void createGitHubApiGateway({ owner, repo, octokit: createGitHubPatOctokit(userToken) })
+      console.error(`[jdk-migration] Usando githubToken enviado na chamada para ${owner}/${repo}.`)
+      return `https://${userToken}@github.com/${owner}/${repo}.git`
+    }
+    if (appOctokit) {
+      void createGitHubApiGateway({ owner, repo, octokit: appOctokit })
+      const auth = await appOctokit.auth({ type: 'installation' }) as { token: string }
       return `https://x-access-token:${auth.token}@github.com/${owner}/${repo}.git`
     }
-    console.error('[jdk-migration] GitHub App configurado — suporta múltiplos repositórios da instalação.')
-  } else if (ghPat) {
-    // Fallback: PAT pessoal (teste/POC — nunca usar em produção corporativa).
-    // O PAT funciona para qualquer repositório ao qual o usuário tenha acesso.
-    const octokit = createGitHubPatOctokit(ghPat)
-    repoUrlProvider = async (owner, repo) => {
-      void createGitHubApiGateway({ owner, repo, octokit })
+    if (ghPat) {
+      void createGitHubApiGateway({ owner, repo, octokit: createGitHubPatOctokit(ghPat) })
       return `https://${ghPat}@github.com/${owner}/${repo}.git`
     }
-    console.error('[jdk-migration] GitHub PAT configurado (modo teste) — suporta múltiplos repositórios acessíveis pelo PAT.')
-  } else {
-    console.error('[jdk-migration] INFO: env vars do GitHub não configuradas — git CLI local será usado.')
+    throw new MigrationError(
+      'GITHUB_CREDENTIALS_MISSING',
+      `Nenhuma credencial GitHub disponível para ${owner}/${repo}: a chamada não enviou githubToken ` +
+        'e o servidor não tem GITHUB_PAT nem GITHUB_APP_* configurados.',
+    )
   }
 
-  if (repoUrlProvider) {
-    // PathResolver: recebe "owner/repo" ou URL GitHub → clona no Render → retorna
-    // path local + a repoUrl autenticada usada (reaproveitada pelo storageFactory).
-    const projectPathResolver: ProjectPathResolver = (projectPath) =>
-      resolveProjectPath(projectPath, repoUrlProvider)
-    cloudOpts.projectPathResolver = projectPathResolver
+  // Sempre injetado (mesmo sem credencial fixa no servidor) — permite que um
+  // usuário sem nenhuma env var configurada ainda assim opere só com seu
+  // próprio githubToken por chamada.
+  const projectPathResolver: ProjectPathResolver = (projectPath, userToken) =>
+    resolveProjectPath(projectPath, repoUrlProvider, undefined, userToken)
+  cloudOpts.projectPathResolver = projectPathResolver
 
-    // StorageFactory: repoUrl já vem resolvida por requisição (por repositório).
-    const storageFactory: StorageFactory = (repoUrl, workDir, branch) =>
-      createGitWorkspaceStorage({ repoUrl, branch, workDir })
-    cloudOpts.storageFactory = storageFactory
-  }
+  // StorageFactory: repoUrl já vem resolvida por requisição (por repositório).
+  const storageFactory: StorageFactory = (repoUrl, workDir, branch) =>
+    createGitWorkspaceStorage({ repoUrl, branch, workDir })
+  cloudOpts.storageFactory = storageFactory
 
   // ── JobRunner (discover_project em background) ────────────────────────────
   // Instância ÚNICA por processo, criada aqui fora do serverFactory (que roda

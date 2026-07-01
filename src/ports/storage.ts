@@ -17,8 +17,14 @@
  * PAT mode: embute o token fixo na URL (funciona para qualquer repo que o PAT acesse).
  * GitHub App mode: obtém um installation access token válido para o repo (a instalação
  * pode cobrir múltiplos repositórios da mesma org).
+ *
+ * userToken (opcional): PAT enviado pelo próprio usuário na chamada da tool (multi-tenant
+ * — cada usuário fornece seu próprio token, escopado ao(s) repo(s) que ele tem acesso),
+ * usado no lugar da credencial fixa do servidor quando presente. Nunca é persistido em
+ * disco nem incluído em nenhum objeto retornado pelas tools — vive apenas na memória da
+ * requisição em curso.
  */
-export type RepoUrlProvider = (owner: string, repo: string) => Promise<string>
+export type RepoUrlProvider = (owner: string, repo: string, userToken?: string) => Promise<string>
 
 /**
  * Resultado da resolução de um projectPath: caminho local (workDir do clone
@@ -43,8 +49,13 @@ export type StorageFactory = (repoUrl: string, workDir: string, branch: string) 
  * para um caminho de filesystem local (clone efêmero no Render) + a URL Git
  * autenticada correspondente a ESSE repositório específico.
  * Em modo local não é injetada — tools operam no path recebido diretamente.
+ *
+ * userToken (opcional): repassado ao RepoUrlProvider — permite que o próprio
+ * usuário forneça seu PAT na chamada da tool em vez de depender da credencial
+ * fixa configurada no servidor (multi-tenant: múltiplos usuários, cada um com
+ * acesso ao(s) seu(s) próprio(s) repositório(s), na mesma instância do MCP).
  */
-export type ProjectPathResolver = (projectPath: string) => Promise<ResolvedProject>
+export type ProjectPathResolver = (projectPath: string, userToken?: string) => Promise<ResolvedProject>
 
 export interface MigrationStorage {
   read(relPath: string): Promise<string | null>

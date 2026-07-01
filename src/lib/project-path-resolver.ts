@@ -55,11 +55,16 @@ export function parseOwnerRepo(projectPath: string): { owner: string; repo: stri
  * O diretório de trabalho é namespaced por "{owner}__{repo}" (não apenas "{repo}")
  * para evitar colisão entre repositórios de nome igual pertencentes a owners
  * diferentes quando várias migrações rodam em paralelo na mesma instância.
+ *
+ * userToken (opcional): PAT enviado pelo próprio usuário na chamada da tool
+ * (multi-tenant) — repassado ao repoUrlProvider, que o usa no lugar da
+ * credencial fixa do servidor quando presente. Nunca persistido em disco.
  */
 export async function resolveProjectPath(
   projectPath: string,
   repoUrlProvider: RepoUrlProvider | null,
   workspacesDir = '/tmp/workspaces',
+  userToken?: string,
 ): Promise<ResolvedProject> {
   if (!isGitHubRef(projectPath)) {
     return { path: projectPath, repoUrl: null }
@@ -68,13 +73,14 @@ export async function resolveProjectPath(
   if (!repoUrlProvider) {
     throw new MigrationError(
       'GITHUB_CREDENTIALS_MISSING',
-      'projectPath parece uma referência GitHub mas nenhuma credencial foi configurada no servidor. ' +
-        'Configure GITHUB_PAT (ou GITHUB_APP_*) nas variáveis de ambiente do Render.',
+      'projectPath parece uma referência GitHub mas nenhuma credencial foi configurada no servidor ' +
+        'nem enviada na chamada da tool (githubToken). Configure GITHUB_PAT (ou GITHUB_APP_*) nas ' +
+        'variáveis de ambiente do Render, ou informe githubToken diretamente na chamada.',
     )
   }
 
   const { owner, repo } = parseOwnerRepo(projectPath)
-  const repoUrl = await repoUrlProvider(owner, repo)
+  const repoUrl = await repoUrlProvider(owner, repo, userToken)
   const workDir = join(workspacesDir, `${owner}__${repo}`)
 
   if (!existsSync(workspacesDir)) {
