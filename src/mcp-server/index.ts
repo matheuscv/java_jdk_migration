@@ -75,7 +75,14 @@ if (transportMode === 'http') {
     }
     void createGitHubApiGateway({ owner, repo, octokit: createGitHubPatOctokit(userToken) })
     console.error(`[jdk-migration] Usando githubToken enviado na chamada para ${owner}/${repo}.`)
-    return `https://${userToken}@github.com/${owner}/${repo}.git`
+    // Formato "x-access-token:<PAT>@github.com" (username + senha explícitos),
+    // não apenas "<PAT>@github.com" (só username, senha implícita/vazia) — sem
+    // a senha explícita, alguns ambientes com credential.helper configurado no
+    // container tentam abrir um prompt interativo de senha para completar a
+    // autenticação, o que falha em containers sem TTY com
+    // "could not read Password ... No such device or address". Com usuário E
+    // senha explícitos na URL, git nunca invoca o credential helper.
+    return `https://x-access-token:${userToken}@github.com/${owner}/${repo}.git`
   }
 
   // Sempre injetado — a resolução exige githubToken em toda chamada que usar
