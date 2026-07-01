@@ -73,9 +73,8 @@ export async function resolveProjectPath(
   if (!repoUrlProvider) {
     throw new MigrationError(
       'GITHUB_CREDENTIALS_MISSING',
-      'projectPath parece uma referência GitHub mas nenhuma credencial foi configurada no servidor ' +
-        'nem enviada na chamada da tool (githubToken). Configure GITHUB_PAT (ou GITHUB_APP_*) nas ' +
-        'variáveis de ambiente do Render, ou informe githubToken diretamente na chamada.',
+      'projectPath parece uma referência GitHub, mas este servidor não tem suporte a ' +
+        'resolução de referências GitHub configurado. Informe githubToken diretamente na chamada.',
     )
   }
 
