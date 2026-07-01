@@ -203,7 +203,15 @@ export function createGitWorkspaceStorage(options: GitWorkspaceStorageOptions): 
 
     const fetch = await runProcess('git', ['fetch', 'origin', branch], { cwd: workDir, timeoutMs: 60_000 })
     if (fetch.exitCode === 0) {
-      await git(['checkout', '-B', branch, `origin/${branch}`], workDir)
+      // Usa FETCH_HEAD, não `origin/${branch}`: um clone com --depth vira
+      // --single-branch por padrão, e nesse caso o refspec de fetch fica restrito
+      // ao branch originalmente clonado — `git fetch origin <branch>` busca o
+      // commit e atualiza FETCH_HEAD normalmente, mas NÃO cria/atualiza a ref
+      // remote-tracking `refs/remotes/origin/<branch>` (que só existiria com
+      // refspec irrestrito). Referenciar `origin/${branch}` falharia de forma
+      // determinística com "unknown revision" nesse cenário. FETCH_HEAD sempre
+      // existe após qualquer fetch bem-sucedido, independente de refspec.
+      await git(['checkout', '-B', branch, 'FETCH_HEAD'], workDir)
     } else {
       // Branch de trabalho ainda não existe no remoto — cria a partir do HEAD atual.
       await git(['checkout', '-b', branch], workDir)

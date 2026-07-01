@@ -130,7 +130,14 @@ describe('GitWorkspaceStorage — durabilidade do estado na branch', () => {
       //    workDir que o storageFactory vai receber depois — reproduzindo
       //    exatamente o compartilhamento de workDir entre discover_project
       //    (análise, branch main) e o storage (persistência, branch de trabalho).
-      git(['clone', bareDir, '.'], workDir)
+      //    --single-branch reproduz a propriedade real do clone raso de
+      //    project-path-resolver.ts (--depth 50 implica --single-branch em
+      //    clones de rede — usamos a flag explícita aqui porque git ignora
+      //    --depth para clones locais/file://, o que mascararia o bug): o
+      //    refspec de fetch fica restrito a "main" — nenhuma ref
+      //    origin/<outra-branch> é criada automaticamente, nem mesmo depois
+      //    de um fetch explícito daquela branch.
+      git(['clone', '--single-branch', bareDir, '.'], workDir)
       git(['config', 'user.email', 'test@example.com'], workDir)
       git(['config', 'user.name', 'Test'], workDir)
 
@@ -185,10 +192,12 @@ describe('GitWorkspaceStorage — durabilidade do estado na branch', () => {
       await priorStorage.write('jdk-migration.config.json', '{"sourceJdk":"8"}')
       await priorStorage.commitState('chore: execução anterior')
 
-      // Simula ProjectPathResolver clonando main + discoverProject rodando o
-      // sourceBuild (mvn compile), que gera MUITOS arquivos de build não
-      // relacionados ao estado do jdk-migration (ex: .class compilados).
-      git(['clone', bareDir, '.'], workDir)
+      // Simula ProjectPathResolver clonando main (--single-branch reproduz a
+      // restrição real de refspec do clone raso de produção; git ignora --depth
+      // em clones locais/file://) + discoverProject rodando o sourceBuild (mvn
+      // compile), que gera MUITOS arquivos de build não relacionados ao estado
+      // do jdk-migration (ex: .class compilados).
+      git(['clone', '--single-branch', bareDir, '.'], workDir)
       git(['config', 'user.email', 'test@example.com'], workDir)
       git(['config', 'user.name', 'Test'], workDir)
 
