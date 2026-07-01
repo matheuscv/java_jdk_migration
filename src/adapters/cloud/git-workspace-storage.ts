@@ -201,6 +201,14 @@ export function createGitWorkspaceStorage(options: GitWorkspaceStorageOptions): 
     // nunca encontre um untracked file conflitando com a árvore de destino.
     await runProcess('git', ['clean', '-fdx'], { cwd: workDir, timeoutMs: 60_000 })
 
+    // Descarta também modificações em arquivos JÁ RASTREADOS (ex: .gitignore,
+    // que discoverProject() atualiza via ensureGitignoreEntries() ainda no
+    // checkout da branch padrão) — `git clean` só afeta untracked files, não
+    // cobre esse caso. Sem isso, o checkout abaixo falha com "Your local
+    // changes ... would be overwritten by checkout" para qualquer arquivo
+    // rastreado que a análise tenha modificado antes da troca de branch.
+    await runProcess('git', ['checkout', '--', '.'], { cwd: workDir, timeoutMs: 30_000 })
+
     const fetch = await runProcess('git', ['fetch', 'origin', branch], { cwd: workDir, timeoutMs: 60_000 })
     if (fetch.exitCode === 0) {
       // Usa FETCH_HEAD, não `origin/${branch}`: um clone com --depth vira

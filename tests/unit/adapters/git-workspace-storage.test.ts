@@ -226,6 +226,52 @@ describe('GitWorkspaceStorage — durabilidade do estado na branch', () => {
     },
   )
 
+  it(
+    'REGRESSÃO: descarta modificações em arquivos JÁ RASTREADOS (ex: .gitignore ' +
+    'atualizado por ensureGitignoreEntries) na hora de trocar de branch',
+    async () => {
+      const branch = 'jdk-migration/discovery'
+      const workDir = makeTmpDir('jdk-migration-tracked-mod')
+      cleanupDirs.push(workDir)
+
+      // Adiciona um .gitignore rastreado no branch padrão (main), simulando um
+      // repositório real que já tem esse arquivo committado.
+      const seedDir = makeTmpDir('jdk-migration-seed-gitignore')
+      cleanupDirs.push(seedDir)
+      git(['clone', bareDir, '.'], seedDir)
+      writeFileSync(join(seedDir, '.gitignore'), 'target/\n', 'utf-8')
+      git(['add', '-A'], seedDir)
+      git(['commit', '-m', 'chore: adiciona .gitignore'], seedDir)
+      git(['push', 'origin', 'main'], seedDir)
+
+      // Branch de trabalho já existe no remoto.
+      const priorRunDir = makeTmpDir('jdk-migration-prior-run-3')
+      cleanupDirs.push(priorRunDir)
+      const priorStorage = createGitWorkspaceStorage({ repoUrl: bareDir, branch, workDir: priorRunDir })
+      await priorStorage.write('jdk-migration.config.json', '{"sourceJdk":"8"}')
+      await priorStorage.commitState('chore: execução anterior')
+
+      // Simula ProjectPathResolver clonando main (com o .gitignore já rastreado)
+      // + discoverProject rodando ensureGitignoreEntries(), que MODIFICA (não
+      // cria) o .gitignore já existente — diferente de um arquivo untracked novo.
+      git(['clone', '--single-branch', bareDir, '.'], workDir)
+      git(['config', 'user.email', 'test@example.com'], workDir)
+      git(['config', 'user.name', 'Test'], workDir)
+      writeFileSync(join(workDir, '.gitignore'), 'target/\n.jdk-migration/.gate-pins.json\n', 'utf-8')
+
+      mkdirSync(join(workDir, '.jdk-migration'), { recursive: true })
+      writeFileSync(join(workDir, '.jdk-migration', 'discovery-report.json'), '{"stacks":["spring-boot"]}', 'utf-8')
+
+      const storage = createGitWorkspaceStorage({ repoUrl: bareDir, branch, workDir })
+      await expect(storage.commitState('chore: nova execução com .gitignore modificado')).resolves.not.toThrow()
+
+      const inspect = inspectClone(bareDir)
+      cleanupDirs.push(inspect)
+      git(['checkout', branch], inspect)
+      expect(existsSync(join(inspect, '.jdk-migration', 'discovery-report.json'))).toBe(true)
+    },
+  )
+
   it('escreve em path aninhado que ainda não existe (.jdk-migration/discovery-report.json)', async () => {
     const branch = 'jdk-migration/phase-0-nested'
     const workDir = makeTmpDir('jdk-migration-nested')
