@@ -298,10 +298,13 @@ export function registerGateToolsCloud(
         // Sincronia da branch de migração na fase 5 (cutover)
         let syncResult = null
         if (phase === 5) {
-          const phase1Branch = config.phases[1]?.gitBranch
           const phase5Branch = config.phases[5]?.gitBranch
-          if (phase1Branch && phase5Branch) {
-            const baseBranch = phase1Branch.replace(/^jdk-migration\/phase-1-\d+$/, '') || 'main'
+          // baseBranch vem de checkpoint.baseBranch (git-checkpoint.ts), capturado
+          // via `git rev-parse --abbrev-ref HEAD` no momento em que a Fase 1 criou
+          // sua branch — é o nome real da branch padrão do repo (master, main, etc.),
+          // nunca uma suposição fixa. Fases 2-5 herdam a mesma branch base.
+          const baseBranch = config.phases[1]?.baseBranch
+          if (baseBranch && phase5Branch) {
             const migrationBranch = `migrate/${baseBranch}`
             syncResult = await syncMigrationBranch(projectPath, migrationBranch, phase5Branch)
           }
