@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { StorageFactory, ProjectPathResolver } from '../../ports/storage.js'
+import type { JobRunner } from '../../orchestrator/async-job-runner.js'
+import { createJobId } from '../../orchestrator/async-job-runner.js'
 import { z } from 'zod'
 import { readConfig, writeConfig, configExists, createDefaultPhases } from '../../lib/config.js'
 import { ensureGitignoreEntries } from '../../skill/install.js'
@@ -80,6 +82,15 @@ export interface DiscoverProjectAdapters {
   storageFactory?: StorageFactory
   /** Resolve "owner/repo" ou URL GitHub → caminho local clonado no Render. */
   projectPathResolver?: ProjectPathResolver
+  /**
+   * Quando presente, discover_project roda em background (clone + build + análise
+   * podem levar minutos) e a tool retorna um jobId imediatamente, em vez de manter
+   * a requisição HTTP aberta até o fim — evita estourar o timeout do proxy/cliente
+   * MCP em projetos grandes ou em planos com pouca CPU/RAM (ex: Render free tier).
+   * O chamador consulta o progresso via get_job_status(jobId).
+   * Ausente em modo local/stdio — mantém o comportamento síncrono original.
+   */
+  jobRunner?: JobRunner
 }
 
 export function registerDiscoverProject(server: McpServer, adapters?: DiscoverProjectAdapters): void {
@@ -110,19 +121,39 @@ export function registerDiscoverProject(server: McpServer, adapters?: DiscoverPr
       },
     },
     async ({ projectPath, toolOverrides = {} }) => {
-      try {
-        const resolved = adapters?.projectPathResolver
-          ? await adapters.projectPathResolver(projectPath)
-          : { path: projectPath, repoUrl: null }
+      // ── Modo assíncrono (cloud, jobRunner injetado): retorna jobId na hora ──
+      if (adapters?.jobRunner) {
+        const jobId = createJobId()
+        adapters.jobRunner.startJob(jobId, async () => {
+          try {
+            return await runDiscovery(projectPath, toolOverrides, adapters)
+          } catch (err) {
+            // JobRunner só guarda err.message (string) — preserva o código
+            // estruturado de MigrationError prefixando-o na mensagem.
+            if (err instanceof MigrationError) throw new Error(`${err.code}: ${err.message}`)
+            throw err
+          }
+        })
 
-        const report = await discoverProject(resolved.path, toolOverrides)
-
-        if (adapters?.storageFactory && resolved.repoUrl) {
-          const branch = `jdk-migration/discovery`
-          const storage = adapters.storageFactory(resolved.repoUrl, resolved.path, branch)
-          await storage.commitState('chore(jdk-migration): discovery report + jdk-migration.config.json')
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              status: 'running',
+              jobId,
+              message:
+                'discover_project iniciado em background — clone do repositório, build ' +
+                'com o source JDK e análise estática podem levar vários minutos. ' +
+                'Consulte o progresso com get_job_status.',
+              nextStep: `get_job_status({ jobId: "${jobId}" })`,
+            }, null, 2),
+          }],
         }
+      }
 
+      // ── Modo síncrono (local/stdio) — comportamento original, sem mudanças ──
+      try {
+        const report = await runDiscovery(projectPath, toolOverrides, adapters)
         return {
           content: [{ type: 'text', text: JSON.stringify(report, null, 2) }],
         }
@@ -139,6 +170,35 @@ export function registerDiscoverProject(server: McpServer, adapters?: DiscoverPr
       }
     },
   )
+}
+
+/**
+ * Lógica completa de descoberta (resolução do path + análise + persistência),
+ * extraída do handler da tool para ser reutilizável tanto no modo síncrono
+ * quanto como corpo de uma tarefa de background (jobRunner.startJob).
+ *
+ * Propaga MigrationError sem modificação — o modo síncrono depende disso para
+ * montar a resposta estruturada { error: code, message }; o modo assíncrono
+ * reempacota o erro separadamente antes de repassar ao JobRunner (ver acima).
+ */
+async function runDiscovery(
+  projectPath: string,
+  toolOverrides: Record<string, string>,
+  adapters?: DiscoverProjectAdapters,
+): Promise<DiscoveryReport> {
+  const resolved = adapters?.projectPathResolver
+    ? await adapters.projectPathResolver(projectPath)
+    : { path: projectPath, repoUrl: null }
+
+  const report = await discoverProject(resolved.path, toolOverrides)
+
+  if (adapters?.storageFactory && resolved.repoUrl) {
+    const branch = `jdk-migration/discovery`
+    const storage = adapters.storageFactory(resolved.repoUrl, resolved.path, branch)
+    await storage.commitState('chore(jdk-migration): discovery report + jdk-migration.config.json')
+  }
+
+  return report
 }
 
 export { discoverProject as discoverProjectForTest }

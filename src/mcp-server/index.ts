@@ -8,6 +8,7 @@ import { createGraphNotifier } from '../adapters/cloud/graph-notifier.js'
 import { createGitWorkspaceStorage } from '../adapters/cloud/git-workspace-storage.js'
 import type { StorageFactory, ProjectPathResolver, RepoUrlProvider } from '../ports/storage.js'
 import { resolveProjectPath } from '../lib/project-path-resolver.js'
+import { createJobRunner } from '../orchestrator/async-job-runner.js'
 
 /**
  * Seleção de transporte por variável de ambiente:
@@ -108,6 +109,16 @@ if (transportMode === 'http') {
       createGitWorkspaceStorage({ repoUrl, branch, workDir })
     cloudOpts.storageFactory = storageFactory
   }
+
+  // ── JobRunner (discover_project em background) ────────────────────────────
+  // Instância ÚNICA por processo, criada aqui fora do serverFactory (que roda
+  // por requisição HTTP) — precisa sobreviver entre a chamada que inicia o job
+  // (discover_project) e as chamadas seguintes de polling (get_job_status).
+  // Resolve o timeout de request HTTP/MCP em planos com pouca CPU/RAM (ex:
+  // Render free tier) sem depender de upgrade de plano: a resposta do
+  // discover_project volta imediatamente com um jobId, e o clone+build+análise
+  // continuam rodando no mesmo processo Node em background.
+  cloudOpts.jobRunner = createJobRunner()
 
   // ── Microsoft Graph (GraphNotifier) ───────────────────────────────────────
   const graphTenantId = process.env['GRAPH_TENANT_ID']

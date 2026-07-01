@@ -5,9 +5,11 @@ import { registerExecutePhase, type ExecutePhaseAdapters } from './tools/execute
 import { registerAuxiliaryTools } from './tools/auxiliary.js'
 import { registerCheckDependencies } from './tools/check-dependencies.js'
 import { registerGateToolsCloud, type GateToolsCloudOptions } from './tools/gate-tools-cloud.js'
+import { registerGetJobStatus } from './tools/job-status.js'
 import { createCloudSecretStore } from '../adapters/cloud/cloud-secret-store.js'
 import type { GraphNotifier } from '../adapters/cloud/graph-notifier.js'
 import type { StorageFactory, ProjectPathResolver } from '../ports/storage.js'
+import type { JobRunner } from '../orchestrator/async-job-runner.js'
 
 export { type ProjectPathResolver }
 
@@ -46,6 +48,16 @@ export interface CloudServerOptions {
    * Reverter removendo a env var quando o Azure AD estiver configurado.
    */
   gateBypass?: boolean
+  /**
+   * Quando presente, discover_project roda em background (jobId + polling via
+   * get_job_status) em vez de bloquear a requisição HTTP até terminar — evita
+   * timeout em planos com pouca CPU/RAM (ex: Render free tier) ou projetos grandes.
+   * Deve ser uma ÚNICA instância compartilhada entre todas as requisições (criada
+   * uma vez em index.ts, fora do serverFactory por-requisição) — se recriada a
+   * cada chamada, o jobId retornado por discover_project não seria encontrável
+   * por get_job_status na chamada seguinte.
+   */
+  jobRunner?: JobRunner
 }
 
 /**
@@ -62,6 +74,7 @@ export function createCloudMcpServer(opts: CloudServerOptions = {}): McpServer {
   const discoverAdapters: DiscoverProjectAdapters = {
     storageFactory: opts.storageFactory,
     projectPathResolver: opts.projectPathResolver,
+    jobRunner: opts.jobRunner,
   }
   const planAdapters: BuildMigrationPlanAdapters = {
     storageFactory: opts.storageFactory,
@@ -82,6 +95,7 @@ export function createCloudMcpServer(opts: CloudServerOptions = {}): McpServer {
   // que já foram registrados por registerGateToolsCloud acima.
   registerAuxiliaryTools(server, { skipGateTools: true })
   registerCheckDependencies(server)
+  registerGetJobStatus(server, { jobRunner: opts.jobRunner })
 
   return server
 }
