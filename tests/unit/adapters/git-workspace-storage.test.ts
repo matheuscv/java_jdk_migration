@@ -170,6 +170,53 @@ describe('GitWorkspaceStorage — durabilidade do estado na branch', () => {
     },
   )
 
+  it(
+    'REGRESSÃO: ignora artefatos de build não relacionados (ex: target/*.class do ' +
+    'sourceBuild) presentes no workDir na hora de trocar de branch',
+    async () => {
+      const branch = 'jdk-migration/discovery'
+      const workDir = makeTmpDir('jdk-migration-build-artifacts')
+      cleanupDirs.push(workDir)
+
+      // Branch de trabalho já existe no remoto (mesmo setup do teste anterior).
+      const priorRunDir = makeTmpDir('jdk-migration-prior-run-2')
+      cleanupDirs.push(priorRunDir)
+      const priorStorage = createGitWorkspaceStorage({ repoUrl: bareDir, branch, workDir: priorRunDir })
+      await priorStorage.write('jdk-migration.config.json', '{"sourceJdk":"8"}')
+      await priorStorage.commitState('chore: execução anterior')
+
+      // Simula ProjectPathResolver clonando main + discoverProject rodando o
+      // sourceBuild (mvn compile), que gera MUITOS arquivos de build não
+      // relacionados ao estado do jdk-migration (ex: .class compilados).
+      git(['clone', bareDir, '.'], workDir)
+      git(['config', 'user.email', 'test@example.com'], workDir)
+      git(['config', 'user.name', 'Test'], workDir)
+
+      mkdirSync(join(workDir, 'target', 'classes', 'com', 'example'), { recursive: true })
+      writeFileSync(join(workDir, 'target', 'classes', 'com', 'example', 'Foo.class'), Buffer.from([0xca, 0xfe]))
+      mkdirSync(join(workDir, '.jdk-migration'), { recursive: true })
+      writeFileSync(
+        join(workDir, '.jdk-migration', 'discovery-report.json'),
+        '{"stacks":["spring-boot"]}',
+        'utf-8',
+      )
+
+      const storage = createGitWorkspaceStorage({ repoUrl: bareDir, branch, workDir })
+      await expect(storage.commitState('chore: nova execução com build artifacts')).resolves.not.toThrow()
+
+      // O artefato de build nunca deveria ter sido commitado — não é estado do
+      // jdk-migration, é subproduto regenerável da análise.
+      const tracked = git(['ls-files', 'target'], workDir)
+      expect(tracked.trim()).toBe('')
+
+      // Mas o relatório de descoberta, sim, foi persistido normalmente.
+      const inspect = inspectClone(bareDir)
+      cleanupDirs.push(inspect)
+      git(['checkout', branch], inspect)
+      expect(existsSync(join(inspect, '.jdk-migration', 'discovery-report.json'))).toBe(true)
+    },
+  )
+
   it('escreve em path aninhado que ainda não existe (.jdk-migration/discovery-report.json)', async () => {
     const branch = 'jdk-migration/phase-0-nested'
     const workDir = makeTmpDir('jdk-migration-nested')

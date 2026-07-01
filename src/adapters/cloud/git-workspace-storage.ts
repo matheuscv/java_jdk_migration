@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { runProcess } from '../../lib/process-runner.js'
 import { MigrationError } from '../../lib/errors.js'
@@ -39,6 +39,18 @@ function parsePorcelainPaths(porcelain: string): string[] {
     .map(line => line.replace(/\r$/, ''))
     .filter(line => line.length > 0 && !line.includes(' -> '))
     .map(line => line.slice(3))
+}
+
+/**
+ * Filtra apenas os artefatos que GitWorkspaceStorage realmente persiste —
+ * jdk-migration.config.json e qualquer coisa dentro de .jdk-migration/.
+ * Usado por ensureOnBranch() para não tentar preservar subprodutos de build
+ * (target/, node_modules-like, dependências baixadas) através de uma troca
+ * de branch onde eles não fazem sentido.
+ */
+function isJdkMigrationArtifact(relPath: string): boolean {
+  const normalized = relPath.replace(/\\/g, '/')
+  return normalized === 'jdk-migration.config.json' || normalized.startsWith('.jdk-migration/')
 }
 
 /** Expande paths que podem ser diretórios em todos os arquivos que contêm, recursivamente. */
@@ -154,6 +166,19 @@ export function createGitWorkspaceStorage(options: GitWorkspaceStorageOptions): 
    * untracked — por isso o conteúdo é salvo em memória, os arquivos são
    * removidos para liberar o checkout, e reescritos de volta depois, por cima
    * do que existir na branch de destino (a versão nova sempre vence).
+   *
+   * O snapshot cobre APENAS os artefatos que este storage realmente persiste
+   * (jdk-migration.config.json + .jdk-migration/**) — não todo `git status
+   * --porcelain`. Quando o workDir é compartilhado com a análise (ProjectPathResolver
+   * + build com o source JDK), `git status` também lista artefatos de build
+   * (ex: target/*.class, dependências baixadas pelo Maven) que não são nosso
+   * estado e não devem ser snapshotados: além de custarem tempo/memória à toa
+   * em projetos grandes, podem colidir com o checkout se a branch de destino
+   * já tiver algo tracked no mesmo path (de uma execução anterior antes do
+   * .gitignore ter sido configurado). Por isso, tudo o que não for artefato do
+   * jdk-migration é descartado com `git clean -fdx` antes do checkout — são
+   * subprodutos regeneráveis da análise, não estado que precise sobreviver à
+   * troca de branch.
    */
   async function ensureOnBranch(): Promise<void> {
     const current = await runProcess('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
@@ -163,15 +188,18 @@ export function createGitWorkspaceStorage(options: GitWorkspaceStorageOptions): 
     if (current.stdout.trim() === branch) return
 
     const status = await runProcess('git', ['status', '--porcelain'], { cwd: workDir, timeoutMs: 15_000 })
-    const changedPaths = expandToFiles(workDir, parsePorcelainPaths(status.stdout))
+    const relevantPaths = parsePorcelainPaths(status.stdout).filter(isJdkMigrationArtifact)
+    const changedPaths = expandToFiles(workDir, relevantPaths)
     const snapshot = new Map<string, Buffer>()
     for (const p of changedPaths) {
       const full = join(workDir, p)
-      if (existsSync(full)) {
-        snapshot.set(p, readFileSync(full))
-        rmSync(full, { force: true })
-      }
+      if (existsSync(full)) snapshot.set(p, readFileSync(full))
     }
+
+    // Descarta tudo que não seja histórico commitado nem artefato do jdk-migration
+    // (build output, dependências baixadas, etc.) — garante que o checkout abaixo
+    // nunca encontre um untracked file conflitando com a árvore de destino.
+    await runProcess('git', ['clean', '-fdx'], { cwd: workDir, timeoutMs: 60_000 })
 
     const fetch = await runProcess('git', ['fetch', 'origin', branch], { cwd: workDir, timeoutMs: 60_000 })
     if (fetch.exitCode === 0) {
