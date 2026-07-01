@@ -9,6 +9,13 @@
  * Todos os paths são relativos à raiz do projeto-alvo (mesma raiz onde hoje
  * vive jdk-migration.config.json).
  */
+/**
+ * Fábrica de MigrationStorage por chamada de tool. Recebe o projectPath (workDir
+ * do clone efêmero no Render) e o nome da branch de destino no GitHub.
+ * Em modo local não é injetada — tools operam apenas no filesystem.
+ */
+export type StorageFactory = (projectPath: string, branch: string) => MigrationStorage
+
 export interface MigrationStorage {
   read(relPath: string): Promise<string | null>
   write(relPath: string, content: string): Promise<void>

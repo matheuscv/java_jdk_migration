@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { StorageFactory } from '../../ports/storage.js'
 import { z } from 'zod'
 import { readConfig, writeConfig, configExists } from '../../lib/config.js'
 import { MigrationError } from '../../lib/errors.js'
@@ -71,7 +72,12 @@ const PHASE_META: Record<PhaseNumber, { name: string; gateDescription: string; c
   },
 }
 
-export function registerBuildMigrationPlan(server: McpServer): void {
+export interface BuildMigrationPlanAdapters {
+  /** Quando presente, persiste migration-plan.json na branch de discovery do GitHub. */
+  storageFactory?: StorageFactory
+}
+
+export function registerBuildMigrationPlan(server: McpServer, adapters?: BuildMigrationPlanAdapters): void {
   server.registerTool(
     'build_migration_plan',
     {
@@ -101,6 +107,12 @@ export function registerBuildMigrationPlan(server: McpServer): void {
     async ({ projectPath, reportMode = 'phase-gate-step' }) => {
       try {
         const plan = await buildMigrationPlan(projectPath, reportMode)
+
+        if (adapters?.storageFactory) {
+          const storage = adapters.storageFactory(projectPath, 'jdk-migration/discovery')
+          await storage.commitState('chore(jdk-migration): migration plan gerado')
+        }
+
         return { content: [{ type: 'text', text: JSON.stringify(plan, null, 2) }] }
       } catch (err) {
         if (err instanceof MigrationError) {

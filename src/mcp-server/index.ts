@@ -5,6 +5,8 @@ import { createHttpServer } from './http-transport.js'
 import { createGitHubAppOctokit, createGitHubPatOctokit } from '../adapters/cloud/github-app-auth.js'
 import { createGitHubApiGateway } from '../adapters/cloud/github-api-gateway.js'
 import { createGraphNotifier } from '../adapters/cloud/graph-notifier.js'
+import { createGitWorkspaceStorage } from '../adapters/cloud/git-workspace-storage.js'
+import type { StorageFactory } from '../ports/storage.js'
 
 /**
  * Seleção de transporte por variável de ambiente:
@@ -48,6 +50,8 @@ if (transportMode === 'http') {
   const ghOwner = process.env['GITHUB_OWNER']
   const ghRepo = process.env['GITHUB_REPO']
 
+  let repoUrl: string | null = null
+
   if (ghAppId && ghPrivateKey && ghInstallationId && ghOwner && ghRepo) {
     // Produção: GitHub App (Cielo ou org corporativa)
     const octokit = createGitHubAppOctokit({
@@ -56,14 +60,24 @@ if (transportMode === 'http') {
       installationId: ghInstallationId,
     })
     void createGitHubApiGateway({ owner: ghOwner, repo: ghRepo, octokit })
+    repoUrl = `https://github.com/${ghOwner}/${ghRepo}.git`
     console.error(`[jdk-migration] GitHub App configurado: owner=${ghOwner} repo=${ghRepo}`)
   } else if (ghPat && ghOwner && ghRepo) {
     // Fallback: PAT pessoal (teste/POC — nunca usar em produção corporativa)
     const octokit = createGitHubPatOctokit(ghPat)
     void createGitHubApiGateway({ owner: ghOwner, repo: ghRepo, octokit })
+    repoUrl = `https://${ghPat}@github.com/${ghOwner}/${ghRepo}.git`
     console.error(`[jdk-migration] GitHub PAT configurado (modo teste): owner=${ghOwner} repo=${ghRepo}`)
   } else {
     console.error('[jdk-migration] INFO: env vars do GitHub não configuradas — git CLI local será usado.')
+  }
+
+  // StorageFactory para discover_project e build_migration_plan:
+  // trata projectPath como workDir do clone efêmero já existente no Render.
+  if (repoUrl) {
+    const storageFactory: StorageFactory = (projectPath, branch) =>
+      createGitWorkspaceStorage({ repoUrl: repoUrl!, branch, workDir: projectPath })
+    cloudOpts.storageFactory = storageFactory
   }
 
   // ── Microsoft Graph (GraphNotifier) ───────────────────────────────────────

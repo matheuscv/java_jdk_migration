@@ -1,12 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { registerDiscoverProject } from './tools/discover-project.js'
-import { registerBuildMigrationPlan } from './tools/build-migration-plan.js'
+import { registerDiscoverProject, type DiscoverProjectAdapters } from './tools/discover-project.js'
+import { registerBuildMigrationPlan, type BuildMigrationPlanAdapters } from './tools/build-migration-plan.js'
 import { registerExecutePhase, type ExecutePhaseAdapters } from './tools/execute-phase.js'
 import { registerAuxiliaryTools } from './tools/auxiliary.js'
 import { registerCheckDependencies } from './tools/check-dependencies.js'
 import { registerGateToolsCloud, type GateToolsCloudOptions } from './tools/gate-tools-cloud.js'
 import { createCloudSecretStore } from '../adapters/cloud/cloud-secret-store.js'
 import type { GraphNotifier } from '../adapters/cloud/graph-notifier.js'
+import type { StorageFactory } from '../ports/storage.js'
 
 export const SERVER_NAME = 'jdk-migration'
 export const SERVER_VERSION = '0.3.48'
@@ -31,6 +32,8 @@ export function createMcpServer(): McpServer {
 export interface CloudServerOptions {
   /** Adapters de Storage + Git para execute_phase no modo cloud. */
   executePhaseAdapters?: ExecutePhaseAdapters
+  /** Factory de storage para discover_project e build_migration_plan — persiste artefatos no GitHub. */
+  storageFactory?: StorageFactory
   /** Notificador Microsoft Graph (Teams + e-mail). Quando ausente, PIN é armazenado mas não enviado. */
   graphNotifier?: GraphNotifier
   /**
@@ -52,8 +55,11 @@ export function createCloudMcpServer(opts: CloudServerOptions = {}): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION })
   const secretStore = createCloudSecretStore()
 
-  registerDiscoverProject(server)
-  registerBuildMigrationPlan(server)
+  const discoverAdapters: DiscoverProjectAdapters = { storageFactory: opts.storageFactory }
+  const planAdapters: BuildMigrationPlanAdapters = { storageFactory: opts.storageFactory }
+
+  registerDiscoverProject(server, discoverAdapters)
+  registerBuildMigrationPlan(server, planAdapters)
   registerExecutePhase(server, opts.executePhaseAdapters)
   // Em modo cloud, as gate tools cloud substituem as locais de auxiliary.ts:
   const gateOpts: GateToolsCloudOptions = {
