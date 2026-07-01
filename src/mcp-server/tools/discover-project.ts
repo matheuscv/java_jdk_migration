@@ -99,9 +99,14 @@ export function registerDiscoverProject(server: McpServer, adapters?: DiscoverPr
     {
       title: 'Discover Project',
       description:
-        'Escaneia a aplicação Java sem alterá-la. Identifica build system, stack, ' +
+        'Escaneia a aplicação Java sem alterar seu CÓDIGO-FONTE. Identifica build system, stack, ' +
         'versão de JDK atual, dependências e pontos de incompatibilidade com JDK 21. ' +
-        'Deve ser o primeiro comando executado — nenhuma fase avança sem um relatório de descoberta.',
+        'Deve ser o primeiro comando executado — nenhuma fase avança sem um relatório de descoberta. ' +
+        'Em modo cloud (projectPath como referência GitHub), os artefatos gerados ' +
+        '(discovery-report.json, jdk-migration.config.json) são commitados e enviados via push ' +
+        'para uma branch dedicada "jdk-migration/discovery" — separada do código analisado, nunca ' +
+        'commitada na branch padrão do repositório. Isso é auditoria do próprio processo de migração, ' +
+        'não uma alteração no código da aplicação.',
       inputSchema: {
         projectPath: z
           .string()
