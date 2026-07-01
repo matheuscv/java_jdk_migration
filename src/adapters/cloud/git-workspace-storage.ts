@@ -24,8 +24,8 @@ export interface GitWorkspaceStorageOptions {
   extraExcludedPaths?: string[]
 }
 
-async function git(args: string[], cwd: string): Promise<string> {
-  const result = await runProcess('git', args, { cwd, timeoutMs: 60_000 })
+async function git(args: string[], cwd: string, env?: NodeJS.ProcessEnv): Promise<string> {
+  const result = await runProcess('git', args, { cwd, timeoutMs: 60_000, env })
   if (result.exitCode !== 0) {
     throw new MigrationError(
       'GIT_WORKSPACE_INIT_FAILED',
@@ -34,6 +34,30 @@ async function git(args: string[], cwd: string): Promise<string> {
     )
   }
   return result.stdout.trim()
+}
+
+/**
+ * Identidade de autor/committer para os commits feitos pelo servidor (não por
+ * um humano) — necessária porque containers efêmeros (Render, Kubernetes) não
+ * têm `git config --global user.name/user.email` configurados por padrão, o
+ * que faz `git commit` falhar com "Author identity unknown".
+ *
+ * Usa as env vars nativas do Git (GIT_AUTHOR_* e GIT_COMMITTER_*) em vez de rodar
+ * `git config --global` no container — evita mutar configuração global
+ * compartilhada e funciona em qualquer ambiente (Render, EKS, etc.) sem setup.
+ * Sobrescrevível via GIT_COMMIT_AUTHOR_NAME/GIT_COMMIT_AUTHOR_EMAIL se a Squad
+ * quiser uma identidade corporativa específica nos commits automáticos.
+ */
+function commitAuthorEnv(): NodeJS.ProcessEnv {
+  const name = process.env['GIT_COMMIT_AUTHOR_NAME'] ?? 'jdk-migration-mcp'
+  const email = process.env['GIT_COMMIT_AUTHOR_EMAIL'] ?? 'jdk-migration-mcp@users.noreply.github.com'
+  return {
+    ...process.env,
+    GIT_AUTHOR_NAME: name,
+    GIT_AUTHOR_EMAIL: email,
+    GIT_COMMITTER_NAME: name,
+    GIT_COMMITTER_EMAIL: email,
+  }
 }
 
 /**
@@ -119,10 +143,11 @@ export function createGitWorkspaceStorage(options: GitWorkspaceStorageOptions): 
         timeoutMs: 10_000,
       })
 
+      const env = commitAuthorEnv()
       if (staged.stdout.trim() === '') {
-        await git(['commit', '--allow-empty', '-m', message], workDir)
+        await git(['commit', '--allow-empty', '-m', message], workDir, env)
       } else {
-        await git(['commit', '-m', message], workDir)
+        await git(['commit', '-m', message], workDir, env)
       }
 
       await git(['push', '-u', 'origin', `HEAD:${branch}`], workDir)
