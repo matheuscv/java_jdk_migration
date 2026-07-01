@@ -111,15 +111,15 @@ export function registerDiscoverProject(server: McpServer, adapters?: DiscoverPr
     },
     async ({ projectPath, toolOverrides = {} }) => {
       try {
-        const resolvedPath = adapters?.projectPathResolver
+        const resolved = adapters?.projectPathResolver
           ? await adapters.projectPathResolver(projectPath)
-          : projectPath
+          : { path: projectPath, repoUrl: null }
 
-        const report = await discoverProject(resolvedPath, toolOverrides)
+        const report = await discoverProject(resolved.path, toolOverrides)
 
-        if (adapters?.storageFactory) {
+        if (adapters?.storageFactory && resolved.repoUrl) {
           const branch = `jdk-migration/discovery`
-          const storage = adapters.storageFactory(resolvedPath, branch)
+          const storage = adapters.storageFactory(resolved.repoUrl, resolved.path, branch)
           await storage.commitState('chore(jdk-migration): discovery report + jdk-migration.config.json')
         }
 

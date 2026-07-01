@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { runProcess } from './process-runner.js'
 import { MigrationError } from './errors.js'
+import type { RepoUrlProvider, ResolvedProject } from '../ports/storage.js'
 
 /**
  * Detecta se o projectPath é uma referência GitHub (owner/repo ou URL completa)
@@ -23,7 +24,7 @@ export function isGitHubRef(projectPath: string): boolean {
 /**
  * Extrai "owner/repo" de qualquer forma de referência GitHub.
  */
-function parseOwnerRepo(projectPath: string): { owner: string; repo: string } {
+export function parseOwnerRepo(projectPath: string): { owner: string; repo: string } {
   let path = projectPath.replace(/\.git$/, '')
   if (path.startsWith('https://github.com/') || path.startsWith('http://github.com/')) {
     path = path.replace(/^https?:\/\/github\.com\//, '')
@@ -41,23 +42,30 @@ function parseOwnerRepo(projectPath: string): { owner: string; repo: string } {
 /**
  * Resolve um projectPath que pode ser referência GitHub ou caminho local.
  *
- * - Se for referência GitHub: clona o repo em /tmp/workspaces/{repo} usando a
- *   repoUrl autenticada (com PAT ou token de App) e retorna o caminho local.
- * - Se já for caminho de filesystem: retorna sem alteração.
+ * - Se for referência GitHub: constrói a URL autenticada para ESSE owner/repo
+ *   específico via repoUrlProvider (suporta múltiplos repositórios simultâneos —
+ *   cada chamada pode apontar para um repo diferente), clona em
+ *   /tmp/workspaces/{owner}__{repo} e retorna o caminho local + a repoUrl usada
+ *   (para reaproveitamento em storageFactory, sem precisar re-derivar credenciais).
+ * - Se já for caminho de filesystem: retorna sem alteração, repoUrl null.
  *
  * O clone é idempotente — se o diretório já existe com um .git, faz apenas
  * `git pull --ff-only` para garantir que está atualizado.
+ *
+ * O diretório de trabalho é namespaced por "{owner}__{repo}" (não apenas "{repo}")
+ * para evitar colisão entre repositórios de nome igual pertencentes a owners
+ * diferentes quando várias migrações rodam em paralelo na mesma instância.
  */
 export async function resolveProjectPath(
   projectPath: string,
-  authenticatedRepoUrl: string | null,
+  repoUrlProvider: RepoUrlProvider | null,
   workspacesDir = '/tmp/workspaces',
-): Promise<string> {
+): Promise<ResolvedProject> {
   if (!isGitHubRef(projectPath)) {
-    return projectPath
+    return { path: projectPath, repoUrl: null }
   }
 
-  if (!authenticatedRepoUrl) {
+  if (!repoUrlProvider) {
     throw new MigrationError(
       'GITHUB_CREDENTIALS_MISSING',
       'projectPath parece uma referência GitHub mas nenhuma credencial foi configurada no servidor. ' +
@@ -65,29 +73,32 @@ export async function resolveProjectPath(
     )
   }
 
-  const { repo } = parseOwnerRepo(projectPath)
-  const workDir = join(workspacesDir, repo)
+  const { owner, repo } = parseOwnerRepo(projectPath)
+  const repoUrl = await repoUrlProvider(owner, repo)
+  const workDir = join(workspacesDir, `${owner}__${repo}`)
 
   if (!existsSync(workspacesDir)) {
     mkdirSync(workspacesDir, { recursive: true })
   }
 
   if (existsSync(join(workDir, '.git'))) {
-    // Já clonado — atualiza
+    // Já clonado — atualiza (e garante que o remote usa a credencial mais recente,
+    // relevante para GitHub App cujo installation token expira em ~1h).
+    await runProcess('git', ['remote', 'set-url', 'origin', repoUrl], { cwd: workDir, timeoutMs: 10_000 })
     const pull = await runProcess('git', ['pull', '--ff-only'], { cwd: workDir, timeoutMs: 60_000 })
     if (pull.exitCode !== 0) {
       // Se pull falhar (ex: divergência), reseta para o remote
       await runProcess('git', ['fetch', 'origin'], { cwd: workDir, timeoutMs: 60_000 })
       await runProcess('git', ['reset', '--hard', 'origin/HEAD'], { cwd: workDir, timeoutMs: 30_000 })
     }
-    return workDir
+    return { path: workDir, repoUrl }
   }
 
   // Clone inicial
   mkdirSync(workDir, { recursive: true })
   const clone = await runProcess(
     'git',
-    ['clone', '--depth', '50', authenticatedRepoUrl, '.'],
+    ['clone', '--depth', '50', repoUrl, '.'],
     { cwd: workDir, timeoutMs: 180_000 },
   )
 
@@ -99,5 +110,5 @@ export async function resolveProjectPath(
     )
   }
 
-  return workDir
+  return { path: workDir, repoUrl }
 }

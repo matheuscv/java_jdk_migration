@@ -6,7 +6,7 @@ import { createGitHubAppOctokit, createGitHubPatOctokit } from '../adapters/clou
 import { createGitHubApiGateway } from '../adapters/cloud/github-api-gateway.js'
 import { createGraphNotifier } from '../adapters/cloud/graph-notifier.js'
 import { createGitWorkspaceStorage } from '../adapters/cloud/git-workspace-storage.js'
-import type { StorageFactory, ProjectPathResolver } from '../ports/storage.js'
+import type { StorageFactory, ProjectPathResolver, RepoUrlProvider } from '../ports/storage.js'
 import { resolveProjectPath } from '../lib/project-path-resolver.js'
 
 /**
@@ -19,9 +19,13 @@ import { resolveProjectPath } from '../lib/project-path-resolver.js'
  *   PORT                    — porta HTTP (default 3000; Render injeta automaticamente)
  *   GITHUB_APP_ID           — ID do GitHub App (ex: "123456")
  *   GITHUB_APP_PRIVATE_KEY  — PEM completo da private key do GitHub App
- *   GITHUB_APP_INSTALLATION_ID — ID da instalação do App no repo-alvo
- *   GITHUB_OWNER            — dono do repositório-alvo (ex: "acme")
- *   GITHUB_REPO             — nome do repositório-alvo (ex: "billing-service")
+ *   GITHUB_APP_INSTALLATION_ID — ID da instalação do App (cobre todos os repos da org
+ *                                incluídos na instalação — suporta múltiplos repositórios)
+ *   GITHUB_PAT              — fallback de teste/POC (token pessoal); alternativa ao App.
+ *                              Também suporta múltiplos repositórios, desde que o PAT
+ *                              tenha acesso a todos eles.
+ *   (GITHUB_OWNER/GITHUB_REPO NÃO são mais usados — o owner/repo vem do projectPath
+ *    de cada chamada de tool, ex: discover_project({ projectPath: "acme/billing-service" }))
  *   GRAPH_TENANT_ID         — Tenant ID do Azure AD / Entra ID
  *   GRAPH_CLIENT_ID         — Client ID do app registrado no Azure AD
  *   GRAPH_CLIENT_SECRET     — Client secret do app Azure AD
@@ -38,50 +42,62 @@ if (transportMode === 'http') {
 
   const cloudOpts: CloudServerOptions = {}
 
-  // ── GitHub App (octokit — usado pelas gate tools cloud para PRs e comentários) ──
-  // GitWorkspaceStorage + GitHubApiGateway para execute_phase requerem construção
-  // por sessão de migração (repoUrl e branch são dinâmicos por chamada), o que exige
-  // refatoração adicional do execute-phase.ts para injeção por requisição.
-  // Por ora, execute_phase usa LocalFsStorage + LocalGitCli sobre o workspace clonado
-  // (comportamento correto quando o projectPath aponta para o clone efêmero em /tmp).
+  // ── GitHub App / PAT (autenticação por requisição — suporta múltiplos repos) ──
+  // repoUrlProvider constrói a URL autenticada POR owner/repo recebido em cada
+  // chamada (não fixo), permitindo que a Squad migre vários repositórios
+  // simultaneamente na mesma instância do servidor.
+  //
+  // GitWorkspaceStorage + GitHubApiGateway para execute_phase ainda requerem
+  // construção por sessão de migração, o que exige refatoração adicional do
+  // execute-phase.ts para injeção por requisição. Por ora, execute_phase usa
+  // LocalFsStorage + LocalGitCli sobre o workspace clonado (comportamento
+  // correto quando o projectPath aponta para o clone efêmero em /tmp).
   const ghAppId = process.env['GITHUB_APP_ID']
   const ghPrivateKey = process.env['GITHUB_APP_PRIVATE_KEY']
   const ghInstallationId = process.env['GITHUB_APP_INSTALLATION_ID']
   const ghPat = process.env['GITHUB_PAT']
-  const ghOwner = process.env['GITHUB_OWNER']
-  const ghRepo = process.env['GITHUB_REPO']
 
-  let repoUrl: string | null = null
+  let repoUrlProvider: RepoUrlProvider | null = null
 
-  if (ghAppId && ghPrivateKey && ghInstallationId && ghOwner && ghRepo) {
-    // Produção: GitHub App (Cielo ou org corporativa)
+  if (ghAppId && ghPrivateKey && ghInstallationId) {
+    // Produção: GitHub App (Cielo ou org corporativa).
+    // Uma única instalação pode cobrir múltiplos repositórios da org — o token
+    // de instalação obtido aqui é válido para qualquer um deles, então owner/repo
+    // não precisam ser fixos por env var.
     const octokit = createGitHubAppOctokit({
       appId: ghAppId,
       privateKey: ghPrivateKey.replace(/\\n/g, '\n'),
       installationId: ghInstallationId,
     })
-    void createGitHubApiGateway({ owner: ghOwner, repo: ghRepo, octokit })
-    repoUrl = `https://github.com/${ghOwner}/${ghRepo}.git`
-    console.error(`[jdk-migration] GitHub App configurado: owner=${ghOwner} repo=${ghRepo}`)
-  } else if (ghPat && ghOwner && ghRepo) {
-    // Fallback: PAT pessoal (teste/POC — nunca usar em produção corporativa)
+    repoUrlProvider = async (owner, repo) => {
+      void createGitHubApiGateway({ owner, repo, octokit })
+      const auth = await octokit.auth({ type: 'installation' }) as { token: string }
+      return `https://x-access-token:${auth.token}@github.com/${owner}/${repo}.git`
+    }
+    console.error('[jdk-migration] GitHub App configurado — suporta múltiplos repositórios da instalação.')
+  } else if (ghPat) {
+    // Fallback: PAT pessoal (teste/POC — nunca usar em produção corporativa).
+    // O PAT funciona para qualquer repositório ao qual o usuário tenha acesso.
     const octokit = createGitHubPatOctokit(ghPat)
-    void createGitHubApiGateway({ owner: ghOwner, repo: ghRepo, octokit })
-    repoUrl = `https://${ghPat}@github.com/${ghOwner}/${ghRepo}.git`
-    console.error(`[jdk-migration] GitHub PAT configurado (modo teste): owner=${ghOwner} repo=${ghRepo}`)
+    repoUrlProvider = async (owner, repo) => {
+      void createGitHubApiGateway({ owner, repo, octokit })
+      return `https://${ghPat}@github.com/${owner}/${repo}.git`
+    }
+    console.error('[jdk-migration] GitHub PAT configurado (modo teste) — suporta múltiplos repositórios acessíveis pelo PAT.')
   } else {
     console.error('[jdk-migration] INFO: env vars do GitHub não configuradas — git CLI local será usado.')
   }
 
-  if (repoUrl) {
-    // PathResolver: recebe "owner/repo" ou URL GitHub → clona no Render → retorna path local
+  if (repoUrlProvider) {
+    // PathResolver: recebe "owner/repo" ou URL GitHub → clona no Render → retorna
+    // path local + a repoUrl autenticada usada (reaproveitada pelo storageFactory).
     const projectPathResolver: ProjectPathResolver = (projectPath) =>
-      resolveProjectPath(projectPath, repoUrl)
+      resolveProjectPath(projectPath, repoUrlProvider)
     cloudOpts.projectPathResolver = projectPathResolver
 
-    // StorageFactory: usa o path já resolvido (local) como workDir do clone
-    const storageFactory: StorageFactory = (projectPath, branch) =>
-      createGitWorkspaceStorage({ repoUrl: repoUrl!, branch, workDir: projectPath })
+    // StorageFactory: repoUrl já vem resolvida por requisição (por repositório).
+    const storageFactory: StorageFactory = (repoUrl, workDir, branch) =>
+      createGitWorkspaceStorage({ repoUrl, branch, workDir })
     cloudOpts.storageFactory = storageFactory
   }
 

@@ -10,18 +10,41 @@
  * vive jdk-migration.config.json).
  */
 /**
- * Fábrica de MigrationStorage por chamada de tool. Recebe o projectPath (workDir
- * do clone efêmero no Render) e o nome da branch de destino no GitHub.
+ * Constrói a URL Git autenticada para UM repositório específico (owner/repo).
+ * Suporta múltiplos repositórios simultâneos: cada chamada recebe o par
+ * owner/repo extraído do projectPath da requisição, não um valor fixo de env var.
+ *
+ * PAT mode: embute o token fixo na URL (funciona para qualquer repo que o PAT acesse).
+ * GitHub App mode: obtém um installation access token válido para o repo (a instalação
+ * pode cobrir múltiplos repositórios da mesma org).
+ */
+export type RepoUrlProvider = (owner: string, repo: string) => Promise<string>
+
+/**
+ * Resultado da resolução de um projectPath: caminho local (workDir do clone
+ * efêmero, se aplicável) + URL Git autenticada (quando o projectPath era uma
+ * referência GitHub — null quando já era um caminho de filesystem local).
+ */
+export interface ResolvedProject {
+  path: string
+  repoUrl: string | null
+}
+
+/**
+ * Fábrica de MigrationStorage por chamada de tool. Recebe a URL Git autenticada
+ * do repositório específico desta requisição, o workDir local e o nome da
+ * branch de destino no GitHub.
  * Em modo local não é injetada — tools operam apenas no filesystem.
  */
-export type StorageFactory = (projectPath: string, branch: string) => MigrationStorage
+export type StorageFactory = (repoUrl: string, workDir: string, branch: string) => MigrationStorage
 
 /**
  * Resolve projectPath que pode ser referência GitHub ("owner/repo" ou URL)
- * para um caminho de filesystem local (clone efêmero no Render).
+ * para um caminho de filesystem local (clone efêmero no Render) + a URL Git
+ * autenticada correspondente a ESSE repositório específico.
  * Em modo local não é injetada — tools operam no path recebido diretamente.
  */
-export type ProjectPathResolver = (projectPath: string) => Promise<string>
+export type ProjectPathResolver = (projectPath: string) => Promise<ResolvedProject>
 
 export interface MigrationStorage {
   read(relPath: string): Promise<string | null>

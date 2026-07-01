@@ -108,14 +108,14 @@ export function registerBuildMigrationPlan(server: McpServer, adapters?: BuildMi
     },
     async ({ projectPath, reportMode = 'phase-gate-step' }) => {
       try {
-        const resolvedPath = adapters?.projectPathResolver
+        const resolved = adapters?.projectPathResolver
           ? await adapters.projectPathResolver(projectPath)
-          : projectPath
+          : { path: projectPath, repoUrl: null }
 
-        const plan = await buildMigrationPlan(resolvedPath, reportMode)
+        const plan = await buildMigrationPlan(resolved.path, reportMode)
 
-        if (adapters?.storageFactory) {
-          const storage = adapters.storageFactory(resolvedPath, 'jdk-migration/discovery')
+        if (adapters?.storageFactory && resolved.repoUrl) {
+          const storage = adapters.storageFactory(resolved.repoUrl, resolved.path, 'jdk-migration/discovery')
           await storage.commitState('chore(jdk-migration): migration plan gerado')
         }
 
