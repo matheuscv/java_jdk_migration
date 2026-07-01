@@ -138,6 +138,7 @@ export function registerGateToolsCloud(
         const expiresAt = new Date(Date.now() + PIN_VALIDITY_MS).toISOString()
         await secretStore.putPin(phase, { pin, expiresAt, phaseNumber: phase })
 
+        // ── Com notifier (Graph API): PIN vai por Teams/e-mail, nunca pelo chat ──
         if (notifier) {
           try {
             await notifier.sendGatePin(approverEmail ?? '', phase, pin, expiresAt)
@@ -159,22 +160,45 @@ export function registerGateToolsCloud(
               }],
             }
           }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                status: 'awaiting_human_pin',
+                phase,
+                approverEmail,
+                pinExpiresAt: expiresAt,
+                message:
+                  `PIN de aprovação enviado ao aprovador via Microsoft Teams e e-mail corporativo. ` +
+                  `O aprovador deve ler o código fora deste chat e digitá-lo aqui para confirmar. ` +
+                  `O PIN expira em 30 minutos (${expiresAt}). ` +
+                  `ESTE RETORNO NÃO CONTÉM O PIN — nunca trafega pelo canal do agente.`,
+                nextStep: `Aguarde o aprovador digitar: approve_gate(projectPath, ${phase}, "<nome_aprovador>", "<PIN_6_dígitos>")`,
+              }, null, 2),
+            }],
+          }
         }
 
+        // ── Sem notifier (POC local): PIN exibido diretamente no chat ─────────
+        // Modo de uso: você lê o PIN aqui no chat e o digita em approve_gate.
+        // Quando o Microsoft Graph estiver configurado, o PIN sairá do chat
+        // e passará a ser enviado exclusivamente por Teams/e-mail.
         return {
           content: [{
             type: 'text',
             text: JSON.stringify({
               status: 'awaiting_human_pin',
               phase,
-              approverEmail,
               pinExpiresAt: expiresAt,
+              humanPin: pin,
               message:
-                `PIN de aprovação enviado ao aprovador via Microsoft Teams e e-mail corporativo. ` +
-                `O aprovador deve ler o código fora deste chat e digitá-lo aqui para confirmar. ` +
+                `PIN gerado para aprovação da Fase ${phase}. ` +
+                `Leia o código acima e informe-o em approve_gate para liberar a fase. ` +
                 `O PIN expira em 30 minutos (${expiresAt}). ` +
-                `ESTE RETORNO NÃO CONTÉM O PIN — nunca trafega pelo canal do agente.`,
-              nextStep: `Aguarde o aprovador digitar: approve_gate(projectPath, ${phase}, "<nome_aprovador>", "<PIN_6_dígitos>")`,
+                `Quando o Microsoft Graph estiver configurado, o PIN deixará de aparecer aqui ` +
+                `e será enviado exclusivamente por Teams/e-mail.`,
+              nextStep: `Digite: approve_gate(projectPath, ${phase}, "<seu_nome>", "${pin}")`,
             }, null, 2),
           }],
         }
