@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { StorageFactory } from '../../ports/storage.js'
+import type { StorageFactory, ProjectPathResolver } from '../../ports/storage.js'
 import { z } from 'zod'
 import { readConfig, writeConfig, configExists } from '../../lib/config.js'
 import { MigrationError } from '../../lib/errors.js'
@@ -75,6 +75,8 @@ const PHASE_META: Record<PhaseNumber, { name: string; gateDescription: string; c
 export interface BuildMigrationPlanAdapters {
   /** Quando presente, persiste migration-plan.json na branch de discovery do GitHub. */
   storageFactory?: StorageFactory
+  /** Resolve "owner/repo" ou URL GitHub → caminho local clonado no Render. */
+  projectPathResolver?: ProjectPathResolver
 }
 
 export function registerBuildMigrationPlan(server: McpServer, adapters?: BuildMigrationPlanAdapters): void {
@@ -106,10 +108,14 @@ export function registerBuildMigrationPlan(server: McpServer, adapters?: BuildMi
     },
     async ({ projectPath, reportMode = 'phase-gate-step' }) => {
       try {
-        const plan = await buildMigrationPlan(projectPath, reportMode)
+        const resolvedPath = adapters?.projectPathResolver
+          ? await adapters.projectPathResolver(projectPath)
+          : projectPath
+
+        const plan = await buildMigrationPlan(resolvedPath, reportMode)
 
         if (adapters?.storageFactory) {
-          const storage = adapters.storageFactory(projectPath, 'jdk-migration/discovery')
+          const storage = adapters.storageFactory(resolvedPath, 'jdk-migration/discovery')
           await storage.commitState('chore(jdk-migration): migration plan gerado')
         }
 

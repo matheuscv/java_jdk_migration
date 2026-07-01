@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { StorageFactory } from '../../ports/storage.js'
+import type { StorageFactory, ProjectPathResolver } from '../../ports/storage.js'
 import { z } from 'zod'
 import { readConfig, writeConfig, configExists, createDefaultPhases } from '../../lib/config.js'
 import { ensureGitignoreEntries } from '../../skill/install.js'
@@ -78,6 +78,8 @@ export interface DiscoveryReport {
 export interface DiscoverProjectAdapters {
   /** Quando presente, persiste os artefatos de descoberta em branch GitHub após a análise. */
   storageFactory?: StorageFactory
+  /** Resolve "owner/repo" ou URL GitHub → caminho local clonado no Render. */
+  projectPathResolver?: ProjectPathResolver
 }
 
 export function registerDiscoverProject(server: McpServer, adapters?: DiscoverProjectAdapters): void {
@@ -109,11 +111,15 @@ export function registerDiscoverProject(server: McpServer, adapters?: DiscoverPr
     },
     async ({ projectPath, toolOverrides = {} }) => {
       try {
-        const report = await discoverProject(projectPath, toolOverrides)
+        const resolvedPath = adapters?.projectPathResolver
+          ? await adapters.projectPathResolver(projectPath)
+          : projectPath
+
+        const report = await discoverProject(resolvedPath, toolOverrides)
 
         if (adapters?.storageFactory) {
           const branch = `jdk-migration/discovery`
-          const storage = adapters.storageFactory(projectPath, branch)
+          const storage = adapters.storageFactory(resolvedPath, branch)
           await storage.commitState('chore(jdk-migration): discovery report + jdk-migration.config.json')
         }
 

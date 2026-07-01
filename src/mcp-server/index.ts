@@ -6,7 +6,8 @@ import { createGitHubAppOctokit, createGitHubPatOctokit } from '../adapters/clou
 import { createGitHubApiGateway } from '../adapters/cloud/github-api-gateway.js'
 import { createGraphNotifier } from '../adapters/cloud/graph-notifier.js'
 import { createGitWorkspaceStorage } from '../adapters/cloud/git-workspace-storage.js'
-import type { StorageFactory } from '../ports/storage.js'
+import type { StorageFactory, ProjectPathResolver } from '../ports/storage.js'
+import { resolveProjectPath } from '../lib/project-path-resolver.js'
 
 /**
  * Seleção de transporte por variável de ambiente:
@@ -72,9 +73,13 @@ if (transportMode === 'http') {
     console.error('[jdk-migration] INFO: env vars do GitHub não configuradas — git CLI local será usado.')
   }
 
-  // StorageFactory para discover_project e build_migration_plan:
-  // trata projectPath como workDir do clone efêmero já existente no Render.
   if (repoUrl) {
+    // PathResolver: recebe "owner/repo" ou URL GitHub → clona no Render → retorna path local
+    const projectPathResolver: ProjectPathResolver = (projectPath) =>
+      resolveProjectPath(projectPath, repoUrl)
+    cloudOpts.projectPathResolver = projectPathResolver
+
+    // StorageFactory: usa o path já resolvido (local) como workDir do clone
     const storageFactory: StorageFactory = (projectPath, branch) =>
       createGitWorkspaceStorage({ repoUrl: repoUrl!, branch, workDir: projectPath })
     cloudOpts.storageFactory = storageFactory

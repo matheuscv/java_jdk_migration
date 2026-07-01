@@ -7,7 +7,9 @@ import { registerCheckDependencies } from './tools/check-dependencies.js'
 import { registerGateToolsCloud, type GateToolsCloudOptions } from './tools/gate-tools-cloud.js'
 import { createCloudSecretStore } from '../adapters/cloud/cloud-secret-store.js'
 import type { GraphNotifier } from '../adapters/cloud/graph-notifier.js'
-import type { StorageFactory } from '../ports/storage.js'
+import type { StorageFactory, ProjectPathResolver } from '../ports/storage.js'
+
+export { type ProjectPathResolver }
 
 export const SERVER_NAME = 'jdk-migration'
 export const SERVER_VERSION = '0.3.48'
@@ -34,6 +36,8 @@ export interface CloudServerOptions {
   executePhaseAdapters?: ExecutePhaseAdapters
   /** Factory de storage para discover_project e build_migration_plan — persiste artefatos no GitHub. */
   storageFactory?: StorageFactory
+  /** Resolve referência GitHub (owner/repo) → caminho local clonado no Render. */
+  projectPathResolver?: ProjectPathResolver
   /** Notificador Microsoft Graph (Teams + e-mail). Quando ausente, PIN é armazenado mas não enviado. */
   graphNotifier?: GraphNotifier
   /**
@@ -55,8 +59,14 @@ export function createCloudMcpServer(opts: CloudServerOptions = {}): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION })
   const secretStore = createCloudSecretStore()
 
-  const discoverAdapters: DiscoverProjectAdapters = { storageFactory: opts.storageFactory }
-  const planAdapters: BuildMigrationPlanAdapters = { storageFactory: opts.storageFactory }
+  const discoverAdapters: DiscoverProjectAdapters = {
+    storageFactory: opts.storageFactory,
+    projectPathResolver: opts.projectPathResolver,
+  }
+  const planAdapters: BuildMigrationPlanAdapters = {
+    storageFactory: opts.storageFactory,
+    projectPathResolver: opts.projectPathResolver,
+  }
 
   registerDiscoverProject(server, discoverAdapters)
   registerBuildMigrationPlan(server, planAdapters)

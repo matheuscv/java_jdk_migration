@@ -16,6 +16,13 @@
  */
 export type StorageFactory = (projectPath: string, branch: string) => MigrationStorage
 
+/**
+ * Resolve projectPath que pode ser referência GitHub ("owner/repo" ou URL)
+ * para um caminho de filesystem local (clone efêmero no Render).
+ * Em modo local não é injetada — tools operam no path recebido diretamente.
+ */
+export type ProjectPathResolver = (projectPath: string) => Promise<string>
+
 export interface MigrationStorage {
   read(relPath: string): Promise<string | null>
   write(relPath: string, content: string): Promise<void>

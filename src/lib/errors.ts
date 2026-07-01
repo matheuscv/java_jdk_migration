@@ -11,6 +11,9 @@ export type MigrationErrorCode =
   | 'JAVA_NOT_FOUND'
   | 'LOCK_FILE_EXISTS'
   | 'INVALID_PROJECT_PATH'
+  | 'INVALID_GITHUB_REF'
+  | 'GITHUB_CREDENTIALS_MISSING'
+  | 'GITHUB_CLONE_FAILED'
 
 export class MigrationError extends Error {
   readonly code: MigrationErrorCode
