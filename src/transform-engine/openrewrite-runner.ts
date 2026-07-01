@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runProcess } from '../lib/process-runner.js'
+import { mavenLocalRepoArgs } from '../lib/maven-cache.js'
 import { OPENREWRITE_PLUGIN_COORDS } from './recipe-selector.js'
 
 export interface OpenRewriteResult {
@@ -47,6 +48,7 @@ async function runMavenRecipes(
     '-Drewrite.exportDatatables=true',
     '-Dmaven.deploy.skip=true',
     '-B',
+    ...mavenLocalRepoArgs(),
   ]
 
   // Injeta dependências extras necessárias para alguns recipes (ex: WebLogic)

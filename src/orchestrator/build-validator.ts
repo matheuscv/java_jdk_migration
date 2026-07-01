@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { runProcess } from '../lib/process-runner.js'
+import { mavenLocalRepoArgs } from '../lib/maven-cache.js'
 
 export interface BuildResult {
   success: boolean
@@ -21,7 +22,7 @@ export async function runBuild(
 ): Promise<BuildResult> {
   const defaultCmd = buildSystem === 'maven' ? (options?.mavenExecutable ?? 'mvn') : (options?.gradleExecutable ?? 'gradle')
   const [cmd, args] = buildSystem === 'maven'
-    ? [defaultCmd, ['clean', 'compile', '-B', '-q', '-Dmaven.deploy.skip=true']]
+    ? [defaultCmd, ['clean', 'compile', '-B', '-q', '-Dmaven.deploy.skip=true', ...mavenLocalRepoArgs()]]
     : [defaultCmd, ['compileJava', '-q']]
 
   const env = buildTargetEnv(options?.targetJdkHome)
@@ -74,7 +75,7 @@ export async function runTests(
 ): Promise<BuildResult> {
   const defaultCmd = buildSystem === 'maven' ? (options?.mavenExecutable ?? 'mvn') : (options?.gradleExecutable ?? 'gradle')
   const [cmd, args] = buildSystem === 'maven'
-    ? [defaultCmd, ['test', '-B', '-q', '-Dmaven.deploy.skip=true']]
+    ? [defaultCmd, ['test', '-B', '-q', '-Dmaven.deploy.skip=true', ...mavenLocalRepoArgs()]]
     : [defaultCmd, ['test', '-q']]
 
   const env = buildTargetEnv(options?.targetJdkHome)
@@ -138,7 +139,7 @@ export async function runSourceBuild(
     ? (options.mavenExecutable ?? 'mvn')
     : (options.gradleExecutable ?? 'gradle')
   const args = buildSystem === 'maven'
-    ? ['compile', '-B', '-q', '-Dmaven.deploy.skip=true', '-Dmaven.test.skip=true']
+    ? ['compile', '-B', '-q', '-Dmaven.deploy.skip=true', '-Dmaven.test.skip=true', ...mavenLocalRepoArgs()]
     : ['compileJava', '-q']
 
   const result = await runProcess(cmd, args, { cwd: projectPath, timeoutMs: BUILD_TIMEOUT_MS, env })

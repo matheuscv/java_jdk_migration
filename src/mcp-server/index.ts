@@ -26,6 +26,14 @@ import { resolveProjectPath } from '../lib/project-path-resolver.js'
  *                              tenha acesso a todos eles.
  *   (GITHUB_OWNER/GITHUB_REPO NÃO são mais usados — o owner/repo vem do projectPath
  *    de cada chamada de tool, ex: discover_project({ projectPath: "acme/billing-service" }))
+ *   MAVEN_LOCAL_REPO       — (opcional) path de um disco persistente montado no Render
+ *                            para cache do repositório local do Maven entre chamadas
+ *                            (ex: "/var/data/m2-repo"). Sem isso, cada discover_project/
+ *                            execute_phase baixa as dependências do zero, o que facilmente
+ *                            excede o timeout de requisição HTTP em projetos Spring Boot.
+ *                            Requer plano pago do Render com disco persistente habilitado.
+ *   GRADLE_USER_HOME       — (opcional) mesmo propósito acima, mas para Gradle — já é
+ *                            respeitada nativamente pelo Gradle, sem necessidade de flag.
  *   GRAPH_TENANT_ID         — Tenant ID do Azure AD / Entra ID
  *   GRAPH_CLIENT_ID         — Client ID do app registrado no Azure AD
  *   GRAPH_CLIENT_SECRET     — Client secret do app Azure AD
