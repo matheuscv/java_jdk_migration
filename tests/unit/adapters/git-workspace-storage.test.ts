@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
@@ -107,6 +107,68 @@ describe('GitWorkspaceStorage — durabilidade do estado na branch', () => {
 
     expect(await storage.read('jdk-migration.config.json')).toBe('{"sourceJdk":"6"}')
   })
+
+  it(
+    'REGRESSÃO: reaproveita um workDir já clonado por outro consumidor no branch ' +
+    'padrão (ex: ProjectPathResolver) sem non-fast-forward, mesmo quando a branch ' +
+    'de trabalho já tem histórico divergente no remoto',
+    async () => {
+      const branch = 'jdk-migration/discovery'
+      const workDir = makeTmpDir('jdk-migration-shared-workdir')
+      cleanupDirs.push(workDir)
+
+      // 1. Simula uma execução anterior que já publicou algo na branch de trabalho,
+      //    divergindo do histórico de "main" (cenário real: discover_project rodou
+      //    antes, ou o storage foi usado num teste anterior).
+      const priorRunDir = makeTmpDir('jdk-migration-prior-run')
+      cleanupDirs.push(priorRunDir)
+      const priorStorage = createGitWorkspaceStorage({ repoUrl: bareDir, branch, workDir: priorRunDir })
+      await priorStorage.write('jdk-migration.config.json', '{"sourceJdk":"8","run":"anterior"}')
+      await priorStorage.commitState('chore: execução anterior')
+
+      // 2. Simula o ProjectPathResolver: clona o branch PADRÃO (main) no MESMO
+      //    workDir que o storageFactory vai receber depois — reproduzindo
+      //    exatamente o compartilhamento de workDir entre discover_project
+      //    (análise, branch main) e o storage (persistência, branch de trabalho).
+      git(['clone', bareDir, '.'], workDir)
+      git(['config', 'user.email', 'test@example.com'], workDir)
+      git(['config', 'user.name', 'Test'], workDir)
+
+      // 3. Simula discoverProject() escrevendo o relatório em disco ENQUANTO
+      //    ainda está no branch main (untracked ali, pois main não o rastreia).
+      mkdirSync(join(workDir, '.jdk-migration'), { recursive: true })
+      writeFileSync(
+        join(workDir, '.jdk-migration', 'discovery-report.json'),
+        '{"stacks":["spring-boot"],"run":"nova"}',
+        'utf-8',
+      )
+
+      // 4. storageFactory entra em cena reaproveitando o MESMO workDir (não um
+      //    clone novo) — antes do fix, isso commitava em cima do HEAD de main e
+      //    o push para `branch` falhava com "non-fast-forward" (divergência com
+      //    o histórico já existente no remoto, criado no passo 1).
+      const storage = createGitWorkspaceStorage({ repoUrl: bareDir, branch, workDir })
+      await expect(storage.commitState('chore: nova execução (workDir compartilhado)')).resolves.not.toThrow()
+
+      // 5. A branch de trabalho no remoto deve conter o conteúdo NOVO (a versão
+      //    mais recente sempre vence), preservando o arquivo que foi escrito
+      //    enquanto o workDir ainda estava no branch main.
+      const inspect = inspectClone(bareDir)
+      cleanupDirs.push(inspect)
+      git(['checkout', branch], inspect)
+      const reportContent = readFileSync(
+        join(inspect, '.jdk-migration', 'discovery-report.json'),
+        'utf-8',
+      )
+      expect(reportContent).toContain('"run":"nova"')
+
+      // O histórico da branch de trabalho preserva o commit anterior (prova de
+      // que o fix fez fetch+checkout da branch existente, não recriou do zero).
+      const log = git(['log', '--oneline'], inspect)
+      expect(log).toContain('execução anterior')
+      expect(log).toContain('workDir compartilhado')
+    },
+  )
 
   it('escreve em path aninhado que ainda não existe (.jdk-migration/discovery-report.json)', async () => {
     const branch = 'jdk-migration/phase-0-nested'

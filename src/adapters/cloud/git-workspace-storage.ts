@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { runProcess } from '../../lib/process-runner.js'
 import { MigrationError } from '../../lib/errors.js'
@@ -22,6 +22,45 @@ export interface GitWorkspaceStorageOptions {
   workDir: string
   /** Paths relativos adicionais a nunca commitar, além de DEFAULT_EXCLUDED_FROM_COMMIT. */
   extraExcludedPaths?: string[]
+}
+
+/**
+ * Extrai os paths de `git status --porcelain` (formato "XY caminho"). Ignora
+ * entradas de rename ("R  old -> new") — não esperadas nesse fluxo, já que os
+ * arquivos em questão são sempre gerados do zero (report/config/plan JSON).
+ *
+ * Diretórios inteiramente novos aparecem como uma única linha com "/" no final
+ * (ex: "?? .jdk-migration/") — expandidos recursivamente em arquivos individuais
+ * por expandToFiles(), já que git não lista arquivo por arquivo nesse caso.
+ */
+function parsePorcelainPaths(porcelain: string): string[] {
+  return porcelain
+    .split('\n')
+    .map(line => line.replace(/\r$/, ''))
+    .filter(line => line.length > 0 && !line.includes(' -> '))
+    .map(line => line.slice(3))
+}
+
+/** Expande paths que podem ser diretórios em todos os arquivos que contêm, recursivamente. */
+function expandToFiles(workDir: string, paths: string[]): string[] {
+  const files: string[] = []
+  for (const p of paths) {
+    const full = join(workDir, p)
+    if (!existsSync(full)) continue
+    if (statSync(full).isDirectory()) {
+      for (const entry of readdirSync(full, { withFileTypes: true })) {
+        const childRel = join(p, entry.name)
+        if (entry.isDirectory()) {
+          files.push(...expandToFiles(workDir, [childRel]))
+        } else {
+          files.push(childRel)
+        }
+      }
+    } else {
+      files.push(p)
+    }
+  }
+  return files
 }
 
 async function git(args: string[], cwd: string, env?: NodeJS.ProcessEnv): Promise<string> {
@@ -77,6 +116,12 @@ export function createGitWorkspaceStorage(options: GitWorkspaceStorageOptions): 
   async function ensureCloned(): Promise<void> {
     if (cloned) return
     if (existsSync(join(workDir, '.git'))) {
+      // Repo já clonado neste workDir por outro consumidor (ex: ProjectPathResolver,
+      // que clona o branch padrão para análise/build). Isso NÃO garante que estamos
+      // na branch de trabalho correta — sem essa checagem, commitState() commitaria
+      // em cima do HEAD errado (ex: master) e o push para `branch` divergiria com
+      // "non-fast-forward" sempre que a branch remota já tivesse histórico anterior.
+      await ensureOnBranch()
       cloned = true
       return
     }
@@ -99,6 +144,49 @@ export function createGitWorkspaceStorage(options: GitWorkspaceStorageOptions): 
     }
 
     cloned = true
+  }
+
+  /**
+   * Garante que o workDir está na `branch` de trabalho, preservando o conteúdo
+   * de arquivos já escritos nele (ex: discovery-report.json gerado por
+   * discover_project ANTES de commitState() ser chamado, ainda no checkout da
+   * branch padrão). `git checkout` recusaria sobrescrever esses arquivos
+   * untracked — por isso o conteúdo é salvo em memória, os arquivos são
+   * removidos para liberar o checkout, e reescritos de volta depois, por cima
+   * do que existir na branch de destino (a versão nova sempre vence).
+   */
+  async function ensureOnBranch(): Promise<void> {
+    const current = await runProcess('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: workDir,
+      timeoutMs: 10_000,
+    })
+    if (current.stdout.trim() === branch) return
+
+    const status = await runProcess('git', ['status', '--porcelain'], { cwd: workDir, timeoutMs: 15_000 })
+    const changedPaths = expandToFiles(workDir, parsePorcelainPaths(status.stdout))
+    const snapshot = new Map<string, Buffer>()
+    for (const p of changedPaths) {
+      const full = join(workDir, p)
+      if (existsSync(full)) {
+        snapshot.set(p, readFileSync(full))
+        rmSync(full, { force: true })
+      }
+    }
+
+    const fetch = await runProcess('git', ['fetch', 'origin', branch], { cwd: workDir, timeoutMs: 60_000 })
+    if (fetch.exitCode === 0) {
+      await git(['checkout', '-B', branch, `origin/${branch}`], workDir)
+    } else {
+      // Branch de trabalho ainda não existe no remoto — cria a partir do HEAD atual.
+      await git(['checkout', '-b', branch], workDir)
+    }
+
+    for (const [p, content] of snapshot) {
+      const full = join(workDir, p)
+      const dir = dirname(full)
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+      writeFileSync(full, content)
+    }
   }
 
   return {
